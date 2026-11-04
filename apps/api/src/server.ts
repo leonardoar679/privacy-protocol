@@ -56,12 +56,14 @@ const app = createApp(
     now: Date.now,
     voucher: voucherFrom(env.API_VOUCH_KEY, addressListSetting(env, "API_VOUCHER_PREVIOUS")),
     shieldFactory: shieldFactoryFrom(env.SHIELD_FACTORY),
+    maxOpenOperations: intSetting(env, "MAX_OPEN_OPERATIONS", 50_000, { min: 1, max: 100_000_000 }), // the eighth review round (A-M2)
   },
   {
     origins: originsFrom(env.ALLOWED_ORIGINS, ["http://localhost:5173", "http://127.0.0.1:5173"]),
     tls: env.TLS === "1",
     ratePerMinute: intSetting(env, "RATE_PER_MINUTE", 120, { min: 1, max: 1_000_000 }), // strict: a malformed number stops the start
     trustProxyHops: proxyHopsFrom(env.TRUST_PROXY_HOPS),
+    commitsPerMinute: intSetting(env, "COMMITS_PER_MINUTE", 4, { min: 1, max: 1_000_000 }), // the eighth review round (A-M2)
     log,
   },
 );

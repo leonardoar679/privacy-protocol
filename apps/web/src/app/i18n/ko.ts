@@ -563,6 +563,18 @@ export const ko: Record<MessageKey, string> = {
   "op.error.price_guard.title": "가격이 최적 경로에서 너무 멀어졌습니다",
   "op.error.price_guard.reason":
     "서비스의 가격 보호 장치가 다른 경로와 비교해 이 경로를 거부했습니다. 아무것도 넘겨지지 않았습니다. 새 견적으로 다시 확인하거나 자금을 반환하세요.",
+  "op.error.tip_moved.title": "검토 이후 네트워크 수수료가 올랐습니다",
+  "op.error.tip_moved.reason":
+    "지금 이 스왑을 실행하는 비용이 검토 화면에 표시된 실행자 팁의 두 배를 넘어 주문이 만들어지지 않았습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
+  "op.error.service_capacity.title": "스왑 서비스가 바쁩니다",
+  "op.error.service_capacity.reason": "지금은 열린 주문이 너무 많습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 잠시 후 다시 시도하세요.",
+  "op.error.prepare_superseded.title": "이 스왑의 더 새로운 확인이 이루어졌습니다",
+  "op.error.prepare_superseded.reason": "같은 스왑의 나중 시도가 이 시도를 앞질러 진행됩니다. 여기서 더 할 일은 없습니다.",
+  "op.error.guard_unavailable.title": "가격 확인을 실행할 수 없었습니다",
+  "op.error.guard_unavailable.reason":
+    "서비스는 큰 스왑을 넘기기 전에 경로를 다른 경로와 비교하는데, 방금은 그렇게 할 수 없었습니다. 아무것도 넘겨지지 않았습니다. 지갑이 잠시 후 다시 시도합니다.",
+  "op.error.too_many_steps.title": "이 경로는 이 금액을 단계로 나눌 수 없습니다",
+  "op.error.too_many_steps.reason": "여기서 단계로 나누면 너무 많은 단계가 필요합니다. 아무것도 전송되지 않았습니다. 더 작은 금액이나 다른 경로를 시도하세요.",
   "op.error.no_quote.title": "지금은 사용할 수 있는 경로가 없습니다",
   "op.error.no_quote.reason": "이 자산 쌍과 금액에 견적을 준 제공자가 없습니다. 보호 잔액에서 빠져나간 것은 없습니다. 잠시 후 다시 시도하거나 금액을 바꾸세요.",
   "op.error.route_filtered.title": "위험 엔진이 이 경로를 제외했습니다",

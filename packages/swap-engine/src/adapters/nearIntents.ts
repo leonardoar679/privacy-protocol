@@ -13,7 +13,7 @@
 // Without an API key (JWT) the service adds its unauthenticated fee (`appFees`, 0.2–0.25 %); it is
 // included in `amountOut`. We send no key: quotes are public, read-only requests.
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { SINGLE_PLAN, categoryOf } from "../types";
+import { AdapterRefusal, SINGLE_PLAN, categoryOf } from "../types";
 import { PLACEHOLDER_BTC, PLACEHOLDER_EVM, PLACEHOLDER_SOL } from "../placeholders";
 
 export const ONECLICK_API = process.env.ONECLICK_API ?? "https://1click.chaindefuser.com";
@@ -41,8 +41,9 @@ export async function oneClickAssetId(a: AssetRef): Promise<string> {
   if (!chain) throw new Error(`1Click does not support chain ${a.chain}`);
   const tokens = await oneClickTokens();
   const t = tokens.find((x) => x.blockchain === chain && (a.asset === "native" ? !x.contractAddress && x.symbol.toUpperCase() === a.symbol.toUpperCase() : x.contractAddress?.toLowerCase() === a.asset.toLowerCase()));
-  if (!t) throw new Error(`1Click does not list ${a.chain}:${a.asset === "native" ? a.symbol : a.asset}`);
-  if (t.decimals !== a.decimals) throw new Error(`1Click decimals for ${a.symbol} are ${t.decimals}, expected ${a.decimals}`);
+  // the request's asset, refused: never an outage of 1Click (the eighth review round, D-M2)
+  if (!t) throw new AdapterRefusal(`1Click does not list ${a.chain}:${a.asset === "native" ? a.symbol : a.asset}`);
+  if (t.decimals !== a.decimals) throw new AdapterRefusal(`1Click decimals for ${a.symbol} are ${t.decimals}, expected ${a.decimals}`);
   return t.assetId;
 }
 

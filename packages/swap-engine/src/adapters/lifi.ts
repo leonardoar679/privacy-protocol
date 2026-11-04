@@ -25,7 +25,7 @@ import { base58Decode } from "./chainflip";
 import { WETH as ACROSS_WETH } from "./across";
 import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { SINGLE_PLAN, categoryOf, isEvm } from "../types";
+import { AdapterRefusal, SINGLE_PLAN, categoryOf, isEvm } from "../types";
 
 export const LIFI_URL = process.env.LIFI_URL ?? "https://li.quest/v1";
 const CHAIN_ID: Record<string, string> = { ethereum: "1", base: "8453", arbitrum: "42161", bsc: "56", avalanche: "43114", optimism: "10", polygon: "137", solana: "1151111081099710", bitcoin: "20000000000001" };
@@ -235,7 +235,11 @@ export class LifiAdapter implements ProviderAdapter {
     // every check prepareIngress makes, but against the quote's own addresses, which are placeholders until the commit (audit
     // round 2, n08): a quote failing the floors — the bridged token not the one delivered, a minimum the bridged amount does
     // not back — was ranked, chosen and funded, and its execution could not be prepared: the escrow waited for its refund time
-    verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q);
+    try {
+      verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q);
+    } catch (e) {
+      throw new AdapterRefusal(String((e as Error)?.message ?? e)); // its answer to this request, never an outage (the eighth review round, D-M2)
+    }
     const est = q.estimate;
     const toAmount = BigInt(est.toAmount), toAmountMin = BigInt(est.toAmountMin);
     // the claimed minimum must be consistent with the slippage we asked for (a lowered min-out is a changed quote)

@@ -4,7 +4,7 @@
 // triggers: a failure-rate spike, settlement stalls, quote divergence, a fresh incident — with a real half-open probe.
 import { readFileSync } from "fs";
 import type { Health, ProviderId } from "./types";
-import { riskDb, type Incident } from "./risk/riskDb";
+import { isIncident, riskDb, type Incident } from "./risk/riskDb";
 import { securityBreakdown } from "./risk/security";
 
 /** An operator's own incident file (INCIDENTS_FILE: a JSON array of Incident), re-read at most every INCIDENTS_RELOAD_MS; a missing or malformed file adds nothing. */
@@ -16,7 +16,7 @@ export function fileIncidents(now = Date.now(), path: string | undefined = proce
   if (path) {
     try {
       const raw = JSON.parse(readFileSync(path, "utf8")) as Incident[];
-      list = Array.isArray(raw) ? raw.filter((i) => i && typeof i.provider === "string" && typeof i.date === "string" && typeof i.halfLifeDays === "number" && typeof i.class === "string") : [];
+      list = Array.isArray(raw) ? raw.filter(isIncident) : []; // the risk database's own rule (the eighth review round, D-L5)
     } catch { list = []; }
   }
   fileCache = { at: now, path, list };

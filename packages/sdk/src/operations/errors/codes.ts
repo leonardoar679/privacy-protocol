@@ -74,6 +74,14 @@ export const CATALOG: Record<string, CatalogRow> = {
   bad_shield_receipt: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   minimum_moved: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
   price_guard: { source: "service", fundsClass: "still-protected", actions: ["new-quote", "start-refund"] },
+  // the eighth review round (2026-11-03, H1): today's executor tip is above twice the one the Review showed — no order was made
+  tip_moved: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
+  // the eighth review round (2026-11-03): the swap service's open orders at its limit (A-M2); a re-sign's prepare a later one overtook
+  // (A-L2); the price guard's competition could not run, so the prepare waits (D-L3); an order no route can stage in so many steps (M3)
+  service_capacity: { source: "service", fundsClass: "not-moved", actions: ["wait"] },
+  prepare_superseded: { source: "service", fundsClass: "still-protected", actions: ["resume-tracking"] },
+  guard_unavailable: { source: "service", fundsClass: "still-protected", actions: ["wait", "start-refund"] },
+  too_many_steps: { source: "service", fundsClass: "not-moved", actions: ["edit"] },
   no_quote: { source: "service", fundsClass: "not-moved", actions: ["wait", "new-quote"] },
   route_filtered: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },
   unknown_provider: { source: "service", fundsClass: "not-moved", actions: ["new-quote"] },

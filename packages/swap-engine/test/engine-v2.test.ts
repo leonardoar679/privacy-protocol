@@ -266,6 +266,16 @@ describe("the competition record, the time budget and the breaker (whale spec §
     const set = await e.quoteAll(req, "balanced", { executorTip: 25n });
     expect(set.quotes[0]?.executorTip).toBe(25n);
   });
+  it("a new commit's shown tip is bounded by today's price: kept inside [price / 2, price], today's above it, tip_moved below half; the price's own refusals stand (the eighth review round, H1)", async () => {
+    const e = engine([new Stub("thorchain", "quote")], { tips: { tipFor: async () => 25n } }); // today's price: 25
+    expect((await e.quoteAll(req, "balanced", { shownTip: 13n })).executorTip).toBe(13n);
+    expect((await e.quoteAll(req, "balanced", { shownTip: 25n })).executorTip).toBe(25n);
+    expect((await e.quoteAll(req, "balanced", { shownTip: 40n })).executorTip, "never above today's").toBe(25n);
+    await expect(e.quoteAll(req, "balanced", { shownTip: 12n })).rejects.toMatchObject({ code: "tip_moved" });
+    await expect(e.quoteAll(req, "balanced", { shownTip: 1n })).rejects.toMatchObject({ code: "tip_moved" });
+    const refusing = engine([new Stub("thorchain", "quote")], { tips: { tipFor: async () => { throw new TipError("amount_too_small", "executing costs 10 more than the escrow may pay from 100 (1 %)"); } } });
+    await expect(refusing.quoteAll(req, "balanced", { shownTip: 1n }), "a shown tip never skips the price's refusal").rejects.toMatchObject({ code: "amount_too_small" });
+  });
   it("three outages open the breaker: the provider is skipped for a while and the competition says so", async () => {
     const thor = new Stub("thorchain", "quote"), lifi = new Stub("lifi", "outage");
     const e = engine([thor, lifi]);

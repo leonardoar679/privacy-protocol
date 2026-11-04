@@ -139,22 +139,61 @@ WHERE state = 'CANCELLED' AND refund_after > CAST(strftime('%s', 'now') AS INTEG
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
 
-/** Open (or create) the database and bring it to the current schema. */
+/**
+ * Open (or create) the database and bring it to the current schema. The eighth review round (2026-11-03, A-M1): deleted content is
+ * overwritten (secure_delete, set per connection before anything is written) — finalize's NULL and the purge's DELETE had left the
+ * destination, the refund note secret and the one-time signer in the file's free pages and in the WAL; a file with free pages from
+ * a build without it is vacuumed once at open.
+ */
 export function openDb(path: string): DatabaseSync {
   const db = new DatabaseSync(path);
+  db.exec("PRAGMA secure_delete = ON");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
   migrate(db);
+  if (Number((db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count) > 0) {
+    db.exec("VACUUM");
+    checkpoint(db);
+  }
   return db;
 }
 
+/** The WAL written back and emptied (the eighth review round, A-M1): its frames had kept what a finalize or a purge removed. */
+export function checkpoint(db: DatabaseSync): void {
+  try {
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch {
+    /* a reader holds the WAL: the next checkpoint empties it */
+  }
+}
+
+/** A database another build migrated further: this build does not know its schema (the eighth review round, A-I3). */
+export class SchemaTooNew extends Error {
+  constructor(readonly version: number) {
+    super(`the database is at schema version ${version}, newer than this build's ${MIGRATIONS.length}: run a build that knows it`);
+    this.name = "SchemaTooNew";
+  }
+}
+
+/**
+ * Bring the schema up to date, one migration per transaction. The eighth review round (A-I3): a database a newer build migrated is
+ * refused, not run silently on an older schema, and each step takes the write lock first and reads the version inside it — two
+ * processes starting together had both run the same step.
+ */
 export function migrate(db: DatabaseSync): void {
-  const current = Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    db.exec("BEGIN");
+  const version = () => Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version);
+  if (version() > MIGRATIONS.length) throw new SchemaTooNew(version());
+  for (;;) {
+    db.exec("BEGIN IMMEDIATE");
     try {
+      const v = version();
+      if (v > MIGRATIONS.length) throw new SchemaTooNew(v);
+      if (v === MIGRATIONS.length) {
+        db.exec("COMMIT");
+        return;
+      }
       db.exec(MIGRATIONS[v]);
       db.exec(`PRAGMA user_version = ${v + 1}`);
       db.exec("COMMIT");
@@ -172,18 +211,37 @@ export const RETENTION = {
   quoteAfterExpiry: HOUR,
   terminalOperation: 7 * DAY,
   abandonedAfterRefund: 2 * DAY,
+  /** an operation no reconcile saw funded, after its execution deadline (the eighth review round, A-M2) */
+  unfundedAfterDeadline: HOUR,
   events: 7 * DAY,
   providerHealth: 48 * HOUR,
 } as const;
 
-/** Delete what retention says is no longer kept; returns the rows removed per table. */
-export function purge(db: DatabaseSync, now: number): Record<"quotes" | "operations" | "abandoned" | "events" | "health", number> {
+/** The states of an operation no reconcile has seen funded (reconcile.ts PRE_FUNDING). */
+const NEVER_FUNDED = "('DRAFT', 'QUOTING', 'READY_TO_REVIEW', 'AWAITING_AUTHORIZATION', 'PREPARING_PROOF', 'SUBMITTING')";
+
+/**
+ * Delete what retention says is no longer kept; returns the rows removed per table. The eighth review round (2026-11-03): an
+ * operation's blob — the destination, the refund material, the signer — goes once its execution deadline has passed (no call can be
+ * signed past it, and a restore rebuilds from the wallet's own params), whatever its state; an operation no reconcile saw funded goes
+ * an hour after that deadline (the wallet's restore creates it again should a late funding need it). Free commits had kept their
+ * whole order for days; a reconciled, never-finalized order's blob had outlived the unreconciled one's by five days (A-M2, A-L2).
+ * The WAL is emptied afterwards (A-M1).
+ */
+export function purge(db: DatabaseSync, now: number): Record<"quotes" | "operations" | "abandoned" | "unfunded" | "blobs" | "events" | "health", number> {
   const run = (sql: string, ...args: number[]): number => Number(db.prepare(sql).run(...args).changes);
-  return {
+  const out = {
     quotes: run("DELETE FROM quotes WHERE expires_at * 1000 < ?", now - RETENTION.quoteAfterExpiry),
     operations: run("DELETE FROM operations WHERE terminal_at IS NOT NULL AND terminal_at < ?", now - RETENTION.terminalOperation),
     abandoned: run("DELETE FROM operations WHERE terminal_at IS NULL AND refund_after * 1000 < ?", now - RETENTION.abandonedAfterRefund),
+    unfunded: run(
+      `DELETE FROM operations WHERE terminal_at IS NULL AND state IN ${NEVER_FUNDED} AND execute_deadline * 1000 < ? AND NOT EXISTS (SELECT 1 FROM executions WHERE executions.operation_id = operations.id)`,
+      now - RETENTION.unfundedAfterDeadline,
+    ),
+    blobs: run("UPDATE operations SET order_blob = NULL WHERE order_blob IS NOT NULL AND execute_deadline * 1000 < ?", now),
     events: run("DELETE FROM system_events WHERE at < ?", now - RETENTION.events),
     health: run("DELETE FROM provider_health WHERE at < ?", now - RETENTION.providerHealth),
   };
+  checkpoint(db);
+  return out;
 }

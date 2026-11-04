@@ -50,6 +50,7 @@ start("service", "apps/api", ["tsx", "src/server.ts"], {
   THORCHAIN_ROUTER: stack.pins.thorchainRouter,
   ...(stack.usdc ? { ERC20_VAULTS: `${stack.usdc.token}:${stack.usdc.vault}:USDC:6` } : {}), // the test USDC as the wallet names it: orders in it are built only so
   API_VOUCH_KEY: LOCAL_VOUCH_KEY, // devnet only: the API vouches for the orders it commits and the calls it prepares
+  COMMITS_PER_MINUTE: "600", // the browser run commits from one address far faster than a person (the API's default is 4 a minute)
   ...(stack.shieldFactory ? { SHIELD_FACTORY: stack.shieldFactory } : {}), // and for the shield receipts of its protected orders
 });
 

@@ -62,21 +62,17 @@ const bps = (q: Quote) => q.impactBps ?? 0;
 const live = (q: Quote, now: number) => q.expiresAt * 1000 > now;
 
 export function scoreRoutes(quotes: Quote[], health: Record<ProviderId, Health>, policy: Policy, now = Date.now(), unexecutable: Partial<Record<ProviderId, string>> = {}, ctx: ScoringContext = {}): RouteScore[] {
-  const liveQuotes = quotes.filter((q) => live(q, now));
-  const bestMin = liveQuotes.reduce((m, q) => (q.toAmountMin > m ? q.toAmountMin : m), 0n);
   const strict = policy !== "fastest";
-  return quotes.map((q) => {
+  // A route's own refusals first; the relative rules and the price benchmark then count only the routes that survived them (the
+  // eighth review round, 2026-11-03, D-M1). A quote the engine never executes — NEAR Intents' withheld ingress, a minimum a strict
+  // policy cannot verify, one above its own limit — had set the price every executable route was measured against (a quote 10 %
+  // above them all zeroed their price), and "another route quoted the size" had knocked out the only route that could execute.
+  const ownFilter = (q: Quote): string | undefined => {
     const h = health[q.provider];
     const haltedOn = h && ctx.chains ? chainHalted(h, ctx.chains) : null;
-    const inLimits = (o: Quote) => ctx.amount === undefined || ((o.limits?.max === undefined || ctx.amount <= o.limits.max) && (o.limits?.min === undefined || ctx.amount >= o.limits.min));
-    const healthy = (o: Quote) => { const oh = health[o.provider]; return !oh || (oh.reachable && !oh.halted && !(ctx.chains && chainHalted(oh, ctx.chains))); };
-    const others = liveQuotes.filter((o) => o.provider !== q.provider && !unexecutable[o.provider] && !ctx.skipped?.[o.provider] && !ctx.filteredBy?.[o.provider] && inLimits(o) && healthy(o)); // V4: a route above its own limit, unreachable or halted is no alternative
-    const impactCap = ctx.tier && atLeast(ctx.tier, "high-value") && bps(q) > IMPACT_CAP_BPS && others.some((o) => bps(o) <= IMPACT_CAP_BPS);
-    const longStream = !!q.plan && q.plan.mode !== "single" && q.plan.expectedSeconds > STREAM_MAX_SECONDS && others.some((o) => !(o.plan && o.plan.mode !== "single" && o.plan.expectedSeconds > STREAM_MAX_SECONDS));
     // V6 Stage 11 (spec v2.0 §13.3): a partial quote — no expiry, no minimum output — is refused, whatever its output
     const partial = !(Number(q.expiresAt) > 0) ? "a partial quote: no expiry" : !(q.toAmountMin > 0n) ? "a partial quote: no minimum output" : undefined;
-    const filtered =
-      partial ? partial
+    return partial ? partial
       : !live(q, now) ? "quote expired"
       : h && !h.reachable ? "provider unreachable"
       : h && h.halted ? "provider halted"
@@ -88,12 +84,28 @@ export function scoreRoutes(quotes: Quote[], health: Record<ProviderId, Health>,
       : ctx.filteredBy?.[q.provider] ? ctx.filteredBy[q.provider]
       : ctx.amount !== undefined && q.limits?.max !== undefined && ctx.amount > q.limits.max ? `above the provider's limit (${q.limits.max} base units)`
       : ctx.amount !== undefined && q.limits?.min !== undefined && ctx.amount < q.limits.min ? `below the provider's minimum (${q.limits.min} base units)`
-      : impactCap ? `price impact ${bps(q)} bps above the ${IMPACT_CAP_BPS} bps cap (another route quoted the size)`
+      : undefined;
+  };
+  const own = quotes.map(ownFilter);
+  const survivors = quotes.filter((_, i) => !own[i]);
+  const longStreamOf = (o: Quote) => !!o.plan && o.plan.mode !== "single" && o.plan.expectedSeconds > STREAM_MAX_SECONDS;
+  const filteredOf = quotes.map((q, i) => {
+    if (own[i]) return own[i];
+    const others = survivors.filter((o) => o.provider !== q.provider); // V4: only a route that could execute is an alternative
+    const impactCap = ctx.tier && atLeast(ctx.tier, "high-value") && bps(q) > IMPACT_CAP_BPS && others.some((o) => bps(o) <= IMPACT_CAP_BPS);
+    const longStream = longStreamOf(q) && others.some((o) => !longStreamOf(o));
+    return impactCap ? `price impact ${bps(q)} bps above the ${IMPACT_CAP_BPS} bps cap (another route quoted the size)`
       : longStream ? `a ${Math.round(q.plan!.expectedSeconds / 3600)}-hour stream when a faster route quoted`
       : undefined;
-    // price: 100 at the best guaranteed output, −10 points per 1 % below it (a 10 % worse min-out scores 0)
+  });
+  const bestMin = quotes.reduce((m, q, i) => (!filteredOf[i] && q.toAmountMin > m ? q.toAmountMin : m), 0n);
+  return quotes.map((q, i) => {
+    const h = health[q.provider];
+    const filtered = filteredOf[i];
+    // price: 100 at the best guaranteed output among the routes that can execute, −10 points per 1 % below it (a 10 % worse
+    // min-out scores 0); a refused route's own figure is shown against it, never above 100
     const gapPct = bestMin === 0n ? 100 : Number(((bestMin - q.toAmountMin) * 100000n) / bestMin) / 1000;
-    const price = Math.max(0, 100 - 10 * gapPct);
+    const price = Math.min(100, Math.max(0, 100 - 10 * gapPct));
     // latency: absolute, log scale — providers report ETAs differently (THORNode's excludes outbound
     // confirmations, Chainflip's includes deposit + egress), so a ratio to the best would over-reward
     // the optimistic reporter. ≤ 2 min → 100, 4 min → 75, 8 min → 50, 16 min → 25, ≥ 32 min → 0.
@@ -115,8 +127,9 @@ export function scoreRoutes(quotes: Quote[], health: Record<ProviderId, Health>,
   });
 }
 
+/** The best route that can execute; a total that is not a number is no route (the eighth review round, D-L5: a NaN had sorted anywhere). */
 export function chooseRoute(scores: RouteScore[]): RouteScore | undefined {
-  return scores.filter((s) => !s.filtered).sort((a, b) => b.total - a.total)[0];
+  return scores.filter((s) => !s.filtered && Number.isFinite(s.total)).sort((a, b) => b.total - a.total)[0];
 }
 
 /**

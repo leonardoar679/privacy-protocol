@@ -210,6 +210,17 @@ export interface Split { pieces: bigint[]; /** pieces that are not a bucket or a
 const bps = (x: bigint, b: number): bigint => (x * BigInt(b)) / 10000n;
 const min = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 
+/** The most steps one plan cuts (the eighth review round, 2026-11-03, A-M3 / D-M3): the honest plans stay under it — a 1 % cap run three at a time cuts up to ~750 — and a dust ceiling had cut millions. */
+export const MAX_TRANCHES = 1000;
+/** A plan of more steps than any campaign runs: the route's figures or the request, refused before anything is planned. */
+export class TooManyTranches extends Error {
+  readonly code = "too_many_steps";
+  constructor(readonly max: number) {
+    super(`this order would be cut into more than ${max} steps on this route: it cannot be staged here`);
+    this.name = "TooManyTranches";
+  }
+}
+
 /**
  * The pieces of an order: one bucket, or the sum of two buckets, of the asset's alphabet inside the band
  * `[min, min(max, cap / maxParallel)]` of the order — `bucket`: every piece the largest size in band; `varied`:
@@ -224,10 +235,13 @@ export function planTranches(total: bigint, o: SplitOptions): Split {
   let upper = min(bps(ref, o.bandBps[1]), cap / BigInt(Math.max(1, o.maxParallel)));
   if (o.maxPiece !== undefined && o.maxPiece > 0n) upper = min(upper, o.maxPiece);
   if (upper <= 0n) upper = min(total, cap);
+  // never more than MAX_TRANCHES steps (the eighth review round, A-M3 / D-M3): one provider's dust instant limit, or an impact halved
+  // down to wei, had made a step of every few wei — millions of loop turns and gigabytes in the service's only thread and the wallet's tab
+  const more = (pieces: bigint[]) => { if (pieces.length >= MAX_TRANCHES) throw new TooManyTranches(MAX_TRANCHES); };
   if (o.exact) {
     const pieces: bigint[] = [];
     let left = total;
-    while (left >= upper) { pieces.push(upper); left -= upper; }
+    while (left >= upper) { more(pieces); pieces.push(upper); left -= upper; }
     let exact = pieces.length;
     if (left > 0n) { if (pieces.length && pieces[pieces.length - 1] + left <= cap) pieces[pieces.length - 1] += left; else pieces.push(left); exact++; }
     return { pieces, exact, band: [lower, upper] };
@@ -256,6 +270,7 @@ export function planTranches(total: bigint, o: SplitOptions): Split {
   let left = total;
   let last: bigint | null = null;
   while (left >= candidates[0]) {
+    more(pieces);
     let pick: bigint;
     if (o.sizing === "bucket" || candidates.length === 1) pick = candidates[candidates.length - 1];
     else {
@@ -450,6 +465,14 @@ export function checkWithinBounds(b: ExecutionBounds, x: BoundsCheckInput): { ok
 export const MAX_DEVIATION_BPS = 100; // lab-calibrated
 export const CONGESTION_FACTOR = 3;
 export const STALL_FACTOR = 3;
+/**
+ * The shortest wait before a settlement reads as stalled (the eighth review round, 2026-11-03, D-L2): a fast route's ETA of seconds,
+ * timed from the hand-over, had counted the relayer's own poll and the block as a stall — two of them opened the provider's breaker
+ * for every user, and a campaign paused itself on its own latency.
+ */
+export const STALL_FLOOR_SECONDS = 600;
+/** When a step's settlement reads as stalled: three times its expected seconds, never under STALL_FLOOR_SECONDS. */
+export const stallAfterSeconds = (expectedSeconds: number): number => Math.max(STALL_FACTOR * expectedSeconds, STALL_FLOOR_SECONDS);
 
 export interface PauseFacts {
   now: number;
@@ -499,7 +522,7 @@ export function detectPause(c: Campaign, f: PauseFacts): { reason: PauseReason; 
   if (f.jobState === "execute-failed" || f.jobState === "refund-failed" || f.trackState === "FAILED" || f.trackState === "DESTINATION_FAILED" || f.trackState === "PROVIDER_TIMEOUT" || f.providerHealth?.breakerOpen) return { reason: "provider-error", detail: f.providerHealth?.breakerOpen ? "The provider is skipped after repeated failures." : "The executor or the provider reported a failure on the current step." };
   if (f.delivered !== undefined && f.guaranteedMin !== undefined && big(f.delivered) < big(f.guaranteedMin)) return { reason: "anomaly", detail: `The step delivered less than its guaranteed minimum (${f.delivered} of at least ${f.guaranteedMin}).` };
   if (f.trackState === "PARTIAL") return { reason: "anomaly", detail: "The step was filled only in part; the rest returns to your private balance before anything continues." };
-  if (f.settlementAgeSeconds !== undefined && f.expectedSeconds !== undefined && f.expectedSeconds > 0 && f.settlementAgeSeconds > STALL_FACTOR * f.expectedSeconds) return { reason: "anomaly", detail: "The current step is taking far longer than expected." };
+  if (f.settlementAgeSeconds !== undefined && f.expectedSeconds !== undefined && f.expectedSeconds > 0 && f.settlementAgeSeconds > stallAfterSeconds(f.expectedSeconds)) return { reason: "anomaly", detail: "The current step is taking far longer than expected." };
   if (f.hardQuoteRateE18 !== undefined && big(f.hardQuoteRateE18) < big(c.bounds.minimumOutput)) return { reason: "price-deviation", detail: "The hard quote guarantees less per unit than the minimum you approved." };
   if (f.crossRateE18 !== undefined) {
     const ref = big(c.referenceRateE18), now = big(f.crossRateE18);

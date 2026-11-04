@@ -23,6 +23,8 @@ export const ESCROW_CREATION_CODE: Hex = BYTECODE.swapOrderEscrow;
 export const EXECUTE_TAG = keccak256(stringToBytes("privacy-protocol/v1.1/swap-order/execute"));
 export const TIP_DIVISOR = 100n; // SwapOrderTypes.TIP_DIVISOR: executorTip <= amount / 100
 export const MAX_REFUND_HORIZON_SECONDS = 7 * 24 * 3600; // a failed order must be refundable within a week
+/** The longest a prepared call may stay valid once signed: the engine's quote lifetime (MAX_QUOTE_TTL_SECONDS) and a margin (D-L4). */
+export const MAX_CALL_SECONDS = 3600 + 300;
 
 export class OrderMismatch extends Error {
   constructor(public readonly field: string, detail: string) {
@@ -121,6 +123,9 @@ export function checkPrepared(prepared: Prepared, order: ServiceOrder, chainId: 
   if (!isAddress(prepared.provider) || same(prepared.provider, ZERO) || same(prepared.provider, order.endpoint)) throw new OrderMismatch("provider", `${prepared.provider} is not a provider address`);
   if (!isSeconds(prepared.deadline) || !isSeconds(p.executeDeadline)) throw new OrderMismatch("deadline", "not a whole number of seconds");
   if (prepared.deadline > p.executeDeadline || prepared.deadline <= now) throw new OrderMismatch("deadline", "outside the order's execution window");
+  // never a call valid for longer than a quote lives (the eighth review round, 2026-11-03, D-L4): one gateway's expiry days ahead had
+  // made the signed call — and the router's own expiry — good for days, long after the quote's vault had moved
+  if (prepared.deadline - now > MAX_CALL_SECONDS) throw new OrderMismatch("deadline", `valid for ${prepared.deadline - now} s, more than a quote lives (${MAX_CALL_SECONDS} s)`);
   const value = BigInt(prepared.value);
   const spendable = Number(p.assetType) === 0 ? BigInt(p.amount) - BigInt(p.executorTip) : 0n;
   if (value > spendable) throw new OrderMismatch("value", `${value} exceeds what the escrow may forward (${spendable})`);

@@ -125,12 +125,21 @@ export async function harness(
     extraAdapters?: StubAdapter[];
     /** the engine's EngineConfig.poolAssets (unset: not checked) */
     poolAssets?: Record<string, { symbol: string; decimals: number }>;
+    /** the tip source's price (unset: TIP) */
+    tipFor?: (from: unknown, amount: bigint) => Promise<bigint>;
+    /** a database file instead of memory (the at-rest tests) */
+    dbPath?: string;
+    /** MAX_OPEN_OPERATIONS (unset: the default) */
+    maxOpenOperations?: number;
+    /** COMMITS_PER_MINUTE and its burst (unset: no budget a test meets) */
+    commitsPerMinute?: number;
+    commitBurst?: number;
   } = {},
 ): Promise<Harness> {
   const lines: string[] = [];
   const log = createLogger((l) => lines.push(l));
   const clock = { now: Date.now() };
-  const store = new Store(openDb(":memory:"), log, () => clock.now);
+  const store = new Store(openDb(o.dbPath ?? ":memory:"), log, () => clock.now);
   const adapter = new StubAdapter();
   const engine = new PrivateSwapEngine({
     adapters: [adapter, ...(o.extraAdapters ?? [])],
@@ -138,7 +147,7 @@ export async function harness(
     escrowCreationCode: BYTECODE.swapOrderEscrow,
     chainId: 1n,
     refundVaults: { native: "0x00000000000000000000000000000000000000e7", ...(o.protectedDestinations ? { [USDC.asset]: USDC_VAULT } : {}) },
-    tips: { tipFor: async () => TIP, ...(o.protectedDestinations ? { shieldTipFor: async () => SHIELD_TIP } : {}) },
+    tips: { tipFor: o.tipFor ?? (async () => TIP), ...(o.protectedDestinations ? { shieldTipFor: async () => SHIELD_TIP } : {}) },
     refundWindowSeconds: 7200,
     valuer: NO_VALUER,
     ...(o.poolAssets ? { poolAssets: o.poolAssets } : {}),
@@ -154,12 +163,15 @@ export async function harness(
     voucher: o.vouchKey ? makeVoucher(o.vouchKey, o.previousVouchers) : null,
     shieldFactory: o.shieldFactory !== undefined ? o.shieldFactory : o.protectedDestinations ? SHIELD_FACTORY : null,
     reads: { job: async () => script.job, escrowBalance: async () => script.balance, track: async () => adapter.track_ },
+    ...(o.maxOpenOperations !== undefined ? { maxOpenOperations: o.maxOpenOperations } : {}),
   };
   const app = createApp(deps, {
     origins: new Set(o.origins ?? ["http://localhost:5173"]),
     tls: o.tls ?? false,
     ratePerMinute: o.ratePerMinute ?? 10_000,
     trustProxyHops: o.trustProxyHops,
+    commitsPerMinute: o.commitsPerMinute ?? 1_000_000,
+    ...(o.commitBurst !== undefined ? { commitBurst: o.commitBurst } : {}),
     log,
   });
   const server: Server = await new Promise((resolve) => {

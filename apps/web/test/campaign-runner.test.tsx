@@ -2003,6 +2003,16 @@ describe("the seventh review round (2026-11-03): the campaign engine", () => {
     expect(back.bounds.maxExternalExposure).toBe(moved.bounds.maxExternalExposure);
   });
 
+  it("the eighth review round (A-M3 / D-M3): a route change whose piece ceiling would cut the rest into more steps than any campaign runs keeps no such ceiling — never a tab frozen planning, nor a refusal mid-campaign", async () => {
+    const c = start({ quotes: quoteSet(), confirmations: {} });
+    const before = current(c);
+    const t0 = Date.now();
+    const moved = withRoute(before, "thorchain", { ...protection("thorchain"), maxPieceUnits: "1" }, quote("thorchain"), clock, () => 0.5);
+    expect(Date.now() - t0, "bounded").toBeLessThan(2_000);
+    expect(moved.plan.maxPiece, "no ceiling of one wei").toBeUndefined();
+    expect(moved.tranches.filter((t) => t.state === "planned").length).toBeLessThan(1000);
+  });
+
   it("D5: a step its provider refunded at the destination ends undelivered — never completed — and the campaign pauses before the next step", async () => {
     const c = await fresh();
     await toInFlight(c);

@@ -7,8 +7,17 @@
 // be derived from a preference, prepare keeps the approved minimum and runs the price guard, /track reads a provider's
 // status for an executed order.
 import { FIELD } from "@privacy-wallet/protocol/field";
-import { MinimumMovedError, asProviderFailure, type PreparedExecution, type PrivateSwapEngine, type QuoteHint } from "@privacy-wallet/swap-engine/engine";
-import { riskDb } from "@privacy-wallet/swap-engine/risk/riskDb";
+import {
+  AssetMismatchError,
+  MinimumMovedError,
+  asProviderFailure,
+  type PreparedExecution,
+  type PrivateSwapEngine,
+  type QuoteHint,
+} from "@privacy-wallet/swap-engine/engine";
+import { riskDb, routePairOf } from "@privacy-wallet/swap-engine/risk/riskDb";
+import { CHAINS, assetOn } from "@privacy-wallet/config";
+import type { ChainId } from "@privacy-wallet/protocol-types";
 import { securityBreakdown } from "@privacy-wallet/swap-engine/risk/security";
 import { fileIncidents, incidents } from "@privacy-wallet/swap-engine/health";
 import { userStatus } from "@privacy-wallet/swap-engine/order";
@@ -30,7 +39,7 @@ import {
 } from "@privacy-wallet/swap-engine/types";
 import { isTier } from "@privacy-wallet/swap-engine/valuation";
 import { gatewayHealth, gatewayQuote, type GatewayConfig } from "@privacy-wallet/swap-engine/gateway";
-import { STALL_FACTOR, type ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
+import { stallAfterSeconds, type ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import { redactUrls, redactUrlsDeep } from "@privacy-wallet/server-kit/redact";
@@ -118,14 +127,16 @@ const windowOf = (b: any): number | undefined =>
     : undefined;
 const hintsOf = (b: any): QuoteHint => ({ tier: tierHint(b), preference: preferenceOf(b), mode: modeOf(b), executeWindowSeconds: windowOf(b) });
 /**
- * The executor tip the wallet's Review showed (the seventh review round, 2026-11-03): a commit is built on it, never priced again —
- * the fresh competition had paid the escrow up to three times the tip the Review said. At most the escrow's 1 % of the amount; any
- * other value is no hint (the wallet refuses an order whose tip is above the one it showed).
+ * The executor tip the wallet's Review showed (the seventh review round, 2026-11-03): the fresh competition had paid the escrow up
+ * to three times the tip the Review said. The eighth review round (H1): the commit prices the tip all the same and builds on the
+ * shown one only between half of today's price and the price (the engine's boundedTip; below half, 409 tip_moved) — the shown tip
+ * had replaced the price, and the API vouched for orders at a 1-wei tip the relayer then ran at its own cost. Zero, a negative or
+ * not a number is no hint (the wallet refuses an order whose tip is above the one it showed).
  */
-const tipHintOf = (b: any, amount: bigint): { executorTip?: bigint } => {
+const tipHintOf = (b: any): { shownTip?: bigint } => {
   if (!isUint256(b?.executorTip)) return {};
   const tip = BigInt(b.executorTip);
-  return tip > 0n && tip * 100n <= amount ? { executorTip: tip } : {};
+  return tip > 0n ? { shownTip: tip } : {};
 };
 // A V6 follow-up of 2026-10-14: every number and string a request carries is checked here, at the edge. A malformed one
 // had reached the engine and the providers as NaN or a crash (a 500 logged as the API's own error), and a provider's
@@ -150,8 +161,9 @@ function asset(a: any): AssetRef {
   return { chain: a.chain, asset: a.asset, decimals, symbol: a.symbol };
 }
 function request(b: any): QuoteRequest {
-  if (!UINT.test(String(b?.amount ?? ""))) throw new BadRequest("amount must be base units");
-  if (b.grossAmount !== undefined && !UINT.test(String(b.grossAmount))) throw new BadRequest("grossAmount must be base units");
+  // a uint256 (the eighth review round, A-L3): 78 digits reach past 2^256, and such an amount reached every provider and the planner
+  if (!isUint256(b?.amount)) throw new BadRequest("amount must be base units");
+  if (b.grossAmount !== undefined && !isUint256(b.grossAmount)) throw new BadRequest("grossAmount must be base units");
   if (b.grossAmount !== undefined && BigInt(b.grossAmount) < BigInt(b.amount))
     throw new BadRequest("grossAmount (what the user pays) is never below amount (the escrow's funding)");
   const slippageBps = b.slippageBps === undefined ? 50 : Number(b.slippageBps);
@@ -200,6 +212,39 @@ function paramsOf(p: any): OrderParams {
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+/**
+ * An asset a wallet's request names is the registry's (the eighth review round, 2026-11-03, D-M2): on the pool's chain one of the pool's
+ * assets as the pool names it (EngineConfig.poolAssets, when set) or the registry's, elsewhere the registry's entry under its symbol and
+ * decimals. A request naming Base ETH as "USDC", or decimals a token does not have, had reached every provider, and the answers the
+ * adapters' own checks refused had counted as outages against them — three free quotes skipped LI.FI for every user.
+ */
+function assetProblem(a: AssetRef, poolChain: string, pool: Record<string, { symbol: string; decimals: number }> | undefined): string | null {
+  const named = (p: { symbol: string; decimals: number }) => p.symbol.toUpperCase() === a.symbol.toUpperCase() && p.decimals === a.decimals;
+  if (a.chain === poolChain && pool) {
+    const p = pool[a.asset === "native" ? "native" : a.asset.toLowerCase()];
+    if (p) return named(p) ? null : `${a.asset} is ${p.symbol} with ${p.decimals} decimals in this pool, not ${a.symbol} with ${a.decimals}`;
+  }
+  const r = assetOn(a.chain as ChainId, a.asset === "native" ? null : a.asset);
+  if (!r) return `${a.symbol} (${a.asset}) on ${a.chain} is not an asset this service swaps`;
+  return named(r) ? null : `${a.asset} on ${a.chain} is ${r.symbol} with ${r.decimals} decimals, not ${a.symbol} with ${a.decimals}`;
+}
+/** The provider a request names: one of the service's (the eighth review round, A-L3: any value had been cast and looked up). */
+const providerOf = (x: unknown, known: (id: string) => boolean): ProviderId | undefined => {
+  if (x === undefined) return undefined;
+  if (typeof x !== "string" || !known(x)) throw new BadRequest("provider must be one of the service's providers");
+  return x as ProviderId;
+};
+/**
+ * The order as its blob keeps it (the eighth review round, A-M2): the quote's raw answer and its hops are the provider's own words,
+ * read again at prepare (which re-quotes) — a LI.FI answer alone had been ~14 KB of every free commit, kept for days.
+ */
+const slimQuote = <Q extends { raw?: unknown; hops?: unknown }>(q: Q): Q => ({ ...q, raw: undefined, hops: [] });
+const blobOf = (b: Blob): string =>
+  encodeBlob({
+    ...b,
+    order: { ...b.order, quote: slimQuote(b.order.quote) },
+    ...(b.prepared ? { prepared: { ...b.prepared, quote: slimQuote(b.prepared.quote) } } : {}),
+  } satisfies Blob);
 const assessmentOf = (set: { value?: unknown; tier?: Tier }) => ({
   value: (set.value as never) ?? { unavailable: true as const, reason: "not valued" },
   tier: set.tier ?? ("high-value" as Tier),
@@ -240,17 +285,46 @@ export interface SwapApiDeps {
   voucher?: Voucher | null;
   /** SHIELD_FACTORY: the deployment's ShieldReceiverFactory, whose receipts the API vouches for (a same-chain swap into the protected balance) */
   shieldFactory?: string | null;
+  /** MAX_OPEN_OPERATIONS: the operations not yet ended the service keeps at once (the eighth review round; default 50,000) */
+  maxOpenOperations?: number;
 }
 
 const unknownOperation: Answer = { status: 404, body: { error: "unknown order", code: "unknown_order" } };
+/** the eighth review round (A-M2): the operations not yet ended reached the service's limit — nothing was stored */
+const atCapacity: Answer = {
+  status: 503,
+  body: { error: "the swap service holds too many open orders right now; try again shortly", code: "service_capacity" },
+};
+/** the eighth review round (A-L2): a re-sign's prepare that a later prepare of the same order overtook */
+const superseded: Answer = { status: 409, body: { error: "a later prepare of this order was made meanwhile", code: "prepare_superseded" } };
+/** the eighth review round (D-L3): the price guard's competition could not run — the check waits, it is never skipped */
+const guardUnavailable: Answer = {
+  status: 503,
+  body: { error: "the price guard's competition could not run; try again shortly", code: "guard_unavailable" },
+};
+/** MAX_OPEN_OPERATIONS: the operations not yet ended the service keeps at once (the eighth review round, A-M2) */
+export const MAX_OPEN_OPERATIONS = 50_000;
 
 /** reconcile: one read per operation per this window; a caller in between gets the last answer */
 export const RECONCILE_THROTTLE_MS = 5_000;
 
 export class SwapApi {
-  /** the answers the throttle serves, each kept only while it serves it */
-  private readonly reconciled = new Map<string, { at: number; result: Reconciled }>();
-  constructor(readonly d: SwapApiDeps) {}
+  /** the answers the throttle serves — the read in flight too (the eighth review round, A-I1) — each kept only while it serves it */
+  private readonly reconciled = new Map<string, { at: number; result: Promise<Reconciled> }>();
+  /** the pool's chain, as the registry names it */
+  private readonly poolChain: string;
+  constructor(readonly d: SwapApiDeps) {
+    this.poolChain = Object.values(CHAINS).find((c) => c.chainId === Number(d.engine.cfg.chainId))?.id ?? "ethereum";
+  }
+  /** A wallet's request, its assets the registry's (D-M2). */
+  private request(b: unknown): QuoteRequest {
+    const req = request(b);
+    for (const a of [req.from, req.to]) {
+      const problem = assetProblem(a, this.poolChain, this.engine.cfg.poolAssets);
+      if (problem) throw new AssetMismatchError(problem);
+    }
+    return req;
+  }
 
   private get engine(): PrivateSwapEngine {
     return this.d.engine;
@@ -264,7 +338,7 @@ export class SwapApi {
 
   /** POST /v1/quotes: the engine's competition (the V5 quote set, unchanged) with its id and the chosen route as the §46 quote. */
   async quotes(body: unknown): Promise<Answer> {
-    const req = request(body);
+    const req = this.request(body);
     const set = await this.engine.quoteAll(req, policyOf(body), hintsOf(body));
     const id = newId("qt");
     const chosen = set.quotes.find((q) => q.provider === set.chosen?.provider);
@@ -285,7 +359,8 @@ export class SwapApi {
       now: this.d.now(),
       recentFailures: (p) => health.find((h) => h.provider === p)?.recentFailures ?? 0,
       // V7 Stage 13 (spec v3.0 §4): the route's measured liquidity from the risk database; the §46 quote blocks an order above it
-      routeLimitUsd: chosen ? (riskDb().routeRisk(`${req.from.symbol}>${req.to.symbol}`, chosen.provider)?.servedUpToUsd ?? null) : null,
+      // the record's key names a chain off its asset's home (the eighth review round, D-L1): "ETH>USDC(Base)", never "ETH>USDC"
+      routeLimitUsd: chosen ? (riskDb().routeRisk(routePairOf(req.from, req.to), chosen.provider)?.servedUpToUsd ?? null) : null,
       healthy: (p) =>
         set.health[p as ProviderId]?.reachable !== false &&
         !set.health[p as ProviderId]?.halted &&
@@ -297,10 +372,13 @@ export class SwapApi {
   /** POST /v1/operations: commit (the V5 /order: the wallet chose a route and supplies the one-time signer and the refund note), or rebuild an order the wallet journaled (`params` present). */
   async createOperation(body: unknown): Promise<Answer> {
     const b = body as Record<string, unknown>;
+    // the operations not yet ended are bounded (the eighth review round, A-M2): free commits had grown the database without limit
+    if (this.d.store.openOperations() >= (this.d.maxOpenOperations ?? MAX_OPEN_OPERATIONS)) return atCapacity;
     if (b?.params !== undefined) return this.restore(b);
-    const req = request(b);
-    const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), ...tipHintOf(b, req.amount) });
-    const provider = (b.provider ?? set.chosen?.provider) as ProviderId | undefined;
+    const req = this.request(b);
+    const named = providerOf(b.provider, (id) => !!this.adapterOf(id));
+    const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), ...tipHintOf(b) });
+    const provider = named ?? set.chosen?.provider;
     const quote = set.quotes.find((q) => q.provider === provider);
     if (!quote)
       return {
@@ -426,7 +504,7 @@ export class SwapApi {
         executeDeadline: order.params.executeDeadline,
         refundAfter: order.params.refundAfter,
       },
-      encodeBlob({ order, ...(chosen ? { chosen: true } : {}) } satisfies Blob),
+      blobOf({ order, ...(chosen ? { chosen: true } : {}) }),
     );
     this.d.store.event({
       event: "operation.created",
@@ -440,14 +518,14 @@ export class SwapApi {
 
   /** Rebuild an order from the on-chain params the wallet journaled (same params, same escrow); its operation is found by the order or created. */
   private async restore(b: Record<string, unknown>): Promise<Answer> {
-    const req = request(b);
+    const req = this.request(b);
     const order = await this.rebuilt(b, req);
     if ("status" in order) return order;
     const known = this.d.store.operationByOrder(order.orderId);
     // an order is its escrow, not its id (the audit's unverified m16, 2026-10-17): an order id is public once a relayer or the
     // chain names it, and other params under it replaced that order's stored order and were answered with its operation id
     if (known && !sameEscrow(known.escrow, order.endpoint)) return otherOrder;
-    if (known) this.d.store.setBlobUnlessFinalized(known.id, encodeBlob({ order, ...this.chosenOf(known.id) } satisfies Blob)); // finalized: never again (one statement — the fifth review round, 2026-11-03)
+    if (known) this.d.store.setBlobUnlessFinalized(known.id, blobOf({ order, ...this.chosenOf(known.id) })); // finalized: never again (one statement — the fifth review round, 2026-11-03)
     const operationId = known?.id ?? this.record(order, null);
     return {
       status: 200,
@@ -462,7 +540,7 @@ export class SwapApi {
     };
   }
   private async rebuilt(b: Record<string, unknown>, req: QuoteRequest): Promise<Order | Answer> {
-    const provider = b.provider as ProviderId;
+    const provider = providerOf(b.provider ?? null, (id) => !!this.adapterOf(id))!; // required, and one of the service's (A-L3)
     const params = paramsOf(b.params); // checked before any provider is asked
     // never a refund time further ahead than this service sets one (the audit round of 2026-10-16, c18): a restore records
     // its operation, and one named with a refundAfter years away was never purged
@@ -515,11 +593,22 @@ export class SwapApi {
     const row = this.operation(id);
     if (!row) return unknownOperation;
     const b = body as Record<string, unknown>;
-    const order = await this.rebuilt(b, request(b));
+    const order = await this.rebuilt(b, this.request(b));
     if ("status" in order) return order;
     if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
-    this.d.store.setBlobUnlessFinalized(id, encodeBlob({ order, ...this.chosenOf(id) } satisfies Blob)); // never into a finalized row (the fifth review round, 2026-11-03)
-    return { status: 200, body: wire({ operationId: id, order, status: userStatus(order.state), tier: order.tier, value: order.value, policy: order.policy }) };
+    this.d.store.setBlobUnlessFinalized(id, blobOf({ order, ...this.chosenOf(id) })); // never into a finalized row (the fifth review round, 2026-11-03)
+    // the engine's words keep only their URLs' hosts here too (the eighth review round, A-I2)
+    return {
+      status: 200,
+      body: wire({
+        operationId: id,
+        order: scrubOrder(order),
+        status: userStatus(order.state),
+        tier: order.tier,
+        value: redactUrlsDeep(order.value),
+        policy: order.policy,
+      }),
+    };
   }
 
   /**
@@ -531,12 +620,14 @@ export class SwapApi {
     const row = this.operation(id);
     if (!row) return unknownOperation;
     const raw = this.d.store.blob(id);
+    // the finalize a re-sign's prepare starts from (the eighth review round, A-L2): its blob is written only while that one stands
+    const finalizedAt = raw ? null : (this.d.store.execution(id)?.finalizedAt ?? null);
     let blob: Blob;
     if (raw) blob = decodeBlob<Blob>(raw);
     else {
       const restore = (body as { restore?: Record<string, unknown> } | undefined)?.restore;
       if (!restore) return unknownOperation; // the wallet sends its journaled params with the prepare
-      const order = await this.rebuilt(restore, request(restore));
+      const order = await this.rebuilt(restore, this.request(restore));
       if ("status" in order) return order;
       if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
       blob = { order };
@@ -544,18 +635,19 @@ export class SwapApi {
     const adapter = this.adapterOf(blob.order.quote.provider);
     if (!adapter) return { status: 400, body: { error: "unknown provider", code: "unknown_provider" } };
     const b = body as Record<string, unknown> | undefined;
-    const approvedMin = b?.approvedMin !== undefined && /^\d+$/.test(String(b.approvedMin)) ? BigInt(b.approvedMin as string) : undefined;
+    const approvedMin = b?.approvedMin !== undefined && isUint256(b.approvedMin) ? BigInt(b.approvedMin as string) : undefined; // A-L3
     const tier = blob.order.tier;
     const guard = tier && atLeast(tier, "enhanced") ? await this.guardFor(blob.order, tier) : undefined;
+    if (guard === null) return guardUnavailable;
     try {
       const prepared = await this.engine.prepareExecution(blob.order, adapter, guard, approvedMin);
       // written back only while the operation still has its blob (the fourth review round, 2026-11-03): a finalize that ran during the
       // provider's round-trip nulled it, and this write had put the destination, the refund material and the signer back for the
       // retention window — and let a second finalize follow. A blob rebuilt from a restore (none was there) is written as before
-      const next = encodeBlob({ order: blob.order, prepared, ...(blob.chosen ? { chosen: true } : {}) } satisfies Blob);
+      const next = blobOf({ order: blob.order, prepared, ...(blob.chosen ? { chosen: true } : {}) });
       if (raw) {
         if (!this.d.store.setBlobIfPresent(id, next)) return unknownOperation;
-      } else this.d.store.setBlob(id, next);
+      } else if (!this.d.store.setRestoredBlob(id, next, finalizedAt)) return this.operation(id)?.terminalAt ? unknownOperation : superseded;
       return {
         status: 200,
         body: wire({
@@ -565,7 +657,7 @@ export class SwapApi {
           calldata: prepared.calldata,
           deadline: prepared.deadline,
           ingress: prepared.ingress,
-          quote: prepared.quote,
+          quote: scrubQuote(prepared.quote), // A-I2
           plan: prepared.quote.plan,
         }),
       };
@@ -612,7 +704,11 @@ export class SwapApi {
     this.d.store.event({ event: "operation.finalized", operationId: id, provider: row.provider, state: row.state, network: row.network });
     return {
       status: 200,
-      body: wire({ execution, order: blob.order, ...(voucher ? { vouch: { execution: voucher.execution(chainId, blob.order.endpoint, execution) } } : {}) }),
+      body: wire({
+        execution,
+        order: scrubOrder(blob.order), // A-I2
+        ...(voucher ? { vouch: { execution: voucher.execution(chainId, blob.order.endpoint, execution) } } : {}),
+      }),
     };
   }
 
@@ -625,10 +721,16 @@ export class SwapApi {
     const now = this.d.now();
     for (const [k, v] of this.reconciled) if (now - v.at >= RECONCILE_THROTTLE_MS) this.reconciled.delete(k);
     const last = this.reconciled.get(id);
-    if (last) return { status: 200, body: last.result };
-    const result = await reconcileOperation(this.d.store, row, this.d.reads, now);
-    this.reconciled.set(id, { at: this.d.now(), result });
-    return { status: 200, body: result };
+    if (last) return { status: 200, body: await last.result };
+    // the read in flight is the answer too (the eighth review round, A-I1): twenty concurrent reconciles had made twenty of each read
+    const result = reconcileOperation(this.d.store, row, this.d.reads, now);
+    this.reconciled.set(id, { at: now, result });
+    try {
+      return { status: 200, body: await result };
+    } catch (e) {
+      this.reconciled.delete(id);
+      throw e;
+    }
   }
 
   /**
@@ -636,10 +738,16 @@ export class SwapApi {
    * live quote had counted, those the scoring refused too (NEAR Intents' withheld ingress, a stream over 4 h, a halted route, one
    * above its limit), so a quote nobody would take refused a sound one, and counted against its provider.
    */
-  private async guardFor(order: Order, tier: Tier): Promise<{ alternatives: Quote[]; maxGapBps: number }> {
-    const set = await this.engine.quoteAll(order.request, order.policy, { tier }).catch(() => null);
-    const executable = new Set((set?.scores ?? []).filter((s) => !s.filtered).map((s) => s.provider));
-    return { alternatives: (set?.quotes ?? []).filter((q) => executable.has(q.provider)), maxGapBps: maxGapBpsFor(tier) };
+  /**
+   * The eighth review round (2026-11-03, D-L3): the alternatives are quoted net of the order's own tip — the hard quote's units, and no
+   * tip priced, whose failure (an RPC endpoint down, a token's prices unagreed) had emptied the alternatives and skipped the guard for
+   * every high-value order; a competition that still cannot run is null, and the prepare waits rather than going unguarded.
+   */
+  private async guardFor(order: Order, tier: Tier): Promise<{ alternatives: Quote[]; maxGapBps: number } | null> {
+    const set = await this.engine.quoteAll(order.request, order.policy, { tier, executorTip: order.params.executorTip }).catch(() => null);
+    if (!set) return null;
+    const executable = new Set(set.scores.filter((s) => !s.filtered).map((s) => s.provider));
+    return { alternatives: set.quotes.filter((q) => executable.has(q.provider)), maxGapBps: maxGapBpsFor(tier) };
   }
 
   /**
@@ -703,7 +811,9 @@ export class SwapApi {
     const row = operationId ? this.operation(operationId) : null;
     if (!row || row.provider !== provider) return null;
     const ex = this.d.store.execution(row.id);
-    if (!ex?.expectedSeconds || this.d.now() - ex.finalizedAt <= STALL_FACTOR * ex.expectedSeconds * 1000) return null;
+    // never under the floor (the eighth review round, D-L2): a fast route's ETA of seconds, timed from the finalize, had counted the
+    // relayer's own poll and the block as a stall — two such reads opened the provider's breaker for every user
+    if (!ex?.expectedSeconds || this.d.now() - ex.finalizedAt <= stallAfterSeconds(ex.expectedSeconds) * 1000) return null;
     // the relayer's execution of this order: as a reconcile recorded it, else read now
     let executed = ex.executionTx;
     if (!executed) {
@@ -807,7 +917,7 @@ export class SwapApi {
       status: 200,
       body: wire({
         provider: adapter.id,
-        quote,
+        quote: scrubQuote(quote), // A-I2
         ingress: { to: ingress.to, memo: ingress.memo, amount: req.amount, expiresAt: ingress.expiresAt, verified: ingress.verified ?? [] },
         status: "Pending",
       }),

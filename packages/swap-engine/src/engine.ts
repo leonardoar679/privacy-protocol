@@ -18,7 +18,7 @@ import { protectionFor, type Protection, type ProviderRisk } from "./risk/protec
 import { normalizeQuote } from "./normalize";
 import type { ProtectionMode } from "@privacy-wallet/protocol/wallet/campaign";
 import { incidentSpan } from "@privacy-wallet/protocol/wallet/riskClasses";
-import { SHIELD_TIP_DIVISOR, type TipSource } from "./tips";
+import { SHIELD_TIP_DIVISOR, TipError, type TipSource } from "./tips";
 
 export interface EngineConfig {
   adapters: ProviderAdapter[];
@@ -138,7 +138,24 @@ const withTimeout = <T>(p: Promise<T>, ms: number, what: string, budgetMs = ms):
  * A provider that answered "no" for this request (a 4xx with a reason, a refusal of the size or the route) is not an outage: the
  * breaker ignores it. So is an answer the adapter's own checks refused (`AdapterRefusal`, whatever its words: audit round 2, r03).
  */
-const isRefusal = (msg: string) => /HTTP 4\d\d|refused|not supported|does not (support|list|serve)|insufficient|too low|too high|not offered|cannot|no (dry-quote|quote|liquidity|route|available)|unexpected|mismatch|placeholder|not implemented|only|limit/i.test(msg);
+/**
+ * An outage, named positively (the eighth review round, 2026-11-03, D-M2): a timeout, the network failing, a gateway none of which
+ * answered, the provider's own 5xx or 429. Anything else is the provider's answer to this request — a refusal, or an answer the
+ * adapter's own checks refused — and never counts against it for every user: the word list of refusals before it had missed LI.FI's
+ * and NEAR Intents' quote-time checks, and three free quotes naming an asset wrongly had opened LI.FI's breaker for everyone.
+ */
+export const isOutage = (msg: string): boolean =>
+  /\bHTTP (5\d\d|429)\b|\banswered (5\d\d|429)\b|fetch failed|ECONN(REFUSED|RESET|ABORTED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|socket hang up|network ?error|timed? ?out|\baborted\b|UND_ERR|no \S+ endpoint reachable|unreachable/i.test(msg);
+/** How far ahead a quote's expiry may lie (the eighth review round, D-L4): one gateway's expiry had set an order's deadlines days out. */
+export const MAX_QUOTE_TTL_SECONDS = 3600;
+/**
+ * A quote's figures held to their ranges (the eighth review round): its expiry at most MAX_QUOTE_TTL_SECONDS ahead (D-L4), its stated
+ * impact within 0–10,000 bps (A-M3, D-M3: one answer's absurd impact had halved the piece down to wei inside the service's one thread).
+ */
+export function boundedQuote<Q extends Quote>(q: Q, nowS: number): Q {
+  const impact = q.impactBps === undefined ? undefined : Number.isFinite(q.impactBps) ? Math.min(10_000, Math.max(0, q.impactBps)) : 10_000;
+  return { ...q, expiresAt: Math.min(q.expiresAt, nowS + MAX_QUOTE_TTL_SECONDS), ...(impact !== undefined ? { impactBps: impact } : {}) };
+}
 
 export interface QuoteHint {
   tier?: Tier; preference?: Preference; preferNative?: boolean;
@@ -151,6 +168,21 @@ export interface QuoteHint {
    * priced again. A fresh price above the escrow's 1 % (gas risen since) had refused the rebuild of a funded order.
    */
   executorTip?: bigint;
+  /**
+   * The tip a new commit's Review showed (the seventh review round): the tip is priced at the commit all the same — its
+   * refusals stand (amount_too_small, tip_unpriced, fee_history_unavailable) — and the order is built on the shown one when it
+   * is at least half of today's price and not above it; above, on today's; below half, TipError tip_moved. The eighth review
+   * round (2026-11-03, H1): a shown tip had replaced the price outright, so any caller got a vouched order at a 1-wei tip — and
+   * the relayer executed and refunded at its own cost what the vouch said the service had valued.
+   */
+  shownTip?: bigint;
+}
+/** The tip an order is built on: today's price, or the Review's when it lies in [price / 2, price] (QuoteHint.shownTip). */
+export function boundedTip(priced: bigint, shown: bigint | undefined, symbol: string): bigint {
+  if (shown === undefined || shown >= priced) return priced;
+  if (shown * 2n < priced)
+    throw new TipError("tip_moved", `executing costs ${priced} of ${symbol}'s base units today, more than twice the ${shown} the Review showed: quote again`);
+  return shown;
 }
 /** The shortest execution window a wallet can ask for: a quote refreshed at submission still needs a relayer tick (High-Value Protection spec §3). */
 export const EXECUTE_WINDOW_MIN_SECONDS = 600;
@@ -256,7 +288,8 @@ export class PrivateSwapEngine {
       if (!this.cfg.tips.shieldTipFor) throw new ProtectedDestinationError("this service cannot price a shield tip");
     }
     // V6 (spec v2.0 §3): the execution's gas at today's fees, in the order's asset; refused when the escrow could not pay it
-    const executorTip = hint.executorTip ?? (await this.cfg.tips.tipFor(gross.from, gross.amount));
+    // a committed order's tip is its escrow's (never priced again); a new one's is priced now, the Review's tip bounded by it (H1)
+    const executorTip = hint.executorTip ?? boundedTip(await this.cfg.tips.tipFor(gross.from, gross.amount), hint.shownTip, gross.from.symbol);
     const shieldTip = protectedDestination ? await this.cfg.tips.shieldTipFor!(gross.to) : undefined;
     const req = this.net(gross, executorTip);
     // phase 1: the fresh destination goes only to the chosen provider at prepare (whale spec §5)
@@ -289,14 +322,14 @@ export class PrivateSwapEngine {
       }
       if (!health.reachable) { competition.push({ provider: a.id, outcome: "halted", reason: health.note ?? "unreachable", ms: Date.now() - t0 }); return { id: a.id, health, quote: undefined, error: health.note ?? "provider unreachable" }; }
       try {
-        const quote = await withTimeout(a.quote(indicative), Math.max(1, budget - (Date.now() - t0)), a.id, budget);
+        const quote = boundedQuote(await withTimeout(a.quote(indicative), Math.max(1, budget - (Date.now() - t0)), a.id, budget), Math.floor(Date.now() / 1000));
         this.tracker.recordSuccess(a.id);
         competition.push({ provider: a.id, outcome: "quoted", ms: Date.now() - t0, plan: quote.plan });
         return { id: a.id, health, quote, error: undefined };
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
         const timeout = e instanceof QuoteTimeout;
-        if (timeout || (!(e instanceof AdapterRefusal) && !isRefusal(msg))) this.tracker.recordFailure(a.id, Date.now());
+        if (timeout || (!(e instanceof AdapterRefusal) && isOutage(msg))) this.tracker.recordFailure(a.id, Date.now());
         competition.push({ provider: a.id, outcome: timeout ? "timeout" : "refused", reason: msg, ms: Date.now() - t0 });
         return { id: a.id, health, quote: undefined, error: msg };
       }
@@ -421,7 +454,7 @@ export class PrivateSwapEngine {
     const failed = (e: unknown): never => {
       throw asProviderFailure(adapter.id, e);
     };
-    const quote = await adapter.quote(req).catch(failed); // re-quote with the escrow as sender (spec §5)
+    const quote = boundedQuote(await adapter.quote(req).catch(failed), Math.floor(Date.now() / 1000)); // re-quote with the escrow as sender (spec §5)
     if (quote.minOutVerified === false && order.policy !== "fastest") throw new ProviderFailure(adapter.id, `${adapter.id}: the minimum output cannot be verified locally in the calldata; refused under policy ${order.policy}`);
     if (approvedMin !== undefined && quote.toAmountMin < approvedMin) throw new MinimumMovedError(approvedMin, quote.toAmountMin);
     if (guard) priceGuard(quote, guard.alternatives, guard.maxGapBps);

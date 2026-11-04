@@ -50,7 +50,27 @@ const CLASSES: RiskClass[] = ["R1", "R2", "R3", "R4", "R5", "R6", "R7"];
 const CUSTODY: Custody[] = ["tss-vaults", "mpc-vault", "relayer-bridge", "cctp", "solver", "aggregator", "intent", "contract", "counterparty"];
 const UPGRADE: Upgradeability[] = ["immutable", "governance", "timelock", "multisig", "admin"];
 const GATES: Gate[] = ["source", "destination-submitted", "destination-final"];
-const isIncident = (i: any): i is Incident => i && typeof i.provider === "string" && typeof i.date === "string" && !Number.isNaN(Date.parse(i.date)) && typeof i.title === "string" && typeof i.halfLifeDays === "number" && typeof i.class === "string";
+/** The incident classes the security score has a penalty for (risk/security.ts INCIDENT_PENALTY). */
+export const INCIDENT_CLASSES: readonly Incident["class"][] = ["key-compromise", "bridge", "solver", "api", "liquidity"];
+/**
+ * An incident record the score can use (the eighth review round, 2026-11-03, D-L5): a class it has a penalty for, a half-life above
+ * zero, a loss that is a number — the risk database's and the operator's file alike. A class typed "exploit" had made the provider's
+ * security NaN: chosen or not by the order of the quotes, out of R4 and the band's narrowing.
+ */
+export const isIncident = (i: any): i is Incident =>
+  !!i && typeof i.provider === "string" && typeof i.date === "string" && !Number.isNaN(Date.parse(i.date)) && typeof i.title === "string" &&
+  typeof i.halfLifeDays === "number" && Number.isFinite(i.halfLifeDays) && i.halfLifeDays > 0 && INCIDENT_CLASSES.includes(i.class) &&
+  (i.lossUsd === undefined || (typeof i.lossUsd === "number" && Number.isFinite(i.lossUsd) && i.lossUsd >= 0));
+
+/** Where an asset's symbol names its own chain (assets.ts HOME in @privacy-wallet/config): off it, a route record names the chain. */
+const HOME_CHAIN: Record<string, string> = { BTC: "bitcoin", SOL: "solana", ETH: "ethereum", USDC: "ethereum", USDT: "ethereum" };
+const labelOf = (a: { chain: string; symbol: string }) =>
+  HOME_CHAIN[a.symbol.toUpperCase()] === a.chain ? a.symbol : `${a.symbol}(${a.chain.charAt(0).toUpperCase()}${a.chain.slice(1)})`;
+/**
+ * A route record's pair as the lab names it (the eighth review round, D-L1): "ETH>USDC(Base)", "ETH>ETH(Base)", "ETH>BTC". The lookups
+ * had keyed by the symbols alone, so no Base route's record — its measured liquidity, its gate, its band — was ever found.
+ */
+export const routePairOf = (from: { chain: string; symbol: string }, to: { chain: string; symbol: string }): string => `${labelOf(from)}>${labelOf(to)}`;
 
 function validProvider(x: any, file: string, problems: string[]): ProviderRiskRecord | null {
   if (!x || typeof x.provider !== "string") { problems.push(`${file}: no provider id`); return null; }

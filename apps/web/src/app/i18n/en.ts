@@ -566,6 +566,18 @@ export const en = {
   "op.error.price_guard.title": "The price moved too far from the best route",
   "op.error.price_guard.reason":
     "The service's price guard refused this route against the others. Nothing was handed over; confirm again with a fresh quote or return the funds.",
+  "op.error.tip_moved.title": "Network fees rose since your Review",
+  "op.error.tip_moved.reason":
+    "Carrying out this swap now costs more than twice the executor tip your Review showed, so no order was made. Nothing was sent and your funds were not moved. Get a new quote to swap.",
+  "op.error.service_capacity.title": "The swap service is busy",
+  "op.error.service_capacity.reason": "It holds too many open orders right now. Nothing was sent and your funds were not moved; try again shortly.",
+  "op.error.prepare_superseded.title": "A newer confirmation of this swap was made",
+  "op.error.prepare_superseded.reason": "This attempt was overtaken by a later one for the same swap, which goes ahead. Nothing more is needed here.",
+  "op.error.guard_unavailable.title": "The price check could not run",
+  "op.error.guard_unavailable.reason":
+    "The service compares the route with the others before a large swap is handed over, and could not do so just now. Nothing was handed over; the wallet tries again shortly.",
+  "op.error.too_many_steps.title": "This route cannot stage this amount",
+  "op.error.too_many_steps.reason": "Cutting it into steps here would take far too many of them. Nothing was sent; try a smaller amount or another route.",
   "op.error.no_quote.title": "No route is available right now",
   "op.error.no_quote.reason": "No provider quoted this pair and size. Nothing left your protected balance; try again in a moment or change the amount.",
   "op.error.route_filtered.title": "This route was set aside by the risk engine",

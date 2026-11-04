@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { utf8ToBytes } from "@noble/hashes/utils";
-import { checkOrder, checkPrepared, executionDigestFromHash, OrderMismatch, predictEscrow, ESCROW_CREATION_CODE } from "@privacy-wallet/sdk/swapGuard";
+import { checkOrder, checkPrepared, executionDigestFromHash, OrderMismatch, predictEscrow, ESCROW_CREATION_CODE, MAX_CALL_SECONDS } from "@privacy-wallet/sdk/swapGuard";
 import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
 import type { ServiceOrder, Prepared } from "@privacy-wallet/sdk/swapService";
 import type { Asset } from "@privacy-wallet/sdk/assets";
@@ -124,5 +124,11 @@ describe("checkPrepared: the order key signs only what it is shown", () => {
     expect(() => checkPrepared(prep, { ...svc, params: { ...svc.params, executeDeadline: String(svc.params.executeDeadline) as any } }, 1n)).toThrow(/deadline/);
     const erc20 = await prepared(USDC_ASSET);
     expect(() => checkPrepared({ ...erc20.prep, value: "1" }, erc20.svc, 1n)).toThrow(/value/);
+  });
+  it("refuses a call valid for longer than a quote lives (the eighth review round, D-L4): one gateway's expiry days ahead", async () => {
+    const { prep, svc } = await prepared();
+    const long = { ...svc, params: { ...svc.params, executeDeadline: now() + 86_400 } };
+    expect(() => checkPrepared({ ...prep, deadline: now() + MAX_CALL_SECONDS + 60 }, long, 1n)).toThrow(/more than a quote lives/);
+    expect(() => checkPrepared(prep, svc, 1n), "the engine's own call: within it").not.toThrow();
   });
 });

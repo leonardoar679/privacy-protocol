@@ -9,7 +9,7 @@ import type { RouteScore } from "./scoring";
 import { IMPACT_CAP_BPS } from "./scoring";
 import { chainHalted, fileIncidents } from "./health";
 import { daysSinceIncident } from "./risk/security";
-import { riskDb, type RiskDb } from "./risk/riskDb";
+import { riskDb, routePairOf, type RiskDb } from "./risk/riskDb";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { exposureTierOf, type ExposureTier } from "@privacy-wallet/protocol/wallet/exposurePolicy";
 import type { RiskClass } from "@privacy-wallet/protocol/wallet/campaign";
@@ -53,7 +53,7 @@ const usdOf = (q: Quote, kinds: string[]): string | null => {
 export function normalizeQuote(q: Quote, ctx: NormalizeContext): NormalizedQuote {
   const db = ctx.db ?? riskDb();
   const now = ctx.now ?? Date.now();
-  const pair = `${ctx.req.from.symbol}>${ctx.req.to.symbol}`;
+  const pair = routePairOf(ctx.req.from, ctx.req.to); // the record's own key (the eighth review round, D-L1)
   const model = riskModelOf(q.provider, { plan: q.plan, sourceSwap: q.hops.length > 1 }, ctx.req.from, ctx.req.to, "balanced", db.override(q.provider, pair));
   const tier = exposureTierOf(model, {
     planMode: q.plan?.mode,

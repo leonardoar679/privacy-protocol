@@ -32,7 +32,8 @@ const DAY = 86_400_000;
 export function incidentPenalty(inc: Incident, now: number): number {
   const ageDays = (now - Date.parse(inc.date)) / DAY;
   if (!(ageDays >= 0)) return 0;
-  return INCIDENT_PENALTY[inc.class] * Math.max(0, 1 - ageDays / inc.halfLifeDays);
+  // an unknown class costs the most, never NaN (the loaders refuse such a record: the eighth review round, D-L5)
+  return (INCIDENT_PENALTY[inc.class] ?? INCIDENT_PENALTY["key-compromise"]) * Math.max(0, 1 - ageDays / inc.halfLifeDays);
 }
 
 export function securityBreakdown(provider: ProviderId | string, now = Date.now(), db: RiskDb = riskDb(), extraIncidents: Incident[] = []): SecurityBreakdown {

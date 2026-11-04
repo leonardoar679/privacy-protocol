@@ -599,7 +599,9 @@ export function SwapScreen(p: SwapScreenProps) {
       // the confirmed Review is not shown again (c48); the URL names the record by its handle, never the order id (c41)
       navigate(`/swap/progress/${routeHandle(swapRecordId(r.stored.orderId))}`, { replace: true });
     } catch (e) {
-      setStatus(classify(e).detail || String(e));
+      const c = classify(e);
+      // the tip the Review showed and today's parted (the eighth review round, H1): the wallet's words, not the service's figures
+      setStatus(c.code === "tip_moved" ? t("op.error.tip_moved.reason") : c.detail || String(e));
     } finally {
       setBusy(false);
     }

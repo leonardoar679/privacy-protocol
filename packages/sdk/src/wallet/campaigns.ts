@@ -5,7 +5,7 @@
 // requote → reroute Review), accept or decline a reroute, cancel (return the rest). Everything lives in the encrypted
 // journal (`campaigns?`, optional); nothing here is sent anywhere.
 import {
-  createCampaign, exposure, gateFor, planTranches, rateE18, replan, riskierClass, stricterGate, withCampaignState, withTrancheState, CONGESTION_FACTOR, RATE_SCALE,
+  createCampaign, exposure, gateFor, planTranches, rateE18, replan, riskierClass, stricterGate, withCampaignState, withTrancheState, CONGESTION_FACTOR, RATE_SCALE, TooManyTranches,
   type Campaign, type CampaignAlert, type DestinationPolicy, type ExecutionBounds, type ProtectionMode, type RiskClass, type Tranche, type TranchePlan,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import { riskModelOf } from "@privacy-wallet/protocol/wallet/riskClasses";
@@ -240,7 +240,16 @@ export function withRoute(c: Campaign, provider: string, protection: unknown, qu
   const plan: TranchePlan = { ...rest, ...rules, capBps, bandBps: [Math.min(band[0], capBps), Math.min(band[1], capBps)], ...(maxPiece !== undefined ? { maxPiece } : {}) };
   const capNow = BigInt(c.bounds.maxExternalExposure);
   const cap = (total * BigInt(capBps)) / 10000n;
-  return fitPlanned({ ...c, provider, plan, bounds: { ...c.bounds, maxExternalExposure: (cap < capNow ? cap : capNow).toString() } }, now, rng);
+  const next: Campaign = { ...c, provider, plan, bounds: { ...c.bounds, maxExternalExposure: (cap < capNow ? cap : capNow).toString() } };
+  try {
+    return fitPlanned(next, now, rng);
+  } catch (e) {
+    // a ceiling that would cut the rest into more steps than any campaign runs is no ceiling (the eighth review round, A-M3 / D-M3)
+    if (!(e instanceof TooManyTranches) || plan.maxPiece === undefined) throw e;
+    const loose: TranchePlan = { ...plan };
+    delete loose.maxPiece;
+    return fitPlanned({ ...next, plan: loose }, now, rng);
+  }
 }
 
 /** The largest piece the plan allows: the in-flight cap, or the route's piece ceiling when lower (the seventh review round). */

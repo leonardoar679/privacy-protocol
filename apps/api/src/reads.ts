@@ -85,6 +85,7 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
         if (j.actualNetworkWei !== undefined && !/^[0-9]{1,78}$/.test(String(j.actualNetworkWei))) return null;
         return {
           state: j.state,
+          ...(j.executed === true ? { executed: true } : {}), // the eighth review round (A-L1): an executed job's refund is a partial delivery's rest
           ...(j.executionTx ? { executionTx: j.executionTx } : {}),
           ...(j.actualNetworkWei ? { actualNetworkWei: j.actualNetworkWei } : {}),
         };
@@ -98,6 +99,10 @@ export function makeReads(c: ReadsConfig): ReconcileReads & { relayerTerms(): Pr
           ? await firstAnswer<string>("eth_getBalance", [escrow, "latest"])
           : await firstAnswer<string>("eth_call", [{ to: asset, data: balanceOfCall(escrow) }, "latest"]);
       return hex === null ? null : BigInt(hex === "0x" ? 0 : hex);
+    },
+    async deployed(escrow: string): Promise<boolean | null> {
+      const code = await firstAnswer<string>("eth_getCode", [escrow, "latest"]);
+      return code === null ? null : code !== "0x" && code !== "0x0";
     },
     async track(provider: string, ref: { tx?: string; ref?: string }) {
       const adapter = c.engine.cfg.adapters.find((a) => a.id === (provider as ProviderId));

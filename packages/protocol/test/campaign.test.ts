@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, ledger, maximumLossModel, nextAction, planTranches, providerLimit, providerShares,
-  rateE18, replan, riskierClass, settledBy, stricterGate, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, REPLAN_PAUSE, TRACK_INTERVAL_MS,
+  rateE18, replan, riskierClass, settledBy, stallAfterSeconds, stricterGate, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, MAX_TRANCHES, REPLAN_PAUSE, STALL_FLOOR_SECONDS, TRACK_INTERVAL_MS, TooManyTranches,
   type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState,
   trancheMinimum,
 } from "../src/wallet/campaign";
@@ -446,5 +446,25 @@ describe("the seventh review round (2026-11-03): what ended undelivered, what is
     expect(riskierClass("R4", "R1")).toBe("R4");
     expect(stricterGate("source", "destination-final")).toBe("destination-final");
     expect(stricterGate("destination-submitted", "source")).toBe("destination-submitted");
+  });
+});
+
+describe("the eighth review round (2026-11-03): the planner's bound and the stall floor (A-M3 / D-M3, D-L2)", () => {
+  it("a dust piece ceiling is refused at MAX_TRANCHES steps within milliseconds — in bucket, varied and exact sizing alike", () => {
+    for (const o of [{ sizing: "bucket" as const }, { sizing: "varied" as const }, { sizing: "bucket" as const, exact: true }]) {
+      const t0 = Date.now();
+      expect(() => planTranches(1250n * ETH, { decimals: 18, bandBps: [100, 250], capBps: 250, maxParallel: 1, maxPiece: 1n, rng: seeded(), ...o }), JSON.stringify(o)).toThrow(TooManyTranches);
+      expect(Date.now() - t0, JSON.stringify(o)).toBeLessThan(1_000);
+    }
+    // the honest plans never meet it
+    expect(planTranches(2353n * ETH, { decimals: 18, bandBps: [100, 250], capBps: 250, sizing: "varied", maxParallel: 1, rng: seeded() }).pieces.length).toBeLessThan(MAX_TRANCHES);
+  });
+  it("a step of seconds reads as stalled only past the floor", () => {
+    const c = campaign([50n * ETH, 50n * ETH], ["executing", "planned"]);
+    const healthy = { now: 2_000_000, walletPaused: false, crossRateE18: c.referenceRateE18, liveQuotes: 2, providerHealth: { reliability: 90 } };
+    expect(stallAfterSeconds(8)).toBe(STALL_FLOOR_SECONDS);
+    expect(stallAfterSeconds(3_000)).toBe(9_000);
+    expect(detectPause(c, { ...healthy, settlementAgeSeconds: 27, expectedSeconds: 8 }), "a poll and a block").toBeNull();
+    expect(detectPause(c, { ...healthy, settlementAgeSeconds: STALL_FLOOR_SECONDS + 1, expectedSeconds: 8 })?.reason).toBe("anomaly");
   });
 });

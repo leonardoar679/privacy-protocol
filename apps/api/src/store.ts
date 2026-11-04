@@ -5,7 +5,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { sanitize, type LogFields, type Logger } from "@privacy-wallet/server-kit/logger";
 import { TERMINAL_STATES, type OperationState, type SettlementState } from "@privacy-wallet/protocol-types";
-import { purge } from "./db";
+import { checkpoint, purge } from "./db";
 
 export interface OperationRow {
   id: string;
@@ -170,12 +170,30 @@ export class Store {
    * back into a finalized row. False when an execution row exists.
    */
   setBlobUnlessFinalized(id: string, blob: string): boolean {
+    // nor into an operation that ended (the eighth review round, A-L2): its blob went with its terminal state
     const r = this.db
       .prepare(
-        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM executions WHERE executions.operation_id = operations.id)",
+        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND terminal_at IS NULL AND NOT EXISTS (SELECT 1 FROM executions WHERE executions.operation_id = operations.id)",
       )
       .run(blob, this.now(), id);
     return Number(r.changes) > 0;
+  }
+  /**
+   * A re-sign's blob, rebuilt from the wallet's params after a finalize (the eighth review round, 2026-11-03, A-L2): written only while
+   * the operation still has no blob and its finalize is the one the prepare started from. A slow prepare that lost the race to its
+   * retry had written the destination, the refund material and the signer back into a row its retry had finalized since.
+   */
+  setRestoredBlob(id: string, blob: string, finalizedAt: number | null): boolean {
+    const r = this.db
+      .prepare(
+        "UPDATE operations SET order_blob = ?, updated_at = ? WHERE id = ? AND order_blob IS NULL AND terminal_at IS NULL AND (SELECT finalized_at FROM executions WHERE executions.operation_id = operations.id) IS ?",
+      )
+      .run(blob, this.now(), id, finalizedAt);
+    return Number(r.changes) > 0;
+  }
+  /** The operations not yet ended (the eighth review round, A-M2: the commit's capacity). */
+  openOperations(): number {
+    return Number((this.db.prepare("SELECT COUNT(*) AS n FROM operations WHERE terminal_at IS NULL").get() as { n: number }).n);
   }
   /** Several statements as one (the fourth review round, 2026-11-03): node:sqlite is synchronous, so a handler's block is atomic once wrapped. */
   private transaction(fn: () => void): void {
@@ -208,6 +226,7 @@ export class Store {
         )
         .run(id, e.providerRef ?? null, t, e.expectedSeconds ?? null);
     });
+    checkpoint(this.db); // the WAL's frames had kept the blob finalize removed (the eighth review round, A-M1)
   }
   execution(id: string): { executionTx: string | null; providerRef: string | null; finalizedAt: number; expectedSeconds: number | null } | null {
     const r = this.db.prepare("SELECT execution_tx, provider_ref, finalized_at, expected_seconds FROM executions WHERE operation_id = ?").get(id) as
@@ -221,15 +240,18 @@ export class Store {
         }
       : null;
   }
-  /** The state and settlement after a reconcile; a terminal state is final (I-O1) and stamps `terminal_at`. */
+  /**
+   * The state and settlement after a reconcile; a terminal state is final (I-O1), stamps `terminal_at` and drops the blob (the eighth
+   * review round, A-L2: an order a reconcile ended kept its destination and refund material for the terminal row's seven days).
+   */
   updateState(id: string, s: { state: OperationState; settlement: SettlementState | null }): void {
     const t = this.now();
     const terminal = TERMINAL_STATES.includes(s.state);
     this.db
       .prepare(
-        "UPDATE operations SET state = ?, settlement = ?, checked_at = ?, updated_at = ?, terminal_at = CASE WHEN terminal_at IS NULL AND ? THEN ? ELSE terminal_at END WHERE id = ?",
+        "UPDATE operations SET state = ?, settlement = ?, checked_at = ?, updated_at = ?, terminal_at = CASE WHEN terminal_at IS NULL AND ? THEN ? ELSE terminal_at END, order_blob = CASE WHEN ? THEN NULL ELSE order_blob END WHERE id = ?",
       )
-      .run(s.state, s.settlement, t, t, terminal ? 1 : 0, t, id);
+      .run(s.state, s.settlement, t, t, terminal ? 1 : 0, t, terminal ? 1 : 0, id);
   }
   putJob(id: string, j: { state: string; executionTx?: string; actualWei?: string }): void {
     this.transaction(() => {

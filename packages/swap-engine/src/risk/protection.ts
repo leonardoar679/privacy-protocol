@@ -3,7 +3,7 @@
 // the estimated steps and time, the thin-market flag, provider concentration, ELPF, and whether a $100K–$1M order
 // should be staged. It is advice computed with the shared core (packages/protocol/src/wallet/campaign.ts): the
 // wallet recomputes its own bounds and accounting from the same code. Stateless: nothing here remembers a user.
-import { planTranches, type Gate, type ProtectionMode, type RiskClass, type Sizing } from "@privacy-wallet/protocol/wallet/campaign";
+import { MAX_TRANCHES, TooManyTranches, planTranches, type Gate, type ProtectionMode, type RiskClass, type Sizing } from "@privacy-wallet/protocol/wallet/campaign";
 import { expectedLossPerFailure, narrowedBand, riskModelOf, type RiskModel } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { atLeast, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { capBpsFor as policyCap, exposureTierOf, impactRemedy as remedyOf, type ExposureTier, type ImpactRemedy, type ExposureReason, type ProtectionReason, type ProtectionReasonCode } from "@privacy-wallet/protocol/wallet/exposurePolicy";
@@ -14,7 +14,7 @@ import { fileIncidents, reliabilityScore } from "../health";
 import { IMPACT_CAP_BPS } from "../scoring";
 import type { ProviderId, QuoteRequest } from "../types";
 import { daysSinceIncident, securityBreakdown, type SecurityBreakdown } from "./security";
-import { riskDb, type Incident, type RiskDb } from "./riskDb";
+import { riskDb, routePairOf, type Incident, type RiskDb } from "./riskDb";
 
 export const CADENCE_SECONDS: Record<ProtectionMode, [number, number]> = { balanced: [600, 5400], "max-privacy": [1800, 21600], "max-safety": [600, 3600], "best-execution": [600, 3600] }; // lab-calibrated (Stage 2); best-execution (V4): the shortest window
 export const EXECUTE_WINDOW_SECONDS = 7200;
@@ -74,7 +74,7 @@ export function capBpsFor(tier: Tier, mode: ProtectionMode, exposureTier: Exposu
 export function providerRisks(set: QuoteSet, req: QuoteRequest, mode: ProtectionMode, db: RiskDb = riskDb(), now = Date.now(), tracker?: ProviderHealthTracker): Partial<Record<ProviderId, ProviderRisk>> {
   const out: Partial<Record<ProviderId, ProviderRisk>> = {};
   for (const q of set.quotes) {
-    const pair = `${req.from.symbol}>${req.to.symbol}`;
+    const pair = routePairOf(req.from, req.to); // the record's own key (the eighth review round, D-L1)
     const model = riskModelOf(q.provider, { plan: q.plan, sourceSwap: q.hops.length > 1 }, req.from, req.to, mode, db.override(q.provider, pair));
     const security = securityBreakdown(q.provider, now, db, fileIncidents(now)); // the operator's incidents too (c22)
     const h = set.health[q.provider];
@@ -90,6 +90,8 @@ export function providerRisks(set: QuoteSet, req: QuoteRequest, mode: Protection
 export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amount: bigint; tier: Tier; mode: ProtectionMode; usdPerUnit: number | null; db?: RiskDb; tracker?: ProviderHealthTracker; now?: number; rng?: () => number }): Protection | null {
   const chosen = o.set.chosen ? o.set.quotes.find((q) => q.provider === o.set.chosen!.provider) : undefined;
   if (!chosen) return null;
+  // the chosen route's stated impact within 0–10,000 bps (the eighth review round, A-M3 / D-M3; quoteAll bounds it as well)
+  const impactBps = chosen.impactBps === undefined ? undefined : Number.isFinite(chosen.impactBps) ? Math.min(10_000, Math.max(0, chosen.impactBps)) : 10_000;
   const db = o.db ?? riskDb();
   const now = o.now ?? Date.now();
   const risks = providerRisks(o.set, o.req, o.mode, db, now, o.tracker);
@@ -110,7 +112,7 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   // the exposure tier (contract §2.2) from the class and the live facts; a thin market is judged at the band's own cap
   const health = o.set.health[chosen.provider];
   const baseCap = capBpsFor(o.tier, o.mode, "R3");
-  const rawImpact = chosen.impactBps !== undefined ? chosen.impactBps * (baseCap / 10000) : null;
+  const rawImpact = impactBps !== undefined ? impactBps * (baseCap / 10000) : null;
   const breakerOpen = failures >= 3 || !!o.tracker?.breakerOpen(chosen.provider, now);
   const xt = exposureTierOf(model, { planMode: chosen.plan?.mode, thinMarket: rawImpact !== null && rawImpact > IMPACT_CAP_BPS, knownProvider: db.providerRisk(chosen.provider) !== null, chainHalted: health ? health.halted || chainHalted(health, [o.req.from.chain, o.req.to.chain]) !== null : false, incidentWithinDays: incidentDays, breakerOpen, security: mine.security.total });
   if (xt.tier === "R4") because("high-risk-route", `an unknown or high-risk route (${xt.reasons.join("; ")}): the exposure is capped at 1 %`, xt.codes ?? []);
@@ -126,16 +128,20 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const gate = o.mode === "max-safety" ? "destination-final" : model.gate;
   // the thin-market rule and the provider's instant limit cap the piece
   const capUnits = bps(o.amount, capBps);
+  // the halving stops before a piece the plan could not run in MAX_TRANCHES steps (the eighth review round, A-M3 / D-M3): one answer's
+  // absurd impact had halved it down to wei; an instant limit below that floor makes a plan the planner refuses — no recommendation,
+  // the order stays one order (protectionFor)
+  const floorUnits = o.amount / BigInt(MAX_TRANCHES);
   let maxPiece: bigint | null = null;
   if (chosen.limits?.maxInstant !== undefined && chosen.limits.maxInstant < capUnits) { maxPiece = chosen.limits.maxInstant; because("instant-limit", "pieces stay under the provider's instant limit"); }
   const capFraction = capBps / 10000;
-  let trancheImpactBps: number | null = chosen.impactBps !== undefined ? Math.max(0, Math.round(chosen.impactBps * capFraction * 100) / 100) : null;
+  let trancheImpactBps: number | null = impactBps !== undefined ? Math.max(0, Math.round(impactBps * capFraction * 100) / 100) : null;
   let thinMarket = false;
   let halvingFits = false;
   if (trancheImpactBps !== null && trancheImpactBps > IMPACT_CAP_BPS) {
     let piece = maxPiece ?? capUnits;
     let impact = trancheImpactBps;
-    while (impact > IMPACT_CAP_BPS && piece > 1n) { piece /= 2n; impact /= 2; }
+    while (impact > IMPACT_CAP_BPS && piece > 1n && piece / 2n >= floorUnits) { piece /= 2n; impact /= 2; }
     maxPiece = piece; halvingFits = impact <= IMPACT_CAP_BPS; trancheImpactBps = Math.round(impact * 100) / 100; thinMarket = true;
     because("thin-market", "thin market: the piece is halved until its impact fits under the cap");
   }
@@ -165,7 +171,7 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const e1 = expectedLossPerFailure({ pFailPrior: model.pFailPrior, failuresInWindow: failures, incidentFactor, exposed: trancheUsd ? trancheUsd[1] : 0 });
   const e2 = expectedLossPerFailure({ pFailPrior: model.pFailPrior, failuresInWindow: failures, incidentFactor, exposed: capUsd ?? 0 });
   const reliability = mine.reliability;
-  const staged = (o.tier === "enhanced" || o.tier === "large-protected") && singleVenue && ((chosen.impactBps ?? 0) > IMPACT_CAP_BPS || (reliability !== null && reliability < 60));
+  const staged = (o.tier === "enhanced" || o.tier === "large-protected") && singleVenue && ((impactBps ?? 0) > IMPACT_CAP_BPS || (reliability !== null && reliability < 60));
   if (staged) because("staged", "staged below $1M: the only venue quotes with high impact or low reliability");
   return {
     provider: chosen.provider, riskClass: model.class, flags: model.flags, custody: model.custody, bandBps: band, capBps, sizing,
@@ -185,7 +191,15 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
 export function protectionFor(set: QuoteSet, req: QuoteRequest, amount: bigint, tier: Tier | undefined, mode: ProtectionMode, usdPerUnit: number | null, tracker?: ProviderHealthTracker, db: RiskDb = riskDb(), now = Date.now()): { protection?: Protection; risk?: Partial<Record<ProviderId, ProviderRisk>> } {
   if (!tier || !atLeast(tier, "large-protected")) return {}; // V5 (spec §11): from the $50K band
   const risk = providerRisks(set, req, mode, db, now, tracker);
-  const protection = recommendProtection({ set, req, amount, tier, mode, usdPerUnit, db, tracker, now });
+  // an order no plan can stage in MAX_TRANCHES steps gets no recommendation (the eighth review round, A-M3 / D-M3): it stays one order —
+  // its quote and its commit stand; only the campaign, which needs a plan, is not offered
+  let protection: Protection | null;
+  try {
+    protection = recommendProtection({ set, req, amount, tier, mode, usdPerUnit, db, tracker, now });
+  } catch (e) {
+    if (!(e instanceof TooManyTranches)) throw e;
+    protection = null;
+  }
   return { ...(protection ? { protection } : {}), risk };
 }
 

@@ -94,6 +94,11 @@ const hostOf = (url: string): string => {
   }
 };
 
+/**
+ * How far ahead a THORChain quote may expire (the eighth review round, 2026-11-03, D-L4): THORNode's own is about 15 minutes; one
+ * gateway answering days ahead had set the order's deadlines and the router's expiry days out.
+ */
+export const THOR_QUOTE_TTL_SECONDS = 1800;
 /** A gateway answered but refused the request (HTTP 4xx with THORNode's reason): the request is the problem, not the gateway. */
 class ThornodeRefusal extends Error {}
 /** THORNode's reason without the simulation wrapper ("failed to simulate swap: failed to simulate handler: X: invalid request" → "X"). */
@@ -257,7 +262,7 @@ export class ThorchainAdapter implements ProviderAdapter {
       provider: "thorchain", category: categoryOf(req.from, req.to),
       toAmount: from1e8(expected1e8, req.to.decimals), toAmountMin: from1e8(min1e8, req.to.decimals),
       fees: [fee("liquidity", q.fees.liquidity), fee("network", q.fees.outbound), fee("affiliate", q.fees.affiliate)],
-      etaSeconds: q.total_swap_seconds ?? 0, expiresAt: q.expiry, nativeAssets: true, minOutEncoded: true, minOutVerified: true,
+      etaSeconds: q.total_swap_seconds ?? 0, expiresAt: Math.min(Number(q.expiry), Math.floor(Date.now() / 1000) + THOR_QUOTE_TTL_SECONDS), nativeAssets: true, minOutEncoded: true, minOutVerified: true,
       plan, impactBps: q.fees.slippage_bps, limits: q.recommended_min_amount_in ? { min: from1e8(BigInt(q.recommended_min_amount_in), req.from.decimals) } : undefined, sizeSignals,
       hops: [`${from} -> ${to} (${hostOf(url)})${parts > 0 ? `, streamed in ${parts} sub-swaps` : ""}`], raw: { ...q, min1e8: min1e8.toString(), source: hostOf(url), plan }, obtainedAt: Date.now(),
     };
@@ -265,6 +270,8 @@ export class ThorchainAdapter implements ProviderAdapter {
 
   async prepareIngress(req: QuoteRequest, quote: Quote): Promise<Ingress> {
     const q = quote.raw as ThorQuote & { min1e8: string };
+    // the router's expiry is the bounded one too (D-L4): the quote's, never later than THORNode's own
+    const expiry = Number.isFinite(Number(quote.expiresAt)) ? Math.min(Number(q.expiry), Number(quote.expiresAt)) : Number(q.expiry);
     const evmSource = EVM_SOURCES.includes(req.from.chain);
     if (evmSource && !req.source) throw new Error("THORChain: the escrow address (req.source) is required as the refund address (a router deposit otherwise refunds to the transaction sender, the relayer)");
     // a streamed plan is written into the memo explicitly (never quantity 0, which would let the network choose); a UTXO source is never streamed
@@ -304,14 +311,14 @@ export class ThorchainAdapter implements ProviderAdapter {
       streaming ? `streaming: ${streaming.quantity} sub-swaps, one every ${streaming.interval} block(s); the limit applies per sub-swap, unexecuted sub-swaps refund the escrow` : "one swap",
     ];
     if (!evmSource) {
-      return { kind: "plain-address", to: q.inbound_address, calldata: "0x", value: req.amount, memo, expiresAt: q.expiry, minOutEncoded: true, verified };
+      return { kind: "plain-address", to: q.inbound_address, calldata: "0x", value: req.amount, memo, expiresAt: expiry, minOutEncoded: true, verified };
     }
     if (!q.router) throw new Error("THORChain quote has no router for an EVM source");
     const asset = req.from.asset === "native" ? "0x0000000000000000000000000000000000000000" : req.from.asset;
     return {
       kind: "contract-call", to: q.router,
-      calldata: encodeDepositWithExpiry(q.inbound_address, asset, req.amount, memo, BigInt(q.expiry)),
-      value: req.from.asset === "native" ? req.amount : 0n, memo, expiresAt: q.expiry, minOutEncoded: true, verified,
+      calldata: encodeDepositWithExpiry(q.inbound_address, asset, req.amount, memo, BigInt(expiry)),
+      value: req.from.asset === "native" ? req.amount : 0n, memo, expiresAt: expiry, minOutEncoded: true, verified,
     };
   }
 

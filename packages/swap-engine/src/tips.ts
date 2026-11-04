@@ -26,7 +26,11 @@ export { ERC20_ORDER_UNITS, PROVIDER_CALL_UNITS, type GasFees };
 /** SwapOrderTypes.TIP_DIVISOR: the escrow refuses executorTip > amount / 100. */
 export const TIP_DIVISOR = 100n;
 
-export type TipErrorCode = "amount_too_small" | "tip_unpriced" | "fee_history_unavailable";
+/**
+ * tip_moved (the eighth review round, 2026-11-03): the tip a commit's Review showed is below half of today's price — the order is
+ * not built on it, the wallet quotes again.
+ */
+export type TipErrorCode = "amount_too_small" | "tip_unpriced" | "fee_history_unavailable" | "tip_moved";
 export class TipError extends Error {
   constructor(
     readonly code: TipErrorCode,
