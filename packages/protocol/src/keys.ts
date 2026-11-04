@@ -29,6 +29,29 @@ export class SeedUnavailable extends Error {
   }
 }
 
+/**
+ * The BIP-39 reference vectors' 24-word entropies (trezor/python-mnemonic vectors.json, the english list's eight), each a phrase anyone can
+ * look up: a wallet made from one is anyone's (the eleventh review round, 2026-11-04, A11-11 — the all-zero "abandon … art" alone had been
+ * refused). The four below, and four seeds of one repeated byte (00, 7f, 80, ff) that isPublicSeed refuses beside them.
+ */
+const PUBLIC_SEED_HEX = [
+  "68a79eaca2324873eacc50cb9c6eca8cc68ea5d936f98787c60c7ebc74e6ce7c", // hamster diagram private … (the critique: missed at first)
+  "9f6a2878b2520799a44ef18bc7df394e7061a224d2c33cd015b157d746869863", // panda eyebrow bullet …
+  "066dca1a2bb7e8a1db2832148ce9933eea0f3ac9548d793112d9a95c9407efad", // all hour make …
+  "f585c11aec520db57dd353c69554b21a89b20fb0650966fa0a9d6f74fd989d8f", // void come effort …
+];
+const PUBLIC_SEEDS: readonly Uint8Array[] = PUBLIC_SEED_HEX.map((h) => Uint8Array.from({ length: 32 }, (_, i) => parseInt(h.slice(i * 2, i * 2 + 2), 16)));
+/**
+ * Whether a 32-byte seed is a published test vector's: anyone can spend what a wallet made from it holds. Byte by byte — never a string of
+ * the seed (the round's second critique: a hex string built per call, at every render of the warning, is a copy no lock can zero).
+ */
+export function isPublicSeed(seed: Uint8Array): boolean {
+  if (seed.length !== 32) return false;
+  const one = seed.every((b) => b === seed[0]);
+  if (one && [0x00, 0x7f, 0x80, 0xff].includes(seed[0])) return true;
+  return PUBLIC_SEEDS.some((p) => p.every((b, i) => b === seed[i]));
+}
+
 /** Refuses a seed that is no seed (SeedUnavailable). */
 export function assertLiveSeed(masterSeed: Uint8Array): void {
   if (!masterSeed.length || masterSeed.every((b) => b === 0)) throw new SeedUnavailable();

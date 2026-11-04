@@ -158,8 +158,12 @@ afterEach(async () => {
 });
 
 async function unlocked(balance = 3n * 10n ** 18n) {
+  // the settings this test chose before the wallet existed, kept: a user chooses them under Settings, once it is open — a load replaces
+  // whatever the page held (the eleventh review round, A11-6)
+  const chosen = settings.get();
   await session.create("a strong password");
   session.acknowledgePhrase();
+  settings.set(chosen);
   noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: balance, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
 }
 const type = (el: HTMLElement, v: string) => fireEvent.input(el, { target: { value: v } });

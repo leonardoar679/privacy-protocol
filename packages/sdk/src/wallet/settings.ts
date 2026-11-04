@@ -116,6 +116,83 @@ export function healProtection(p: Partial<ProtectionSettings> | undefined): Prot
   };
 }
 
+/**
+ * Whether a journal's settings hold no choice of the user's (the eleventh review round's critique, K3-1): the defaults but for what the device
+ * mirrors by itself — the experience chosen at the welcome screen (`advanced`, journaled at the first unlock) and when the first-time
+ * explanation was shown. A phrase restore's journal holds no settings until then, and a backup merged over it after that unlock had kept the
+ * defaults for the backup's relayer, tiers, auto-lock and maintenance.
+ */
+export function holdsNoChoice(s: Partial<Settings> | undefined): boolean {
+  if (!s) return true;
+  const strip = (x: Settings) => {
+    const { advanced: _a, protection, ...rest } = x;
+    const { introSeenAt: _i, ...p } = protection;
+    return sortedJson({ ...rest, protection: p });
+  };
+  return strip(healSettings(s)) === strip(defaultSettings());
+}
+
+/**
+ * A backup's settings merged into this device's (the eleventh review round, 2026-11-04, A11-1). Where the device's hold no choice of the
+ * user's (holdsNoChoice), the backup's, the device's experience kept. Where both hold choices, the device's — the user's latest here — with
+ * every protective control at the stricter of the two (an absent in-flight cap counted as the lowest band default): the second factor and the second device on where either had them, "Pause large
+ * operations" on where either paused, the protection layer on, Maximum safety where either chose it, the lower velocity limit, in-flight
+ * cap and provider share, each value tier's threshold the lower of the two, the shorter auto-lock, protected execution from $100K and the
+ * steps at the $50K band on where either chose them, a route change adopted without a new Review only where both allowed it, the tree
+ * checks on where either kept them, maintenance only where both had it on and under the lower daily cap. Healed here, both of them: the
+ * tiers are compared filled.
+ */
+export function mergeSettings(device: Partial<Settings> | undefined, backup: Partial<Settings> | undefined): Partial<Settings> | undefined {
+  if (!backup) return device;
+  if (holdsNoChoice(device)) {
+    const d = device ? healSettings(device) : null;
+    return d ? { ...backup, advanced: d.advanced, ...(d.protection.introSeenAt !== undefined ? { protection: { ...healProtection(backup.protection), introSeenAt: d.protection.introSeenAt } } : {}) } : backup;
+  }
+  const dv = healSettings(device);
+  const bk = healSettings(backup);
+  const dp = dv.protection;
+  const bp = bk.protection;
+  const lower = (a: number | undefined, b: number | undefined): number | undefined => (a === undefined ? b : b === undefined ? a : Math.min(a, b));
+  const velocity = lower(dp.velocity?.maxUsdPer24h, bp.velocity?.maxUsdPer24h);
+  // an absent in-flight cap is the band's default, which differs by band (exposurePolicy): against the other side's explicit one it counts as the
+  // lowest of them, so the merge is at least as strict as either at every band (the critique, T5) — an absent one had read as no cap at all
+  const lowestDefault = Math.min(...(["enhanced", "high-value", "high-value-secondary", "institutional"] as const).map((b) => exposurePolicy()[b].capBps ?? Number.POSITIVE_INFINITY));
+  const capBps = dp.capBps === undefined && bp.capBps === undefined ? undefined : Math.min(dp.capBps ?? lowestDefault, bp.capBps ?? lowestDefault);
+  const share = lower(dp.providerShareCapBps, bp.providerShareCapBps);
+  const protection: ProtectionSettings = {
+    ...dp,
+    ...(dp.secondDevice.enabled !== true && bp.secondDevice.enabled === true ? { secondDevice: bp.secondDevice } : {}),
+    pauseLargeOperations: dp.pauseLargeOperations || bp.pauseLargeOperations,
+    enabled: dp.enabled || bp.enabled,
+    ...(bp.mode === "max-safety" ? { mode: "max-safety" as const } : {}),
+    ...(velocity !== undefined ? { velocity: { maxUsdPer24h: velocity } } : {}),
+    ...(capBps !== undefined ? { capBps } : {}),
+    ...(share !== undefined ? { providerShareCapBps: share } : {}),
+    protectFromEnhanced: dp.protectFromEnhanced || bp.protectFromEnhanced,
+    ...(dp.stepsAtBand === true || bp.stepsAtBand === true ? { stepsAtBand: true } : {}),
+    autoReroute: dp.autoReroute && bp.autoReroute,
+  };
+  // each threshold the lower of the two: both are filled and increasing, so their minimum is too
+  const tiers = Object.fromEntries(
+    (Object.keys(dv.tiers) as (keyof TierThresholds)[]).map((k) => [k, Math.min(dv.tiers[k] as number, (bk.tiers[k] as number | undefined) ?? (dv.tiers[k] as number))]),
+  ) as unknown as TierThresholds;
+  const autoLock = Math.min(dv.autoLockMinutes ?? 15, bk.autoLockMinutes ?? 15) as AutoLockMinutes;
+  const cap = BigInt(dv.housekeeping.dailyFeeCapWei) < BigInt(bk.housekeeping.dailyFeeCapWei) ? dv.housekeeping.dailyFeeCapWei : bk.housekeeping.dailyFeeCapWei;
+  return {
+    ...dv,
+    ...(dv.secondFactor.enabled !== true && bk.secondFactor.enabled === true ? { secondFactor: bk.secondFactor } : {}),
+    protection,
+    tiers,
+    ...(autoLock !== 15 || dv.autoLockMinutes !== undefined || bk.autoLockMinutes !== undefined ? { autoLockMinutes: autoLock } : {}),
+    verifyReads: dv.verifyReads || bk.verifyReads,
+    housekeeping: { enabled: dv.housekeeping.enabled && bk.housekeeping.enabled, dailyFeeCapWei: cap },
+  };
+}
+
+/** JSON with every object's keys sorted: settings equal in content compare equal, whatever order a heal built their keys in. */
+const sortedJson = (v: unknown): string =>
+  JSON.stringify(v, (_k, x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+
 class SettingsStore {
   private state: Settings | null = null;
   private listeners = new Set<() => void>();
@@ -123,6 +200,15 @@ class SettingsStore {
   get(): Settings { return (this.state ??= defaultSettings()); }
   set(patch: Partial<Settings>): void {
     this.state = healSettings({ ...this.get(), ...patch });
+    for (const l of this.listeners) l();
+  }
+  /**
+   * A journal's settings in place of what the store holds, healed — the defaults where it has none (the eleventh review round, 2026-11-04,
+   * A11-6): merged into the current state, a tab that had held another wallet — forgotten or replaced in another tab — ran this one on that
+   * wallet's relayer, second factor, limits and auto-lock until it journaled them.
+   */
+  load(stored: Partial<Settings> | undefined): void {
+    this.state = healSettings(stored);
     for (const l of this.listeners) l();
   }
   /** The defaults alone (the tenth review round, 2026-11-04): merged into the current state, an optional setting — the auto-lock minutes — had

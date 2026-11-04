@@ -10,6 +10,7 @@ import { configure, defaultConfig, DEFAULTS, type CoreBackend, type SdkConfig } 
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { secureStore } from "./storage/secureStore";
 import { configureWalletConnect } from "@privacy-wallet/wallet-engine/walletConnect";
+import { deferDeletion } from "./platform/pendingWipe";
 
 type Env = Record<string, string | boolean | undefined>;
 
@@ -139,7 +140,7 @@ export function applyConfig(c: SdkConfig): SdkConfig {
     ...(typeof Worker === "function" ? { core: lazyWorkerCore } : {}),
     ...c,
   });
-  configureWalletConnect(c.walletConnectProjectId);
+  configureWalletConnect(c.walletConnectProjectId, { deferDeletion });
   allowHosts(...c.hosts, ...c.thornode.gateways);
   setStrict(c.production);
   return c;

@@ -81,7 +81,10 @@ export function lastUnusedFreshAddress(masterSeed: Uint8Array, chain: ChainKind,
   const last = lastFreshAddress(masterSeed, chain, s);
   if (!last) return null;
   const entry = findEntry(chain, last.address, s);
-  return entry && (entry.lifecycle === "used" || entry.lifecycle === "settled" || entry.lifecycle === "retired") ? null : last;
+  // only an address this installation reserved (the eleventh review round, 2026-11-04, A11-11): right after a restore the index before the
+  // resume point is none of this installation's — an earlier one may have given it out
+  if (!entry) return null;
+  return entry.lifecycle === "used" || entry.lifecycle === "settled" || entry.lifecycle === "retired" ? null : last;
 }
 
 /** The fresh EVM account a dApp origin gets (plan §37): stable per origin, distinct between origins, never the first account. */

@@ -67,12 +67,24 @@ export function seedToPhrase(seed: Uint8Array): string {
   return entropyToMnemonic(seed, wordlist);
 }
 
-/** The seed a recovery phrase encodes; throws on a mistyped or short phrase. Whitespace and case are normalized. */
+/** A phrase that is no recovery phrase at all — a word count other than 24, a misspelt word or a failed checksum (the eleventh review
+ *  round's critique, K3-5): the screens say why in their own words. */
+export class PhraseRefused extends Error {
+  constructor(
+    readonly reason: "phrase-length" | "phrase-invalid",
+    message: string,
+  ) {
+    super(message);
+    this.name = "PhraseRefused";
+  }
+}
+
+/** The seed a recovery phrase encodes; throws PhraseRefused on a mistyped or short phrase. Whitespace and case are normalized. */
 export function phraseToSeed(phrase: string): Uint8Array {
   const norm = phrase.trim().toLowerCase().split(/\s+/).join(" ");
-  if (norm.split(" ").length !== 24) throw new Error("the recovery phrase has 24 words");
-  if (!validateMnemonic(norm, wordlist)) throw new Error("not a valid recovery phrase (a word is misspelt or the checksum fails)");
+  if (norm.split(" ").length !== 24) throw new PhraseRefused("phrase-length", "the recovery phrase has 24 words");
+  if (!validateMnemonic(norm, wordlist)) throw new PhraseRefused("phrase-invalid", "not a valid recovery phrase (a word is misspelt or the checksum fails)");
   const entropy = mnemonicToEntropy(norm, wordlist);
-  if (entropy.length !== SEED_BYTES) throw new Error("the phrase does not encode a 32-byte seed");
+  if (entropy.length !== SEED_BYTES) throw new PhraseRefused("phrase-invalid", "the phrase does not encode a 32-byte seed");
   return entropy;
 }

@@ -69,6 +69,7 @@ export default defineConfig(({ mode, command }) => {
       port: 5174,
       headers: { ...SECURITY_HEADERS, "Content-Security-Policy": `${buildCsp(env, relayers, { production: mode === "production" })}; frame-ancestors 'none'` },
     },
-    worker: { format: "es" },
+    // a worker's graph held to classic/ too (the eleventh review round, 2026-11-04, H11-1): Vite bundles it with worker.plugins alone
+    worker: { format: "es", plugins: () => [boundaryPlugin({ root })] },
   };
 });

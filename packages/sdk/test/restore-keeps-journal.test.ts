@@ -34,7 +34,9 @@ describe("a restore over this device's wallet (audit round 2, n45/n69)", () => {
     // another wallet's phrase: nothing of this one, and its counters held until a scan; its fresh addresses resume past the reserve, never
     // at the first ones its earlier installation gave out (the tenth review round, D-2)
     await s.restoreFromPhrase(seedToPhrase(new Uint8Array(32).fill(9)), "third password", { replace: true });
-    expect(s.journal().chainIndexes.evm).toBe(ADDRESS_INDEX_RESERVE);
+    // at a draw past the reserve (the eleventh review round, F11-7): two restores of one source resume apart
+    expect(s.journal().chainIndexes.evm).toBeGreaterThanOrEqual(ADDRESS_INDEX_RESERVE);
+    expect(s.journal().chainIndexes.evm).toBeLessThan(2 * ADDRESS_INDEX_RESERVE);
     expect(noteStore.countersHeld()).toBe(true);
     s.lock();
   });

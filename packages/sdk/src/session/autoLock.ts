@@ -105,8 +105,11 @@ export class AutoLock {
     };
   }
 
-  /** The user did something (a pointer, a key, a wheel, a touch, a scroll). */
+  /** The user did something (a pointer, a key, a wheel, a touch — a scroll is none since the eleventh review round, H11-8). */
   activity(): void {
+    // a deadline that passed while no timer ran — the machine suspended with the page visible — locks before the clock restarts (the
+    // eleventh review round, 2026-11-04, H11-8): the first pointer move after it had reset the idle clock and only then checked
+    if (this.o.session.isUnlocked()) this.check();
     this.lastActivity = this.clock.now();
     if (this.o.session.isUnlocked()) this.check();
   }
@@ -143,6 +146,16 @@ export class AutoLock {
   /** Another tab of this wallet was unlocked: this one locks as soon as nothing is in progress (the holds, then a safe point). */
   stepAside(): void {
     this.elsewhere = true;
+    if (this.o.session.isUnlocked()) this.check();
+  }
+
+  /**
+   * The tab that asked for the wallet no longer waits for it (the eleventh review round, H11-3: it locked, or closed): this one stays. The
+   * step aside had been carried out for nobody at the next release, and its lock screen said the wallet was opened elsewhere.
+   */
+  cancelStepAside(): void {
+    if (!this.elsewhere) return;
+    this.elsewhere = false;
     if (this.o.session.isUnlocked()) this.check();
   }
 

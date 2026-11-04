@@ -663,12 +663,17 @@ Code (Stage 15):
 - The holds:
   - the wallet's prompts and the submission of a protect (`submitShield`);
   - proving and the submission of a private spend (`submitAndRecord`);
-  - an order's commit → hand-over (`packages/sdk/src/wallet/orderRunner.ts`; a privacy delay holds nothing).
+  - an order's commit → hand-over (`packages/sdk/src/wallet/orderRunner.ts`; a privacy delay holds nothing);
+  - a maintenance step — a merge, a split, a rebalance — whole, until its fee is booked (`'maintenance'`; the eleventh review round,
+    2026-11-04, A11-10: a lock due while the spend proved had happened inside the spend's own release).
 - `apps/web/src/platform/autoLock.ts` listens:
-  - pointer, key, wheel, touch and scroll are activity (at most once a second);
+  - pointer, key, wheel and touch are activity (at most once a second). A scroll is not, since the eleventh review round
+    (2026-11-04, H11-8): Chrome's scroll anchoring fires trusted scrolls as the wallet's own updates move the page. The first
+    touch after a deadline that passed while no timer ran locks before the clock restarts;
   - `visibilitychange` (5 minutes hidden; checked again on return, since a background tab's timer may not run);
   - `pagehide`;
-  - no focus or blur listener.
+  - a `focus` and a Page Lifecycle `resume` check the deadline (H11-8): a machine suspended with the page visible fires
+    neither a timer nor a visibility change; no blur listener.
 - What a lock forgets: the drafts, both runners' memory, and the crypto worker (`stopCryptoWorker`).
 - The setting is the journal's optional `settings.autoLockMinutes` (More → Security, "Auto-lock").
 - After an automatic lock, the unlock returns to the screen it interrupted (`returnPath`, an in-app path only). After
@@ -685,6 +690,11 @@ the same funding and signing ticks.
   the holds like any automatic lock), which releases the Web Lock, and the waiting tab opens.
 - **The last one wins.** A tab granted the lock after another asked steps aside in turn, so the tab unlocked last ends
   up holding the wallet. The tab that stepped aside says why on its lock screen.
+- **A request withdrawn** (the eleventh review round, 2026-11-04, H11-3 and its critique). A tab that asked and then
+  locked withdraws its request. The lock's queue (`locks.query()`) decides: the tab asked cancels its step aside only
+  once nobody waits there, a tab granted the lock steps aside only for a tab still in the queue (a closed tab withdraws
+  nothing), and a read within a second of the last request (`ASK_SETTLE_MS`) is made again, since the asker's request
+  may not be queued yet.
 - **Without Web Locks** (an old browser) nothing changes; without BroadcastChannel a waiting tab waits for the other to
   lock by itself.
 - **The newest journal** (a V6 follow-up of 2026-10-16, audit c40). Each tab's secure store is a mirror filled when the

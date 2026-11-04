@@ -19,6 +19,11 @@ export interface KeyValueStorage {
    * write since (r16); absent, it keeps what it is given
    */
   readonly refused?: boolean;
+  /**
+   * several records written as one where the store can (the eleventh review round, 2026-11-04, A11-7: the web's secure store commits them in
+   * one IndexedDB transaction) — null removes; absent, the session writes them one by one
+   */
+  setMany?(entries: readonly (readonly [string, string | null])[]): void;
 }
 
 export { JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY } from "./storageKeys";
@@ -29,6 +34,10 @@ export function memoryStorage(): KeyValueStorage {
     get: (k) => m.get(k) ?? null,
     set: (k, v) => { assertNotPersistingSecret(k); m.set(k, v); },
     remove: (k) => { m.delete(k); },
+    setMany: (entries) => {
+      for (const [k, v] of entries) if (v !== null) assertNotPersistingSecret(k);
+      for (const [k, v] of entries) if (v === null) m.delete(k); else m.set(k, v);
+    },
   };
 }
 

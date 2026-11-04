@@ -7,6 +7,10 @@
 //   signature prompt, a proof, a submission or a hand-over (the session's holds) — which releases the lock; only then
 //   does this tab show the wallet and run its scheduler.
 // - The tab unlocked last wins: a tab granted the lock after another asked steps aside in turn.
+// - A tab that asked and then locked withdraws its request (the eleventh review round, 2026-11-04, H11-3); one that closed cannot, so the
+//   tab asked confirms by the lock's queue that someone still waits — the step aside had been carried out for nobody at the next release.
+//   The queue decides with three tabs and more (the round's critique): a withdrawal cancels the step aside only once nobody waits, and a tab
+//   granted the lock steps aside only for a tab still in the queue — not for one that asked while it waited and closed since.
 // - A tab granted the lock reads the journal again before anything of it runs (a V6 follow-up of 2026-10-16, audit c40):
 //   it opened the journal at its unlock, and the other tab kept writing until it stepped aside. A tab gives the lock back
 //   only once its writes have reached the store, waiting 5 s at most (audit round 2, r17): a put still queued was read
@@ -27,6 +31,11 @@ export const FLUSH_WAIT_MS = 5_000;
  * wallet. An unlock tries again.
  */
 export const TAKEOVER_READ_MS = 15_000;
+/** How often a tab asked to step aside confirms that the asker still waits in the lock's queue (H11-3). */
+export const STEP_ASIDE_WATCH_MS = 2_000;
+/** A queue read this soon after a request to step aside does not count as "nobody waits" — at the watch, a withdrawal and a grant alike: the
+ *  asker's request may not be queued yet. */
+export const ASK_SETTLE_MS = 1_000;
 
 interface Channel {
   postMessage(m: unknown): void;
@@ -76,6 +85,8 @@ const randomId = (): string => Array.from(crypto.getRandomValues(new Uint8Array(
 export function startActiveTab(d: {
   session: WalletSession;
   stepAside: () => void;
+  /** the tab that asked no longer waits: this one stays (H11-3) */
+  cancelStepAside?: () => void;
   locks?: LockManager | null;
   channel?: () => Channel | null;
   store?: TabStateStore;
@@ -102,6 +113,40 @@ export function startActiveTab(d: {
   let checking = false;
   /** granted the lock, reading the journal again before holding it: a change of the session meanwhile asks for nothing */
   let taking = false;
+  /** this tab asked another to step aside and waits in the queue: withdrawn when it locks (H11-3) */
+  let asked = false;
+  /** asked to step aside: the lock's queue read until the asker is gone or this tab locks (a closed tab withdraws nothing) */
+  let watching: ReturnType<typeof setInterval> | null = null;
+  /** when the last request to step aside came: its asker posts before its request reaches the queue */
+  let askedAt = 0;
+  const stopWatch = () => {
+    if (watching !== null) clearInterval(watching);
+    watching = null;
+  };
+  const withdrawn = () => {
+    stopWatch();
+    if (laterAsker === null) return;
+    laterAsker = null;
+    if (release && d.session.isUnlocked()) d.cancelStepAside?.();
+  };
+  /** Whether a tab waits in the lock's queue now; null where the queue cannot be read (then a message is believed, as before). */
+  const someoneWaits = async (): Promise<boolean | null> => {
+    if (typeof locks.query !== "function") return null;
+    try {
+      const { pending } = await locks.query();
+      return (pending ?? []).some((l) => l.name === ACTIVE_LOCK);
+    } catch {
+      return null;
+    }
+  };
+  const watchAsker = () => {
+    if (watching !== null || typeof locks.query !== "function") return;
+    watching = setInterval(() => {
+      void someoneWaits().then((waits) => {
+        if (waits === false && Date.now() - askedAt >= ASK_SETTLE_MS) withdrawn();
+      });
+    }, STEP_ASIDE_WATCH_MS);
+  };
 
   const hold = (): Promise<void> =>
     new Promise<void>((resolve) => {
@@ -111,7 +156,24 @@ export function startActiveTab(d: {
       };
       release = mine;
       store.set("active");
-      if (laterAsker !== null) d.stepAside(); // another tab was unlocked after this one asked: it wins
+      if (laterAsker === null) return;
+      // another tab was unlocked after this one asked: it wins — while it still waits in the queue (the critique: one that asked while this tab
+      // waited and closed since had this tab lock at its grant, for nobody). Every tab in the queue now was queued after this one; a read too
+      // soon after the last request is read again once it settles (the second critique)
+      const decide = (): void => {
+        void someoneWaits().then((waits) => {
+          if (release !== mine || !d.session.isUnlocked()) return;
+          if (waits === false) {
+            const early = ASK_SETTLE_MS - (Date.now() - askedAt);
+            if (early > 0) return void setTimeout(decide, early);
+            laterAsker = null;
+            return;
+          }
+          d.stepAside();
+          watchAsker();
+        });
+      };
+      decide();
     });
 
   // the journal as the store holds it when this tab takes the wallet over: what the other tab wrote last
@@ -149,10 +211,12 @@ export function startActiveTab(d: {
       // another tab holds it: ask it to step aside, and wait in line
       store.set("waiting");
       queued = new AbortController();
+      asked = true;
       channel?.postMessage({ type: "step-aside", from: id });
       locks
         .request(ACTIVE_LOCK, { signal: queued.signal }, () => {
           queued = null;
+          asked = false;
           return takeOver();
         })
         .catch(() => {
@@ -163,9 +227,34 @@ export function startActiveTab(d: {
 
   const onMessage = (e: MessageEvent) => {
     const m = e.data as { type?: unknown; from?: unknown } | null;
-    if (m?.type !== "step-aside" || typeof m.from !== "string" || m.from === id) return;
+    if (typeof m?.from !== "string" || m.from === id) return;
+    if (m.type === "step-aside-withdrawn") {
+      if (laterAsker === null) return;
+      // the queue decides (the critique): with three tabs the one that withdrew may not be the only one waiting — its own request, aborted
+      // just before the message, may still be listed: the watch reads the queue again until it empties
+      // not holding: the grant's own read of the queue decides (the second critique: with four tabs one asker's withdrawal had cleared the
+      // ask of another still waiting); the message alone only where the queue cannot be read
+      if (!release) {
+        if (typeof locks.query !== "function" && laterAsker === m.from) laterAsker = null;
+        return;
+      }
+      const from = m.from;
+      void someoneWaits().then((waits) => {
+        if (waits === true) return watchAsker();
+        if (waits === null && laterAsker !== from) return;
+        // too soon after the last request to say nobody waits (its request may not be queued yet): the watch reads again once it settles
+        if (waits === false && Date.now() - askedAt < ASK_SETTLE_MS) return watchAsker();
+        withdrawn();
+      });
+      return;
+    }
+    if (m.type !== "step-aside") return;
     laterAsker = m.from;
-    if (release && d.session.isUnlocked()) d.stepAside();
+    askedAt = Date.now();
+    if (release && d.session.isUnlocked()) {
+      d.stepAside();
+      watchAsker();
+    }
   };
   channel?.addEventListener("message", onMessage);
 
@@ -180,14 +269,19 @@ export function startActiveTab(d: {
       const waited = new Promise((x) => setTimeout(x, d.flushWaitMs ?? FLUSH_WAIT_MS));
       void Promise.race([written, waited]).then(() => r());
     }
+    stopWatch();
     queued?.abort();
     queued = null;
+    // a request this tab made is withdrawn (H11-3): the tab it asked had locked for nobody
+    if (asked) channel?.postMessage({ type: "step-aside-withdrawn", from: id });
+    asked = false;
     store.set("active"); // a locked tab waits for nothing
   };
   const offSession = d.session.subscribe(onSession);
   onSession();
   return () => {
     offSession();
+    stopWatch();
     channel?.removeEventListener("message", onMessage);
     channel?.close();
     release?.();

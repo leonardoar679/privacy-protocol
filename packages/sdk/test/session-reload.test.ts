@@ -140,11 +140,13 @@ describe("a journal set aside as unreadable, at a create or a restore (audit rou
     await back.restoreFromPhrase(phrase, "new password", { replace: true });
     // its journal again — older than what the seed did since it was set aside, so its fresh addresses resume past the reserve (the tenth
     // review round, D-2)
-    expect(back.journal().chainIndexes.evm, "its journal again").toBe(7 + ADDRESS_INDEX_RESERVE);
+    // at a draw past the reserve (the eleventh review round, F11-7)
+    const resumedAt = back.journal().chainIndexes.evm;
+    expect(resumedAt >= 7 + ADDRESS_INDEX_RESERVE && resumedAt < 7 + 2 * ADDRESS_INDEX_RESERVE, "its journal again").toBe(true);
     expect(store.get(UNREADABLE_JOURNAL_KEY), "no longer set aside").toBeNull();
     back.lock();
     expect(await back.unlock("new password")).toBe(true);
-    expect(back.journal().chainIndexes.evm, "stored as the journal").toBe(7 + ADDRESS_INDEX_RESERVE);
+    expect(back.journal().chainIndexes.evm, "stored as the journal").toBe(resumedAt);
   });
 });
 

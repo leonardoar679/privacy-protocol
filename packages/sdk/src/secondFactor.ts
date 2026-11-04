@@ -33,6 +33,11 @@ export async function registerSecondFactor(o: { rpId?: string; userName?: string
 
 /** The separate device of an institutional operation (spec §14): a security key or a phone over the cross-device flow, never this device's own authenticator. */
 export const registerSecondDevice = (o: { rpId?: string } = {}): Promise<string> => registerSecondFactor({ ...o, attachment: "cross-platform", userName: "privacy-wallet-second-device" });
+
+// A Forget never tells the authenticator a passkey is gone (the eleventh review round's critique, 2026-11-04): the discoverable passkey
+// "privacy-wallet" may sync, and a backup restored on another device carries its credential id — the WebAuthn Signal API would hide or
+// remove it there too, that installation's second factor lost without a word. The Forget says it stays (security.forget.passkeys; audit
+// gap 71).
 /** Ask the registered authenticator to verify the user now; true only when that credential answered. */
 export async function assertSecondFactor(credentialId: string, o: { rpId?: string } = {}): Promise<boolean> {
   if (!webauthnAvailable()) return false;

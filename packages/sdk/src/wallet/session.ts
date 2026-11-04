@@ -5,11 +5,12 @@
 // and a journal that fails to decrypt is kept, never overwritten — the wallet opens read-only on an
 // empty journal and says so until the user restores a backup or sets the unreadable one aside.
 import { generateMasterSeed } from "../keys/wallet";
-import { createKeystore, KDF_DEFAULT, phraseToSeed, seedToPhrase, unlockKeystore, type KdfParams, type Keystore } from "./keystore";
+import { isPublicSeed } from "@privacy-wallet/protocol/keys";
+import { createKeystore, KDF_DEFAULT, PhraseRefused, phraseToSeed, seedToPhrase, unlockKeystore, type KdfParams, type Keystore } from "./keystore";
 import { decryptJournal, emptyJournal, encryptJournal, isEncryptedJournal, journalKey, mergeJournals, restoredJournal, type EncryptedJournal, type JournalData } from "./journal";
 import { browserStorage, JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "./storage";
 import { noteStore } from "./notes";
-import { settings, type Settings } from "./settings";
+import { mergeSettings, settings, type Settings } from "./settings";
 import { config, isConfigured } from "../config";
 
 export type SessionStatus = "none" | "locked" | "unlocked";
@@ -86,6 +87,29 @@ export class WalletExists extends Error {
 /** A critical section that defers an automatic lock (spec v2.0 §8; ../session/autoLock.ts). */
 export interface Hold { reason: string; since: number }
 
+/**
+ * A restore or an unlock refused for a reason the lock screens say in the reader's words (the eleventh review round, 2026-11-04): the message
+ * stays the engine's English, `reason` names the words.
+ */
+export type RestoreRefusal =
+  | "not-a-backup"
+  | "journal-not-wallet"
+  | "journal-does-not-open"
+  | "public-phrase"
+  | "public-backup"
+  | "public-wallet"
+  | "phrase-length"
+  | "phrase-invalid";
+export class RestoreRefused extends Error {
+  constructor(
+    readonly reason: RestoreRefusal,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RestoreRefused";
+  }
+}
+
 /** JSON with every object's keys sorted: settings equal in content compare equal, whatever order a heal built their keys in */
 const sortedJson = (v: unknown): string =>
   JSON.stringify(v, (_k, x: unknown) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
@@ -101,6 +125,8 @@ export class SessionChanged extends Error {
 
 export class WalletSession {
   private seed: Uint8Array | null = null;
+  /** the open wallet was made from a published test phrase: read once at the opening, never per render (the second critique) */
+  private publicWallet = false;
   private key: Uint8Array | null = null;
   private data: JournalData | null = null;
   private listeners = new Set<() => void>();
@@ -206,9 +232,10 @@ export class WalletSession {
     if (this.hasKeystore() && isConfigured()) settings.reset();
     const generated = seed === undefined;
     const source = seed ?? generateMasterSeed();
-    // the all-zero seed is the public "abandon … art" phrase (the tenth review round, D-1): anyone can spend what it holds
-    if (source.every((b) => b === 0))
-      throw new Error("This recovery phrase is publicly known (its seed is all zeros): anyone could spend what a wallet made from it holds. Create a new wallet instead.");
+    // a published test phrase — the all-zero "abandon … art" (the tenth review round, D-1) and the other BIP-39 reference vectors (the eleventh,
+    // A11-11): anyone can spend what a wallet made from one holds
+    if (isPublicSeed(source))
+      throw new RestoreRefused("public-phrase", "This recovery phrase is publicly known (a test phrase anyone can look up): anyone could spend what a wallet made from it holds. Create a new wallet instead.");
     const own = source.slice(); // the session owns (and later zeroes) its own copy
     if (generated) source.fill(0); // the generated original is nobody's: zeroed, not left for the collector (the fifth review round, 2026-11-03)
     const ks = await createKeystore(own, password, this.kdfParams());
@@ -283,14 +310,31 @@ export class WalletSession {
     this.emit();
   }
 
+  /** The unlocked wallet was made from a published test phrase (isPublicSeed): the shell warns on every screen (the round's critique, C5). */
+  isPublicWallet(): boolean {
+    return this.publicWallet;
+  }
+
   async unlock(password: string): Promise<boolean> {
     // what the store holds now, not what it held when the page opened: another tab may have written since (audit c40)
     await this.store.refresh?.();
     const raw = this.store.get(KEYSTORE_KEY);
-    if (!raw) return false;
+    if (!raw) {
+      // forgotten in another tab (the eleventh review round, 2026-11-04, A11-6): the screens hear the wallet is gone — the lock screen had said
+      // "Wrong password." for a wallet no longer on this device
+      this.emit();
+      return false;
+    }
     const ks = JSON.parse(raw) as Keystore;
     const seed = await unlockKeystore(ks, password);
     if (!seed) return false;
+    // a wallet made from a published test phrase before such phrases were refused (the eleventh review round, A11-11) is anyone's: it opens,
+    // its owner warned on every screen (isPublicWallet), so what it holds can be moved before someone else takes it (the round's critique: a
+    // refused unlock had left it to everyone but its owner). The zero seed alone is refused — no key derives from it
+    if (seed.every((b) => b === 0)) {
+      seed.fill(0);
+      throw new RestoreRefused("public-wallet", "This wallet's recovery phrase is publicly known (a test phrase anyone can look up): anyone can spend what it holds, and this wallet cannot be used. Create a new wallet and send nothing to this one.");
+    }
     // a keystore below this build's scrypt cost is wrapped again at today's (the fifth review round, 2026-11-03): the production
     // floor had applied to a creation only — a backup restored from a dev build, or an edited header, kept the device at the
     // weaker cost for every later unlock and backup
@@ -382,7 +426,14 @@ export class WalletSession {
    * made before one complete scan has seen the counters already used (PP-P03; the audit round of 2026-10-16).
    */
   async restoreFromPhrase(phrase: string, password: string, opts: { replace?: boolean } = {}): Promise<void> {
-    const seed = phraseToSeed(phrase);
+    let seed: Uint8Array;
+    try {
+      seed = phraseToSeed(phrase);
+    } catch (e) {
+      // a phrase cut short or a word misspelt, in the reader's words (K3-5): the engine's English had reached the restore screen
+      if (e instanceof PhraseRefused) throw new RestoreRefused(e.reason, e.message);
+      throw e;
+    }
     try {
       // the counters are held from its first journal on, unless its own journal was kept: the counters it used are known then
       await this.create(password, seed, { ...opts, holdCounters: true });
@@ -402,36 +453,51 @@ export class WalletSession {
 
   /** Restore keystore + journal from a backup file (its own password). */
   async restoreFromBackup(json: string, password: string, opts: { replace?: boolean } = {}): Promise<boolean> {
-    const b = JSON.parse(json) as Backup;
-    if (b?.v !== 1 || !b.keystore) throw new Error("not a wallet backup file");
+    let b: Backup;
+    try {
+      b = JSON.parse(json) as Backup;
+    } catch {
+      // a phrase pasted in the file's field, a copy cut short (K3-5): the parser's English had echoed the start of the paste
+      throw new RestoreRefused("not-a-backup", "not a wallet backup file");
+    }
+    if (!b || typeof b !== "object" || b.v !== 1 || !b.keystore) throw new RestoreRefused("not-a-backup", "not a wallet backup file");
     // the journal's shape before anything is written (the tenth review round, D-7): the device's store refuses another, and a refusal after
     // the keystore was replaced had left the backup's keystore over the replaced wallet's journal, unreadable
-    if (b.journal !== null && b.journal !== undefined && !isEncryptedJournal(b.journal)) throw new Error("the backup's journal is not a wallet journal: nothing was restored");
+    if (b.journal !== null && b.journal !== undefined && !isEncryptedJournal(b.journal)) throw new RestoreRefused("journal-not-wallet", "the backup's journal is not a wallet journal: nothing was restored");
     await this.guardExisting(opts.replace);
     const seed = await unlockKeystore(b.keystore, password);
     if (!seed) return false;
     const key = journalKey(seed);
     try {
       // the all-zero seed is the public "abandon … art" phrase (D-1): anyone can spend what it holds
-      if (seed.every((x) => x === 0)) throw new Error("This backup holds a publicly known wallet (its seed is all zeros): anyone could spend what it holds. Nothing was restored.");
+      if (isPublicSeed(seed)) throw new RestoreRefused("public-backup", "This backup holds a publicly known wallet (its phrase is a test phrase anyone can look up): anyone could spend what it holds. Nothing was restored.");
       // the backup's journal opens with its own keystore, or nothing is written (D-7)
       const backupJournal = b.journal ? decryptJournal(key, b.journal) : null;
-      if (b.journal && !backupJournal) throw new Error("the backup's journal does not open with its keystore: nothing was restored");
+      if (b.journal && !backupJournal) throw new RestoreRefused("journal-does-not-open", "the backup's journal does not open with its keystore: nothing was restored (the wallet's recovery phrase restores it)");
       // this device's own journal of this wallet stays, the backup's merged into it (D-4) — the phrase restore keeps it (n45); a backup
       // written over it had dropped the orders funded since and rolled the counters back
-      const device = this.journalOf(seed);
+      const own = this.journalOf(seed);
+      // this wallet's own journal set aside as unreadable is the device's when the stored one is not (the eleventh review round, A11-8): the
+      // phrase restore reads it, and an order this device knew had dropped out of view here — an older copy, its fresh addresses past the reserve
+      const asideOwn = own ? null : this.journalOf(seed, UNREADABLE_JOURNAL_KEY);
+      const device = own ?? (asideOwn ? restoredJournal(asideOwn) : null);
       // over another wallet (a REPLACE): its settings go with it, as create() does (D-5, r30) — they had been journaled into the restored one
       if (!device && this.hasKeystore() && isConfigured()) settings.reset();
-      // a journal set aside as unreadable goes unless this seed opens it (audit round 2, n49): another wallet's had stayed
-      if (this.store.get(UNREADABLE_JOURNAL_KEY) !== null && !this.journalOf(seed, UNREADABLE_JOURNAL_KEY)) this.store.remove(UNREADABLE_JOURNAL_KEY);
+      // a journal set aside as unreadable goes unless this seed opens it (audit round 2, n49): another wallet's had stayed — and so does this
+      // wallet's once merged (A11-8), in the same write as the journal it went into
+      const dropAside = this.store.get(UNREADABLE_JOURNAL_KEY) !== null && (asideOwn !== null || !this.journalOf(seed, UNREADABLE_JOURNAL_KEY));
       // wrapped again at this build's scrypt cost (the fifth review round, 2026-11-03): the file's own parameters — a dev build's, an
       // edited header's — had become the device's for good, every later unlock and backup at the weaker cost
       const ks = await createKeystore(seed, password, this.kdfParams());
       // the journal written now holds the counters (D-6) — a reload during the unlock below had found them free — and, without the device's
       // own, resumes the fresh addresses past their reserve (D-2): a backup may be older than the wallet's last notes and addresses (PP-P03)
-      const journal: JournalData = device ? { ...mergeJournals(device, backupJournal ?? emptyJournal()), countersHeld: true } : restoredJournal(backupJournal ?? emptyJournal());
-      this.store.set(KEYSTORE_KEY, JSON.stringify(ks));
-      this.store.set(JOURNAL_KEY, JSON.stringify(encryptJournal(key, journal)));
+      // the backup's settings merged into the device's (the eleventh review round, A11-1): a protective control the backup holds is kept
+      const merged = device ? mergeJournals(device, backupJournal ?? emptyJournal()) : null;
+      const mergedSettings = device ? mergeSettings(device.settings as Partial<Settings> | undefined, backupJournal?.settings as Partial<Settings> | undefined) : undefined;
+      const journal: JournalData = merged ? { ...merged, ...(mergedSettings ? { settings: mergedSettings as Record<string, unknown> } : {}), countersHeld: true } : restoredJournal(backupJournal ?? emptyJournal());
+      // the keystore and its journal in one write (A11-7): a tab closed or a quota refused between two had left the backup's keystore over
+      // the replaced wallet's journal, read-only
+      this.writeAll([[KEYSTORE_KEY, JSON.stringify(ks)], [JOURNAL_KEY, JSON.stringify(encryptJournal(key, journal))], ...(dropAside ? [[UNREADABLE_JOURNAL_KEY, null] as const] : [])]);
     } finally {
       seed.fill(0); // unlock() below derives the session's own from the keystore (the fourth review round, 2026-11-03)
       key.fill(0);
@@ -445,9 +511,20 @@ export class WalletSession {
   exportBackup(): string {
     const ks = this.store.get(KEYSTORE_KEY);
     if (!ks) throw new Error("no wallet to back up");
-    const j = this.store.get(JOURNAL_KEY);
+    // a journal this wallet cannot open goes out as none (the eleventh review round, A11-4): the file had carried it, and a restore — which
+    // refuses a journal its keystore does not open (D-7) — refused the whole file, its keystore with it
+    const j = this.unreadable ? null : this.store.get(JOURNAL_KEY);
     const b: Backup = { v: 1, keystore: JSON.parse(ks), journal: j ? JSON.parse(j) : null };
     return JSON.stringify(b);
+  }
+
+  /** Several records in one write where the store can (A11-7); one by one otherwise. */
+  private writeAll(entries: readonly (readonly [string, string | null])[]): void {
+    if (this.store.setMany) return this.store.setMany(entries);
+    for (const [k, v] of entries) {
+      if (v === null) this.store.remove(k);
+      else this.store.set(k, v);
+    }
   }
 
   /** The recovery phrase of the unlocked wallet (advanced users; shown only after re-entering the password). */
@@ -470,6 +547,7 @@ export class WalletSession {
     this.seed?.fill(0);
     this.key?.fill(0);
     this.seed = null; this.key = null; this.data = null;
+    this.publicWallet = false;
     this.unreadable = false;
     noteStore.close(); // closed until the next unlock: a flow that waited for the scan is refused, never handed counter 0 (D-1)
     this.holdList.clear(); // a lock ends every critical section; a stale release is a no-op
@@ -530,7 +608,12 @@ export class WalletSession {
 
   private open(seed: Uint8Array, journal: JournalData): void {
     this.epochCount++;
+    // the seed and key an opening replaces are zeroed, as a lock zeroes them (the eleventh review round, A11-11): a second unlock had left the
+    // first one's in memory
+    if (this.seed && this.seed !== seed) this.seed.fill(0);
+    this.key?.fill(0);
     this.seed = seed;
+    this.publicWallet = isPublicSeed(seed);
     this.key = journalKey(seed);
     this.data = journal;
     this.loadStores(journal);
@@ -547,7 +630,8 @@ export class WalletSession {
     this.loading = true;
     try {
       noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld });
-      if (journal.settings) settings.set(journal.settings as Partial<Settings>);
+      // the journal's settings in place of the store's, the defaults when it has none (the eleventh review round, A11-6)
+      if (journal.settings || isConfigured()) settings.load(journal.settings as Partial<Settings> | undefined);
     } finally {
       this.loading = false;
     }

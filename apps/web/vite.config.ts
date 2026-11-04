@@ -144,8 +144,11 @@ export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, root, "VITE_");
   const zkapi = zkapiSdk();
   const zkHosts = zkapiHosts(join(root, "public", "zkapi", "browser-config.json"));
+  // the build-level boundary of the main graph and of every worker's (the eleventh review round, 2026-11-04, H11-1): Vite bundles a worker with
+  // worker.plugins alone, and a worker's modules — a worker entry itself — had never been held to the trees in a build
+  const boundary = { root, allowed: [join(root, "..", "..", "packages"), join(root, "..", "..", "contracts", "abi"), ...(zkapi.bundled ? [zkapi.dir] : [])], forbidden: [join(root, "..", "..", "classic")] };
   return {
-    plugins: [react(), boundaryPlugin({ root, allowed: [join(root, "..", "..", "packages"), join(root, "..", "..", "contracts", "abi"), ...(zkapi.bundled ? [zkapi.dir] : [])], forbidden: [join(root, "..", "..", "classic")] }), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkHosts), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
+    plugins: [react(), boundaryPlugin(boundary), circuitArtifacts(), coreWasm(), fixturesOnly(mode), cspPlugin(env, zkHosts), ...(process.env.PW_NO_HMR === "1" ? [refuseUpgrades()] : [])],
     // the prover worker is the first importer of snarkjs; pre-bundling it keeps the dev server from discovering it at the
     // first proof and reloading the page mid-transaction (the wallet would come back locked, the journal intact)
     optimizeDeps: { include: ["snarkjs"] },
@@ -180,6 +183,6 @@ export default defineConfig(({ mode, command }) => {
     // too, as a host sends it (audit round 2, n81) — the preview had sent "frame-ancestors 'none'" alone, so no release check
     // exercised a connect-src delivered by a header
     preview: { headers: { ...SECURITY_HEADERS, "Content-Security-Policy": `${buildCsp(env, zkHosts)}; frame-ancestors 'none'` } },
-    worker: { format: "es" },
+    worker: { format: "es", plugins: () => [boundaryPlugin(boundary)] },
   };
 });

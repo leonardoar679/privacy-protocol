@@ -100,18 +100,25 @@ export async function runHousekeepingStep(d: StepDeps): Promise<{ ran: Housekeep
   const split = d.exec?.split ?? (async (_asset: Asset, note: OwnedNote, piece: bigint) => (await splitNote({ masterSeed: d.masterSeed, deployment: d.deployment, note, piece, maxFee: action.fee, onStatus: d.onStatus })).feeWei ?? 0n);
   const merge = d.exec?.merge ?? (async (_asset: Asset, a: OwnedNote, b: OwnedNote) => (await mergeNotes({ masterSeed: d.masterSeed, deployment: d.deployment, a, b, mergeFee: action.fee, onStatus: d.onStatus })).feeWei ?? 0n);
   let paid: bigint;
+  // the whole step is one critical section (the eleventh review round, 2026-11-04, A11-10): a lock due while the spend proved had happened inside
+  // the spend's own release, before the step booked its fee — the day's cap missed it, and one more step's fee could go out per such lock
+  const release = s.hold("maintenance");
   try {
-    const r = action.kind === "split" ? await split(plan.asset, byId(action.input.id), action.outputs[0]) : await merge(plan.asset, byId(action.inputs[0].id), byId(action.inputs[1].id));
-    paid = typeof r === "bigint" ? r : action.fee;
-  } catch (e) {
-    if (!(e instanceof FeeMoved)) throw e;
-    // the relayer now asks more than the step was checked against: nothing was sent, and the step waits for a later window
-    scheduleAction({ kind: "housekeeping", orderId: `balance:${now}`, dueAt: sampleDueAt(housekeepingWindow(), now) }, s);
-    d.onStatus?.("Private balance maintenance: the relayer's fee rose since this step was planned; it runs later.");
-    return { ran: null, remaining: remaining + 1, waitedForCap: false };
+    try {
+      const r = action.kind === "split" ? await split(plan.asset, byId(action.input.id), action.outputs[0]) : await merge(plan.asset, byId(action.inputs[0].id), byId(action.inputs[1].id));
+      paid = typeof r === "bigint" ? r : action.fee;
+    } catch (e) {
+      if (!(e instanceof FeeMoved)) throw e;
+      // the relayer now asks more than the step was checked against: nothing was sent, and the step waits for a later window
+      scheduleAction({ kind: "housekeeping", orderId: `balance:${now}`, dueAt: sampleDueAt(housekeepingWindow(), now) }, s);
+      d.onStatus?.("Private balance maintenance: the relayer's fee rose since this step was planned; it runs later.");
+      return { ran: null, remaining: remaining + 1, waitedForCap: false };
+    }
+    // the fee paid is what is booked, never the planned one: the cap holds for what left (B-1)
+    s.update((j) => { j.housekeeping = { day: dayOf(now), feeWei: (today.feeWei + paid).toString(), steps: today.steps + 1 }; });
+    if (remaining > 0) scheduleAction({ kind: "housekeeping", orderId: `balance:${now}`, dueAt: sampleDueAt(housekeepingWindow(), now) }, s);
+  } finally {
+    release();
   }
-  // the fee paid is what is booked, never the planned one: the cap holds for what left (B-1)
-  s.update((j) => { j.housekeeping = { day: dayOf(now), feeWei: (today.feeWei + paid).toString(), steps: today.steps + 1 }; });
-  if (remaining > 0) scheduleAction({ kind: "housekeeping", orderId: `balance:${now}`, dueAt: sampleDueAt(housekeepingWindow(), now) }, s);
   return { ran: action, remaining, waitedForCap: false };
 }

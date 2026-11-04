@@ -90,7 +90,8 @@ describe("the trade summary", () => {
     expect(JSON.stringify(body)).not.toMatch(ADDRESS_LIKE);
     expect(seen[0].init.credentials).toBe("omit");
     expect(seen[0].init.redirect).toBe("error");
-    for (const text of [body.messages[0].content]) expect(text.toLowerCase()).toMatch(/never use the words atomic or anonymous/);
+    // every word the wallet never says, named to the model (the eleventh review round, H11-6)
+    for (const text of [body.messages[0].content]) expect(text.toLowerCase()).toMatch(/never use the words atomic, anonymous, anonymity, mixer, mixing, untraceable, undetectable or invisible/);
   });
 
   it("without a fetch of the caller's it goes through the inference transport: announced, under the policy (audit round 2, n51/n73)", async () => {

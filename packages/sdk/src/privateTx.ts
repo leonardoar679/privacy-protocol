@@ -158,7 +158,9 @@ export async function trackShield(p: PreparedShield, txHash: Hex): Promise<numbe
 
 /** trackShield, with what the deposit really cost (V6, spec v2.0 §3). */
 export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{ leafIndex: number; costWei: bigint }> {
-  const epoch = session.epoch();
+  // the opening the deposit was prepared in (the eleventh review round, 2026-11-04, A11-2): read here, after the prompt, a REPLACE made while
+  // the wallet asked would have recorded the deposit's note in the other wallet
+  const epoch = p.epoch ?? session.epoch();
   // the receipt through the connected wallet's own provider (the sixth review round, 2026-11-03): its `from` is the user's public
   // address, which the privacy endpoints must never see beside this client. Without a provider's answer, every endpoint's receipt
   // (audit round 2, r23) — the scan's proven pool contradicts a note a lying provider would have invented (audit round 2, r24)
@@ -415,7 +417,7 @@ export class NoRelayer extends Error {
   }
 }
 
-export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: boolean; change?: OwnedNote; spent: number[]; submittedBy: "relayer" | "wallet"; feeWei?: bigint; extraLeaf?: number }
+export interface Submitted { txHash: Hex; proofMs: number; verifiedLocally: boolean; change?: OwnedNote; spent: number[]; submittedBy: "relayer" | "wallet"; feeWei?: bigint; extraLeaf?: number; /** the extra note, when it is this wallet's (A11-10) */ extraNote?: OwnedNote }
 
 /**
  * Thrown before anything is proved or sent (the audit round of 2026-10-16, c46): the relayer's fee for this spend is now more
@@ -534,7 +536,7 @@ async function submitAndRecord(o: Parameters<typeof submitAndRecordHeld>[0]): Pr
     release();
   }
 }
-async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; submission: Submission; relayerUrl?: string; /** the opening the spend was planned in: nothing is sent in another (D-1, D-10) */ opening?: number; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number }; /** a withdrawal's payout: refused by its recipient, it is PayoutHeld (r42) */ payout?: { vault: Address; recipient: Address } } & Progress): Promise<Submitted> {
+async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; noteData: [Hex, Hex, Hex]; spent: OwnedNote[]; change?: WithdrawalPlan["change"]; fee?: FeeOutput; extra?: Note; /** the extra note is this wallet's (a merge's, a split's piece): recorded with the change note (A11-10) */ extraOwn?: { noteData: Hex; counter: number; label: string }; submission: Submission; relayerUrl?: string; /** the opening the spend was planned in: nothing is sent in another (D-1, D-10) */ opening?: number; /** V6: the relayer's network charge (its F) in the fee's asset */ network?: { amount: bigint; asset: string; decimals: number }; /** a withdrawal's payout: refused by its recipient, it is PayoutHeld (r42) */ payout?: { vault: Address; recipient: Address } } & Progress): Promise<Submitted> {
   const client = clientFor(o.deployment);
   const epoch = session.epoch();
   o.onEvent?.({ type: "proving" });
@@ -595,10 +597,17 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
     noteStore.add({ ...change, addedAt: Date.now() });
   }
   let extraLeaf: number | undefined;
+  let extraNote: OwnedNote | undefined;
   if (o.extra) {
     const hit = find(o.extra);
     if (!hit) throw new Error("mined, but the recipient's note commitment was not found in the receipt");
     extraLeaf = hit.leafIndex;
+    // this wallet's own extra note goes in here, in the same synchronous block as the change note (the eleventh review round, A11-10): the
+    // spend's hold is released on return, a lock due by then happens inside that release, and a note added after it went into the closed store
+    if (o.extraOwn) {
+      extraNote = { note: o.extra, leafIndex: hit.leafIndex, noteData: o.extraOwn.noteData, counter: o.extraOwn.counter, spent: false, txHash, label: o.extraOwn.label };
+      noteStore.add({ ...extraNote, addedAt: Date.now() });
+    }
   }
   // V6 (spec v2.0 §3): the real cost beside what the relayer charged for it (its F; for the ETH vault also the estimate shown)
   const charged = submittedBy === "relayer" ? o.network : undefined;
@@ -609,7 +618,7 @@ async function submitAndRecordHeld(o: { deployment: Deployment; spec: TxSpec; no
   if (held) throw new PayoutHeld(held.recipient, held.amount, held.vault, txHash);
   // V5 (spec §12): the record's COMPLETED needs the settlement reference — the mined transaction and the leaf of the note it left (the recipient's, else the change)
   o.onEvent?.({ type: "mined", txHash, ...(extraLeaf !== undefined ? { leafIndex: extraLeaf } : change ? { leafIndex: change.leafIndex } : {}) });
-  return { txHash, proofMs: proof.ms, verifiedLocally: proof.verifiedLocally, change, spent: o.spent.map((n) => n.leafIndex), submittedBy, feeWei: o.fee?.note.amount, extraLeaf };
+  return { txHash, proofMs: proof.ms, verifiedLocally: proof.verifiedLocally, change, spent: o.spent.map((n) => n.leafIndex), submittedBy, feeWei: o.fee?.note.amount, extraLeaf, ...(extraNote ? { extraNote } : {}) };
 }
 
 /**
@@ -775,9 +784,8 @@ async function mergeNotesInTurn(o: { masterSeed: Uint8Array; deployment: Deploym
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
   sameOpening(opening); // a lock since the merge began (the tenth review round, D-1)
   const plan = planMerge(o.masterSeed, tree.layers, vaultId, o.a, o.b, txDomainOf(o.deployment), terms?.fee);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note, opening });
-  const merged: OwnedNote = { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
-  noteStore.add({ ...merged, addedAt: Date.now() });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, fee: plan.fee, extra: plan.merged.note, extraOwn: { noteData: plan.merged.noteData, counter: plan.merged.counter, label: "merged" }, opening });
+  const merged: OwnedNote = r.extraNote ?? { note: plan.merged.note, leafIndex: r.extraLeaf!, noteData: plan.merged.noteData, counter: plan.merged.counter, spent: false, txHash: r.txHash, label: "merged" };
   recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: merged.note.amount.toString(), status: "completed", ref: r.txHash, note: "two notes merged privately before a spend" });
   return { ...r, merged };
 }
@@ -871,9 +879,8 @@ async function splitNoteInTurn(o: { masterSeed: Uint8Array; deployment: Deployme
   await noteStore.untilScanned(); // the scan after an unlock first (the fifth review round, 2026-11-03)
   sameOpening(opening); // a lock since the split began (the tenth review round, D-1)
   const plan = planSplit(o.masterSeed, tree.layers, o.note, o.piece, txDomainOf(o.deployment), terms?.fee);
-  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note, opening });
-  const pieceNote: OwnedNote = { note: plan.piece.note, leafIndex: r.extraLeaf!, noteData: plan.piece.noteData, counter: plan.piece.counter, spent: false, txHash: r.txHash, label: "piece" };
-  noteStore.add({ ...pieceNote, addedAt: Date.now() });
+  const r = await submitAndRecord({ ...o, submission, relayerUrl: terms?.url, spec: plan.spec, noteData: plan.noteData, spent: plan.spent, change: plan.rest, fee: plan.fee, extra: plan.piece.note, extraOwn: { noteData: plan.piece.noteData, counter: plan.piece.counter, label: "piece" }, opening });
+  const pieceNote: OwnedNote = r.extraNote ?? { note: plan.piece.note, leafIndex: r.extraLeaf!, noteData: plan.piece.noteData, counter: plan.piece.counter, spent: false, txHash: r.txHash, label: "piece" };
   recordActivity({ id: activityId("housekeeping", r.txHash), kind: "housekeeping", ...activityAsset(o.deployment, vaultId), amount: o.piece.toString(), status: "completed", ref: r.txHash, note: "a common-sized piece split off privately" });
   return { ...r, pieceNote, restNote: r.change! };
 }
@@ -982,6 +989,8 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
   if (stop?.()) throw new Error("the wallet locked during the scan"); // its store was emptied while the reads ran
   let added = 0, spentCount = 0;
   const addedNotes: FoundNote[] = [];
+  // one change of the store for the whole scan (the eleventh review round, H11-5): the journal is written once, not twice per note
+  noteStore.batch(() => {
   for (const [i, f] of found.entries()) {
     const spent = rpcSpent[i];
     const p = provenAt.get(i);
@@ -1008,6 +1017,7 @@ async function recordFound(d: Deployment, keys: WalletKeys, all: FoundNote[], in
     added++;
     addedNotes.push(f);
   }
+  });
   return { found: found.length, added, spent: spentCount, addedNotes };
 }
 
@@ -1144,7 +1154,9 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // only the refunds and deliveries recorded: one waiting past the proven pool is journaled once a proof covers it, as recoverSwapRefunds
   // does (the tenth review round, B10-2: a lying quorum's replay at a tail leaf had marked an order refunded for good, nothing in the store)
   journalRefunds(waiting.length ? refunds.filter((x) => !waiting.some((f) => f.leafIndex === x.leafIndex)) : refunds);
-  for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
+  noteStore.batch(() => {
+    for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
+  });
   // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found
   if (o.refunds === undefined) noteStore.releaseCounters(COUNTER_RESERVE);
   // the notes the proven pool contradicts (audit round 2, r24): an unspent note at a proven leaf that holds another
@@ -1175,6 +1187,10 @@ export async function recoverShieldDelivery(o: { masterSeed: Uint8Array; deploym
 
 /** Record the refund notes of this wallet's orders without a payload scan: right after the executor reports a refund (PP-S09). */
 export async function recoverSwapRefunds(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<RecoveredRefund[]> {
+  // bound to the opening it began in, as a scan is (the eleventh review round, 2026-11-04, A11-2): after a lock and a REPLACE in this tab, the
+  // lookup's note had gone into the other wallet's open store and journal — its balance wrong for good, its backups carrying this note
+  const opening = session.epoch();
+  const stale = () => !session.isUnlocked() || session.epoch() !== opening;
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Looking for the refund in the pool…");
   const { tree, logs, spends, block } = await syncPoolQuorum(o.deployment);
@@ -1187,7 +1203,8 @@ export async function recoverSwapRefunds(o: { masterSeed: Uint8Array; deployment
   // review round, 2026-11-04, D-1): its opening is public — the escrow's and the receiver's immutables —, and a lying quorum's replay at a
   // tail leaf had stayed in the balance beside the real one
   const refunds = proven === null ? found : found.filter((r) => r.leafIndex < proven || noteStore.all().some((n) => n.leafIndex === r.leafIndex));
-  await recordFound(o.deployment, keys, refunds.map(refundFound), index);
+  await recordFound(o.deployment, keys, refunds.map(refundFound), index, stale);
+  if (stale()) throw new Error("the wallet locked during the lookup: the next scan records what it found");
   journalRefunds(refunds);
   return refunds;
 }

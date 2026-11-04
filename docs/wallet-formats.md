@@ -52,11 +52,16 @@ backup file = { "v": 1, "keystore": keystore, "journal": journal | null }
 IndexedDB database `privacy-wallet`, object store `secure` (a memory mirror hydrated before the first render; a browser
 without IndexedDB keeps them in memory for the session). The `prefs` store (zod `PrefsV1`: the experience, the theme, the
 locale — V6 Stage 16: with the optional `localeChosen`, the user's choice under Settings → Language, absent for
-"Automatic" —, the recent network, the backup timestamps, the last connector, the first-launch flag; an unknown key is refused)
+"Automatic" —, the recent network, the backup timestamps, the last connector, the first-launch flag, and since the eleventh review
+round `pendingWipe`: the databases a page could not delete under its own connection — WalletConnect's —, deleted at a later page
+start where no page holds WalletConnect; an unknown key is refused)
 holds no secret and no financial figure. `localStorage` holds nothing of the wallet's: the one-time migration copied the
 records, read them back byte for byte and only then removed the old keys. The plaintext journal's optional fields —
 `activity`, `housekeeping`, `aiFunding`, `campaigns`, `addressBook`, `operations` (V5: the operation records from the
-signature on, spec §12) and `classic` (V5: the Classic Privacy module's deposits, spec §16) — are never written by
+signature on, spec §12), `classic` (V5: the Classic Privacy module's deposits, spec §16) and `resumedPast` (the eleventh review
+round: the highest indexes the sources of this journal knew — the restore's that began it and every backup's merged into it since: the
+chain indexes and Private AI's funding index —, §3) — are
+never written by
 `emptyJournal()`, so every earlier journal and the pinned vectors stay valid. V6 (spec v2.0 §12): an operation record
 carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}` in place of `failure`, optional
 `delayed {since, code}`, `declined {at, code}`, `settlement`, and (a V6 follow-up of 2026-10-14) optional `refs`
@@ -151,7 +156,10 @@ The journal is readable only with the seed, never with the password alone. Losin
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
 is why the backup file includes it. A backup restored over this device's own journal of the same wallet is merged into it (the tenth
 review round, 2026-11-04: the device's journal is the base; the backup's notes, orders, campaigns, schedule, records and address
-book entries it lacks are added; every counter is the higher); its journal is checked — the exact `{v, nonce, ct}` shape, opening
+book entries it lacks are added; every counter is the higher; the settings — since the eleventh review round, A11-1 — the backup's whole
+over settings that hold no choice of the user's (the defaults but the experience and the first-time explanation the device mirrors by
+itself), otherwise the device's with every protective control at the stricter of the two, an absent in-flight cap counted as the lowest
+band default); its journal is checked — the exact `{v, nonce, ct}` shape, opening
 under the backup's own keystore — before anything is written, and the journal the restore writes holds the counters from that first
 write. Over another wallet the replaced wallet's settings go. Nothing in either file is ever stored in the clear. V5 (Privacy Wallet Web
 spec §8): the only secure-store records are `pp.keystore` and `pp.journal` (`pp.journal.unreadable` when one is set
@@ -174,10 +182,17 @@ Fresh addresses are handed out in index order; the next index per chain lives in
 (`chainIndexes`) and is reserved when an address is shown as a destination, so no address is reused. A journal that began without
 the whole of an earlier one — a restore from the phrase or from a backup without this device's own journal of the wallet, an unlock
 that finds no journal it can read, a journal set aside earlier — resumes
-every chain's index 1,000 past what it holds (`ADDRESS_INDEX_RESERVE`) and Private AI's funding index 100 past it
-(`AI_FUNDING_RESERVE`) (the tenth review round, 2026-11-04): the indexes live in the journal only, and a restore had handed out
-again the addresses the earlier installation gave to payers or used as destinations. A wallet that discovers addresses by a gap limit
-sees one past the reserve only once its limit is raised (audit gap 117).
+every chain's index past what it holds by the reserve (`ADDRESS_INDEX_RESERVE`, 1,000) and Private AI's funding index by its own
+(`AI_FUNDING_RESERVE`, 100) (the tenth review round, 2026-11-04): the indexes live in the journal only, and a restore had handed out
+again the addresses the earlier installation gave to payers or used as destinations. Past the reserve comes a random draw of up to
+another reserve less one (`resumePast`, `packages/sdk/src/wallet/journal.ts`; the eleventh review round, F11-7): two restores of
+one source — the phrase twice, one backup on two devices — had resumed at the same index, the second handing out the first one's
+addresses again. The draw makes that unlikely, not impossible: about 2n in 1,000 when each restore hands out n addresses. The restore
+journals what its source knew (`resumedPast`). A backup merged later into this device's journal
+resumes past the reserve, with a draw, on every index where the backup knows more than this device — or, over a journal a restore
+began, more than that restore's source knew: the restore's resume point is a guess, not what the device handed out (VF-N1, NF-1).
+A wallet that discovers addresses by a gap limit sees one past the reserve only once its limit is raised to about twice the reserve
+past the last used index (audit gap 117).
 The permanent public address of the user is never the default destination of anything.
 
 ## 4. Privacy address (spec §12, `docs/crypto-spec.md`)

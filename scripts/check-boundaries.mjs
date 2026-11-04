@@ -85,6 +85,11 @@ const SPECS = [
   /\bvi\.(?:mock|doMock|unmock|importActual|importMock)\(\s*["']([^"'\n]+)["']/g,
   /\brequire\(\s*["']([^"'\n]+)["']/g,
 ];
+/**
+ * A worker's or an asset's URL, resolved by the bundler as an import is (the eleventh review round, 2026-11-04, H11-1): read for rule 9 only — a
+ * `new Worker(new URL("../classic/…", import.meta.url))` had passed the source gate, and a worker's graph the build's boundary.
+ */
+const ENTRY_SPECS = [/\bnew\s+URL\(\s*["']([^"'\n]+)["']\s*,\s*import\.meta\.url/g, /\bnew\s+(?:Shared)?Worker\(\s*["']([^"'\n]+)["']/g];
 const lineOf = (s, i) => s.slice(0, i).split("\n").length;
 const packageOf = (spec) => (spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]);
 const isDevFile = (r) =>
@@ -125,6 +130,12 @@ export function check() {
           }
         }
       }
+      for (const rx of ENTRY_SPECS)
+        for (const m of src.matchAll(rx)) {
+          if (!m[1].startsWith(".")) continue;
+          if (rel(resolve(dirname(abs), m[1])).startsWith(CLASSIC_ROOT))
+            report(file, lineOf(src, m.index), `rule 9: a worker's or an asset's URL ${m[1]} reaches into the Classic app (the two share no runtime code)`);
+        }
       if (WALLET_CODE.some((d) => file.startsWith(d + "/"))) {
         for (const m of src.matchAll(/\bcreate(Public|Wallet)Client\s*\(/g))
           if (!CLIENT_MAKERS.includes(file))
@@ -167,6 +178,13 @@ export function check() {
             report(file, line, `rule 9: the Classic app imports ${spec}; it shares no runtime code with the Privacy Wallet`);
         }
       }
+      for (const rx of ENTRY_SPECS)
+        for (const m of src.matchAll(rx)) {
+          if (!m[1].startsWith(".")) continue;
+          const into = rel(resolve(dirname(abs), m[1]));
+          if (/^(apps|packages)\//.test(into))
+            report(file, lineOf(src, m.index), `rule 9: the Classic app's worker or asset URL reaches into ${into} (${m[1]})`);
+        }
     }
   }
 

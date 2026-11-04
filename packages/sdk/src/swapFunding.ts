@@ -128,7 +128,15 @@ export function orderIsOurs(stored: Pick<StoredSwap, "params" | "refundCounter" 
   if (!p || typeof stored.refundCounter !== "number" || typeof stored.attemptId !== "string" || typeof p.orderSigner !== "string") return false;
   const refund = deriveRefundNote(masterSeed, stored.refundCounter);
   const signer = deriveOrderKey(masterSeed, stored.attemptId as Hex).address;
-  return String(p.refundOwnerCommitment) === refund.ownerCommitment.toString() && String(p.refundNoteSecret) === refund.noteSecret.toString() && p.orderSigner.toLowerCase() === signer.toLowerCase();
+  // as numbers, as checkOrder compares them (the eleventh review round, A11-11): a decimal string compared as text was fail-safe only by the wire format
+  const big = (v: unknown): bigint | null => {
+    try {
+      return typeof v === "string" || typeof v === "number" || typeof v === "bigint" ? BigInt(v) : null;
+    } catch {
+      return null;
+    }
+  };
+  return big(p.refundOwnerCommitment) === refund.ownerCommitment && big(p.refundNoteSecret) === refund.noteSecret && p.orderSigner.toLowerCase() === signer.toLowerCase();
 }
 
 /**

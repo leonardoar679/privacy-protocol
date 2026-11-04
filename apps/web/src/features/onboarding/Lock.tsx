@@ -4,7 +4,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Field, Page, Segmented, TextButton, Input } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
-import { ReplaceRefused, session, WalletExists } from "@privacy-wallet/sdk/wallet/session";
+import { ReplaceRefused, RestoreRefused, session, WalletExists, type RestoreRefusal } from "@privacy-wallet/sdk/wallet/session";
+import type { MessageKey } from "../../app/i18n/en";
 import { useSession } from "../../hooks/core";
 import { lockedElsewhere } from "../../platform/autoLock";
 import { StorageNotice } from "../../app/StorageNotice";
@@ -16,9 +17,26 @@ const newWallet = () => void prefs().update({ backup: undefined });
 
 export type LockMode = "unlock" | "create" | "restore";
 
+/** A restore's or an unlock's refusal in the reader's words (the eleventh review round, 2026-11-04): the engine's English had reached the screen. */
+const REFUSAL_WORDS: Record<RestoreRefusal, MessageKey> = {
+  "not-a-backup": "lock.refused.notABackup",
+  "journal-not-wallet": "lock.refused.journalNotWallet",
+  "journal-does-not-open": "lock.refused.journalDoesNotOpen",
+  "public-phrase": "lock.refused.publicPhrase",
+  "public-backup": "lock.refused.publicBackup",
+  "public-wallet": "lock.refused.publicWallet",
+  "phrase-length": "lock.refused.phraseLength",
+  "phrase-invalid": "lock.refused.phraseInvalid",
+};
 /** A wallet another tab created meanwhile (audit round 2, r27): said in the reader's words; the screen now asks for REPLACE. */
 const worded = (e: unknown, t: ReturnType<typeof useT>) =>
-  e instanceof WalletExists ? new Error(t("lock.walletExists")) : e instanceof ReplaceRefused ? new Error(t("lock.replaceRefused")) : e;
+  e instanceof WalletExists
+    ? new Error(t("lock.walletExists"))
+    : e instanceof ReplaceRefused
+      ? new Error(t("lock.replaceRefused"))
+      : e instanceof RestoreRefused
+        ? new Error(t(REFUSAL_WORDS[e.reason]))
+        : e;
 
 function useRun() {
   const [busy, setBusy] = useState(false);
@@ -48,7 +66,8 @@ export function Unlock() {
   const t = useT();
   const { busy, error, run } = useRun();
   const [password, setPassword] = useState("");
-  const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { if (!(await session.unlock(password))) throw new Error(t("lock.wrongPassword")); }); };
+  // a wallet forgotten in another tab is said so (the eleventh review round, A11-6), never "Wrong password."
+  const submit = (e: FormEvent) => { e.preventDefault(); void run(async () => { if (!(await session.unlock(password).catch((x: unknown) => { throw worded(x, t); }))) throw new Error(t(session.hasKeystore() ? "lock.wrongPassword" : "lock.walletRemoved")); }); };
   return (
     <main className="ds-main">
       <Page title={t("lock.unlockTitle")} testId="lock-screen">

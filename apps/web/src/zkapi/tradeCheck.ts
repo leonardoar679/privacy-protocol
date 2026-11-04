@@ -115,12 +115,31 @@ export function tradeSummary(i: {
   return s;
 }
 
-export interface TradeCheck { bestRoute: string; alternative: string; estimatedSavings: string; privacy: string; execution: string; risk: string }
+export interface TradeCheck { bestRoute: string; alternative: string; estimatedSavings: string; privacy: string; execution: string; risk: string; /** the lines not shown: they used a word this wallet never uses (H11-6) */ withheld?: TradeCheckLine[] }
+export type TradeCheckLine = "bestRoute" | "alternative" | "estimatedSavings" | "privacy" | "execution" | "risk";
+const LINES: readonly TradeCheckLine[] = ["bestRoute", "alternative", "estimatedSavings", "privacy", "execution", "risk"];
+/**
+ * The words this wallet never says (spec §18; apps/web/eslint.config.js FORBIDDEN), "atomic" (plan §79) and a 100 % claim of privacy or safety
+ * (spec §18; the critique, K3-6): named to the model, held to after.
+ */
+export const TRADE_CHECK_FORBIDDEN =
+  /\b(atomic(ally)?|anonym\w*|mix(er|ers|ing)|untraceabl\w*|undetectabl\w*|invisibl\w*|impossible to trace)\b|\b100\s?(%|percent)\s*(private|privacy|anonymous|untraceable|safe|safety|secure|protected|unlinkable)/i;
+/**
+ * The model's answer held to the wallet's words before it is shown (the eleventh review round, 2026-11-04, H11-6): a line that uses one is
+ * withheld — the Review shows it under the wallet's own labels, and nothing had held "works like a mixer… untraceable" back.
+ */
+export function holdToWords(c: TradeCheck): TradeCheck {
+  const withheld = LINES.filter((k) => TRADE_CHECK_FORBIDDEN.test(c[k]));
+  if (!withheld.length) return c;
+  const out: TradeCheck = { ...c, withheld };
+  for (const k of withheld) out[k] = "";
+  return out;
+}
 
 export const TRADE_CHECK_SYSTEM = [
   "You are the trade checker of a privacy wallet. You receive a sanitized summary of a planned cross-chain swap: assets, rounded amounts, the value tier, the chosen route with its execution mode and total score, what every provider answered (the competition record), the wallet's privacy check items and, for a large order, the protection plan (risk class, tranche band, exposure cap, a band of steps, settlement gate, expected loss per failure, concentration).",
   "You recommend, compare, explain and warn. You cannot sign, withdraw, change a destination or override a check, and you never ask for addresses, keys, phrases or balances.",
-  "Answer with one JSON object and nothing else, with exactly these keys, each a short plain sentence: bestRoute, alternative, estimatedSavings, privacy, execution, risk. Never use the words atomic or anonymous.",
+  "Answer with one JSON object and nothing else, with exactly these keys, each a short plain sentence: bestRoute, alternative, estimatedSavings, privacy, execution, risk. Never use the words atomic, anonymous, anonymity, mixer, mixing, untraceable, undetectable or invisible, never claim 100 % privacy or safety, and promise nothing about privacy: say what is reduced and what stays public.",
 ].join(" ");
 
 export const tradeCheckMessages = (s: TradeSummary): ChatMessage[] => [{ role: "system", content: TRADE_CHECK_SYSTEM }, { role: "user", content: JSON.stringify(s) }];
@@ -148,5 +167,5 @@ export async function checkTrade(access: InferenceAccess, model: string, summary
   assertSanitized(summary);
   let text = "";
   for await (const chunk of chatStream(access, model, tradeCheckMessages(summary), signal, fetchImpl)) text += chunk;
-  return parseTradeCheck(text);
+  return holdToWords(parseTradeCheck(text)); // the answer held to the wallet's words before any screen shows it (H11-6)
 }

@@ -5,9 +5,78 @@
 import type { Eip1193Provider } from "./injected";
 
 let projectId: string | undefined;
-/** The platform sets WalletConnect's project id (apps/web/src/config.ts applyConfig): the connector exists only with one. */
-export function configureWalletConnect(id: string | undefined): void {
+let deferDeletion: ((db: string) => void) | undefined;
+/**
+ * The platform sets WalletConnect's project id (apps/web/src/config.ts applyConfig): the connector exists only with one. `deferDeletion`: where
+ * the platform keeps a database to delete at the next page start (the eleventh review round, 2026-11-04, A11-3/H11-4).
+ */
+export function configureWalletConnect(id: string | undefined, o: { deferDeletion?: (db: string) => void } = {}): void {
   projectId = id;
+  deferDeletion = o.deferDeletion;
+}
+/**
+ * WalletConnect's library was loaded in this page: its core keeps a connection to its database open for the page's life (idb-keyval, no
+ * versionchange handler), so a deletion from this page waits for the page to go — and every later open of that database waits behind it.
+ */
+let loadedHere = false;
+export const walletConnectLoadedHere = (): boolean => loadedHere;
+
+/**
+ * The Web Lock a page that loads WalletConnect holds, shared, for its life (the eleventh review round's critique, 2026-11-04): its connection
+ * to WalletConnect's database stays open, so another page's deletion of that database is blocked by it — and stays queued in the browser, every
+ * later open of the database on this origin behind it, a WalletConnect connection "connecting" until that page closed. A deletion is made only
+ * while no page holds the lock (exclusive, if available), and a page loading WalletConnect waits for a deletion in progress.
+ */
+export const WALLET_CONNECT_LOCK = "privacy-wallet:walletconnect";
+const lockManager = (): LockManager | null => (typeof navigator !== "undefined" ? (navigator.locks ?? null) : null);
+function holdWhileLoaded(): Promise<void> {
+  const locks = lockManager();
+  if (!locks) return Promise.resolve();
+  return new Promise((resolve) => {
+    locks
+      .request(WALLET_CONNECT_LOCK, { mode: "shared" }, () => {
+        resolve();
+        return new Promise<void>(() => undefined); // held until the page goes
+      })
+      .catch(() => resolve());
+  });
+}
+/** How long a deletion another connection blocks is waited for before it is called blocked (the platform's DELETE_WAIT_MS). */
+const DELETE_WAIT_MS = 5_000;
+function deleteDb(idb: IDBFactory | null | undefined, name: string): Promise<"deleted" | "blocked" | "failed"> {
+  return new Promise((resolve) => {
+    let req: IDBOpenDBRequest | undefined;
+    try {
+      req = idb?.deleteDatabase(name);
+    } catch {
+      req = undefined;
+    }
+    if (!req) return resolve("failed");
+    const timer = setTimeout(() => resolve("blocked"), DELETE_WAIT_MS);
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      resolve("deleted");
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      resolve("failed");
+    };
+  });
+}
+/**
+ * WalletConnect's database deleted while no page holds WalletConnect: "held" when one does — the database is kept for a later page start.
+ * Without Web Locks nothing is known, and the deletion is made as before.
+ */
+export async function deleteWalletConnectDatabase(
+  del: () => Promise<"deleted" | "blocked" | "failed">,
+): Promise<"deleted" | "blocked" | "failed" | "held"> {
+  const locks = lockManager();
+  if (!locks) return del();
+  try {
+    return await locks.request(WALLET_CONNECT_LOCK, { mode: "exclusive", ifAvailable: true }, async (lock) => (lock ? del() : ("held" as const)));
+  } catch {
+    return "failed";
+  }
 }
 export const walletConnectProjectId = (): string | undefined => projectId;
 export const walletConnectAvailable = (): boolean => !!walletConnectProjectId();
@@ -40,7 +109,10 @@ export async function walletConnectProvider(chainId: number): Promise<WcProvider
   const projectId = walletConnectProjectId();
   if (!projectId) return null;
   if (cached) return cached;
+  // the page holds WalletConnect from here on (WALLET_CONNECT_LOCK), after any deletion of its database in progress
+  await holdWhileLoaded();
   const mod = await import("@walletconnect/ethereum-provider");
+  loadedHere = true;
   const origin = typeof location === "undefined" ? "https://localhost" : location.origin;
   const provider = await mod.EthereumProvider.init({
     projectId,
@@ -64,11 +136,37 @@ export async function walletConnectProvider(chainId: number): Promise<WcProvider
  * the relay socket stayed open and the next WalletConnect connection reused the session. The provider is forgotten, so
  * the next connection is a new pairing. A session the wallet already ended is not an error.
  */
-export async function endWalletConnect(): Promise<void> {
+let ending: Promise<void> | null = null;
+export function endWalletConnect(): Promise<void> {
+  // one end at a time: a Disconnect's and a Forget's awaiting the same (the round's second critique: the Forget awaits it)
+  if (ending) return ending;
   const p = cached;
   cached = null;
-  if (p) await p.disconnect().catch(() => {});
-  clearWalletConnectStorage();
+  ending = (async () => {
+    if (p) await p.disconnect().catch(() => {});
+    // its keys through its own storage, on the connection it holds (A11-3, H11-4): a deletion of the database from this page is blocked by
+    // that connection; the database itself goes at a later page start
+    await clearThroughStore(storeOf(p));
+    await clearWalletConnectStorage();
+  })().finally(() => {
+    ending = null;
+  });
+  return ending;
+}
+
+interface KeyStore { getKeys(): Promise<string[]>; removeItem(key: string): Promise<void> }
+/** The core's key-value store (EthereumProvider → UniversalProvider → SignClient → Core): its getKeys and removeItem, or null. */
+const storeOf = (p: unknown): KeyStore | null => {
+  const s = (p as { signer?: { client?: { core?: { storage?: Partial<KeyStore> } } } } | null)?.signer?.client?.core?.storage;
+  return s && typeof s.getKeys === "function" && typeof s.removeItem === "function" ? (s as KeyStore) : null;
+};
+async function clearThroughStore(s: KeyStore | null): Promise<void> {
+  if (!s) return;
+  try {
+    for (const k of await s.getKeys()) await s.removeItem(k).catch(() => undefined);
+  } catch {
+    // unreadable: the deletion at the next start removes it
+  }
 }
 
 /**
@@ -79,18 +177,21 @@ export async function endWalletConnect(): Promise<void> {
 /** WalletConnect 2's own IndexedDB store (@walletconnect/keyvaluestorage): the pairing, the session with the account, the keychain. */
 export const WALLET_CONNECT_DB = "WALLET_CONNECT_V2_INDEXED_DB";
 
-export function clearWalletConnectStorage(): void {
+/** Resolves once the database is deleted, kept for the next page start, or found blocked (DELETE_WAIT_MS); the localStorage entries go at once. */
+export function clearWalletConnectStorage(idb: IDBFactory | null | undefined = globalThis.indexedDB): Promise<void> {
   // its IndexedDB store too (the tenth review round, D-3): WalletConnect 2.26 moves every wc@ key there, and a Disconnect or a Forget that
-  // cleared localStorage alone had left the session, its account and its keychain on the device
-  try {
-    const req = globalThis.indexedDB?.deleteDatabase(WALLET_CONNECT_DB);
-    if (req) req.onerror = () => undefined;
-  } catch {
-    // no IndexedDB
-  }
+  // cleared localStorage alone had left the session, its account and its keychain on the device. Never from a page where WalletConnect is
+  // loaded (the eleventh review round, A11-3/H11-4): its own connection blocks the deletion — the next page start deletes it; nor while
+  // another page holds it (the round's critique): kept for a later start then too
+  let deleting: Promise<void> = Promise.resolve();
+  if (loadedHere) deferDeletion?.(WALLET_CONNECT_DB);
+  else
+    deleting = deleteWalletConnectDatabase(() => deleteDb(idb, WALLET_CONNECT_DB)).then((r) => {
+      if (r === "held") deferDeletion?.(WALLET_CONNECT_DB);
+    });
   try {
     const store = globalThis.localStorage;
-    if (!store) return;
+    if (!store) return deleting;
     const keys: string[] = [];
     for (let i = 0; i < store.length; i++) {
       const k = store.key(i);
@@ -100,7 +201,10 @@ export function clearWalletConnectStorage(): void {
   } catch {
     // no storage, or unreadable: nothing to clear
   }
+  return deleting;
 }
 
-/** Tests: forget the cached provider. */
-export function resetWalletConnect(): void { cached = null; }
+/** Tests: forget the cached provider (and that the library was loaded). */
+export function resetWalletConnect(): void { cached = null; loadedHere = false; }
+/** Tests: the library as loaded in this page. */
+export function markWalletConnectLoaded(): void { loadedHere = true; }

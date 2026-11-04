@@ -235,7 +235,13 @@ export function Review(p: ReviewProps) {
           {check.result ? (
             <div className="ds-review-block" data-testid="trade-check-result">
               <div className="ds-note">{t("review.tradeCheck.disclaimer")}</div>
-              {(["bestRoute", "alternative", "estimatedSavings", "privacy", "execution", "risk"] as const).map((k) => check.result![k] ? <Row key={k} label={t(`review.tradeCheck.${k}` as MessageKey)}>{String(check.result![k])}</Row> : null)}
+              {(["bestRoute", "alternative", "estimatedSavings", "privacy", "execution", "risk"] as const).map((k) =>
+                check.result!.withheld?.includes(k) ? (
+                  <Row key={k} label={t(`review.tradeCheck.${k}` as MessageKey)} testId={`trade-check-withheld-${k}`}>{t("review.tradeCheck.withheld")}</Row>
+                ) : check.result![k] ? (
+                  <Row key={k} label={t(`review.tradeCheck.${k}` as MessageKey)}>{String(check.result![k])}</Row>
+                ) : null,
+              )}
             </div>
           ) : null}
         </div>

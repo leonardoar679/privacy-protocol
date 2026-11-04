@@ -7,7 +7,8 @@
 import { config } from "@privacy-wallet/sdk/config";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
-import { clearWalletConnectStorage, WALLET_CONNECT_DB } from "@privacy-wallet/wallet-engine/walletConnect";
+import { clearWalletConnectStorage, endWalletConnect, walletConnectLoadedHere } from "@privacy-wallet/wallet-engine/walletConnect";
+import { deleteDatabase } from "./pendingWipe";
 import { prefs } from "../storage/prefs";
 import { secureStore } from "../storage/secureStore";
 import { SECURE_KEYS } from "../storage/keys";
@@ -42,38 +43,17 @@ export const CLASSIC_LOCALE_KEY = "tornado-classic:locale";
 /** Whether Tornado Classic is served on this origin (`/classic/`, the default) — its storage is then this origin's too. */
 export const classicOnThisOrigin = (url: string | undefined = config().classicUrl): boolean => !url || url === "/classic/";
 
-/**
- * A database's deletion, awaited (the tenth review round, D-9, B10-9): a production build restarts the page as soon as the Forget resolves,
- * and the deletes still queued had raced it. A deletion another tab blocks resolves "blocked" after DELETE_WAIT_MS — that tab's
- * versionchange handler closes it (Classic's does) and the deletion completes then.
- */
-export const DELETE_WAIT_MS = 5_000;
-export function deleteDatabase(idb: IDBFactory | null, name: string): Promise<"deleted" | "blocked" | "failed"> {
-  return new Promise((resolve) => {
-    let req: IDBOpenDBRequest | undefined;
-    try {
-      req = idb?.deleteDatabase(name);
-    } catch {
-      req = undefined;
-    }
-    if (!req) return resolve("failed");
-    const timer = setTimeout(() => resolve("blocked"), DELETE_WAIT_MS);
-    req.onsuccess = () => {
-      clearTimeout(timer);
-      resolve("deleted");
-    };
-    req.onerror = () => {
-      clearTimeout(timer);
-      resolve("failed");
-    };
-  });
-}
+// a database's deletion, awaited (D-9, B10-9): ./pendingWipe.ts, beside the deletions kept for the next page start
+export { DELETE_WAIT_MS, deleteDatabase } from "./pendingWipe";
 
 export interface ForgetDeps {
   caches?: CacheStorage | null;
   indexedDB?: IDBFactory | null;
   localStorage?: Storage | null;
 }
+
+/** How long a Forget waits for WalletConnect's session to end at its relay (the page that loaded it). */
+export const WALLET_CONNECT_END_MS = 5_000;
 
 /** Everything of the wallet's under this origin: the records, the public connection, the preferences, the caches, Classic's stores. */
 export async function forgetEverything(d: ForgetDeps = {}): Promise<void> {
@@ -86,16 +66,24 @@ export async function forgetEverything(d: ForgetDeps = {}): Promise<void> {
   } catch {
     // no provider to end
   }
-  clearWalletConnectStorage();
-  // the preferences from the defaults: the last connector, the backup dates, the experience, the locale
+  // the preferences from the defaults: the last connector, the backup dates, the experience, the locale — before WalletConnect's store is
+  // cleared, which keeps its database for the next page start when WalletConnect is loaded in this page (A11-3/H11-4)
   prefs().reset();
+  // in the page that loaded WalletConnect: its session ended at the relay and its keys removed through its own storage before the Forget goes
+  // on (the round's second critique: the disconnect's end had not been awaited, and the restart raced it) — bounded, a relay that never
+  // answers holds no Forget
+  if (walletConnectLoadedHere()) await Promise.race([endWalletConnect().catch(() => undefined), new Promise((r) => setTimeout(r, WALLET_CONNECT_END_MS))]);
+  // its database deleted where no page holds WalletConnect, kept for a later start otherwise (A11-3/H11-4; the round's critique)
+  const walletConnectCleared = clearWalletConnectStorage(idb);
   // the Private AI session's provider key released, and the credit wallet's stores gone (C-M2)
   endAiSession();
-  const deletions: Promise<unknown>[] = [deleteDatabase(idb, ZKAPI_DB), deleteDatabase(idb, WALLET_CONNECT_DB)];
+  const deletions: Promise<unknown>[] = [deleteDatabase(idb, ZKAPI_DB), walletConnectCleared];
   // every key the zkAPI SDK keeps (the ninth review round, B-F6): a withdrawal in flight with its destination and transaction, the exit RPC,
   // the bundler — not only its deployment
   if (d.localStorage === undefined) removeLocalStorageKeysWithPrefix(ZKAPI_KEY_PREFIX);
   else removeLocalStorageKeysWithPrefix(ZKAPI_KEY_PREFIX, d.localStorage);
+  // the passkeys of the second factor and of the second device stay with the authenticator: the Forget says so (security.forget.passkeys) and
+  // signals nothing — another installation of this wallet may use the same synced passkey (the eleventh review round's critique; gap 71)
   // the keystore, the journal, a journal set aside, the settings
   session.forget();
   // and a legacy localStorage copy of them a migration left in place (D-9): the next load had moved a forgotten keystore back
@@ -111,7 +99,10 @@ export async function forgetEverything(d: ForgetDeps = {}): Promise<void> {
     if (d.localStorage === undefined) removeLocalStorageKey(CLASSIC_LOCALE_KEY);
     else removeLocalStorageKey(CLASSIC_LOCALE_KEY, d.localStorage);
   }
-  // every delete written before the Forget resolves (D-9, B10-9): the secure store's queue (the keystore, the journal), the preferences', the
-  // databases — the restart that follows had raced them, the journal still in IndexedDB when it came
-  await Promise.all([secureStore().flush().catch(() => undefined), prefs().flush().catch(() => undefined), ...deletions]);
+  // every delete written before the Forget resolves (D-9, B10-9): the databases, then the secure store's queue (the keystore, the journal) and
+  // the preferences' — the restart that follows had raced them, the journal still in IndexedDB when it came. The preferences are flushed after
+  // the deletions settle (the round's second critique): a deletion another page holds keeps its name in them once the lock answers, a write
+  // a flush taken before it never awaited
+  await Promise.all(deletions);
+  await Promise.all([secureStore().flush().catch(() => undefined), prefs().flush().catch(() => undefined)]);
 }

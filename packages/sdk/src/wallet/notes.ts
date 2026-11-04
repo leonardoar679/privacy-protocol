@@ -114,6 +114,9 @@ export class NoteStore {
    * copies had doubled the balance and failed every spend that picked both. Another note there is replaced (settle).
    */
   add(n: OwnedNote): void {
+    // nothing goes into a store a lock closed (the eleventh review round, 2026-11-04, VA NF-2): a late result had put a note's secret and amount
+    // back into the page's memory until the next unlock — and, after a REPLACE, into the other wallet's store (A11-2 binds those flows too)
+    if (this.closed) return;
     const i = this.notes.findIndex((x) => x.leafIndex === n.leafIndex);
     if (i < 0) this.notes.push(n);
     else this.notes[i] = settle(this.notes[i], n);
@@ -124,6 +127,7 @@ export class NoteStore {
    * finalized block, else the mark waits for that proof (the third review round, 2026-11-03).
    */
   markSpent(leafIndexes: number[], o: { atBlock?: number; proven?: boolean } = {}): void {
+    if (this.closed) return;
     for (const n of this.notes) {
       if (!leafIndexes.includes(n.leafIndex)) continue;
       const was = n.spent;
@@ -135,16 +139,19 @@ export class NoteStore {
   }
   /** The light client proved these spends at a finalized block: the marks are final. */
   confirmSpent(leafIndexes: number[]): void {
+    if (this.closed) return;
     for (const n of this.notes) if (leafIndexes.includes(n.leafIndex)) { delete n.spentUnproven; delete n.spentAtBlock; }
     this.emit();
   }
   /** The chain does not have these spends (the quorum no longer calls the notes spent, or the finalized chain past the block of the mark does not): the notes are unspent again. Only an unproven mark may be lifted. */
   markUnspent(leafIndexes: number[]): void {
+    if (this.closed) return;
     for (const n of this.notes) if (leafIndexes.includes(n.leafIndex) && n.spentUnproven) { n.spent = false; delete n.spentUnproven; delete n.spentAtBlock; }
     this.emit();
   }
   /** Forget the notes at these leaves: the pool proven at the latest finalized block holds other commitments there (audit round 2, r24). */
   drop(leafIndexes: number[]): void {
+    if (this.closed) return;
     this.notes = this.notes.filter((n) => !leafIndexes.includes(n.leafIndex));
     this.emit();
   }
@@ -171,6 +178,7 @@ export class NoteStore {
   }
   /** A counter this wallet is known to have used (a rescan found a note derived from it): the next one is past it. */
   observeCounter(used: number): void {
+    if (this.closed) return; // another opening's counters never raise the next one's (NF-2)
     if (used >= this.loadedCounter) this.stale = true; // the journal did not know this counter: it is behind the chain
     if (used + 1 <= this.counter) return;
     this.counter = used + 1;
@@ -290,7 +298,29 @@ export class NoteStore {
     this.listeners.add(l);
     return () => this.listeners.delete(l);
   }
+  private batching = 0;
+  private dirty = false;
+  /**
+   * Many changes as one (the eleventh review round, 2026-11-04, H11-5): the listeners hear once, at the end — a scan that records n notes had
+   * emitted about 2n times, and the session serialised, encrypted and queued the whole growing journal each time. Nested batches end with the
+   * outermost; `all()` reads the store as it was before the batch until then.
+   */
+  batch<T>(fn: () => T): T {
+    this.batching++;
+    try {
+      return fn();
+    } finally {
+      if (--this.batching === 0 && this.dirty) {
+        this.dirty = false;
+        this.emit();
+      }
+    }
+  }
   private emit(): void {
+    if (this.batching > 0) {
+      this.dirty = true;
+      return;
+    }
     this.snapshot = this.notes.map((n) => ({ ...n }));
     for (const l of this.listeners) l();
   }

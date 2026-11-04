@@ -195,8 +195,12 @@ async function mount(container: HTMLElement) {
 }
 /** A wallet with a 5,000 ETH note, the price read, the amount typed and quoted. */
 async function quoted(container: HTMLElement, amountEth: string) {
+  // the settings this test chose before the wallet existed, kept: a user chooses them under Settings, once it is open — a load replaces
+  // whatever the page held (the eleventh review round, A11-6)
+  const chosen = settings.get();
   await session.create("a strong password");
   session.acknowledgePhrase();
+  settings.set(chosen);
   noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: eth(5000), ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
   await priceStore.refresh(deployment, { force: true });
   expect(priceStore.state().status).toBe("ready");

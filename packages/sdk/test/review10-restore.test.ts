@@ -13,13 +13,15 @@ import type { StoredSwap } from "../src/wallet/journal";
 
 const KDF = { N: 1 << 12, r: 8, p: 1 };
 const swap = (orderId: string) => ({ orderId, state: "funded", params: {}, request: {}, createdAt: 0 }) as unknown as StoredSwap;
+/** a resume point past `known` (the eleventh review round, F11-7): the reserve, plus a draw of up to another */
+const resumed = (v: number | undefined, known: number, reserve: number) => v !== undefined && v >= known + reserve && v < known + 2 * reserve;
 
 describe("fresh addresses after a restore (D-2)", () => {
   it("a phrase restore without the journal resumes every chain's fresh-address index and Private AI's funding index past their reserves", async () => {
     const s = new WalletSession(memoryStorage(), KDF);
     await s.restoreFromPhrase(seedToPhrase(new Uint8Array(32).fill(4)), "a password");
-    expect(s.journal().chainIndexes).toMatchObject({ evm: ADDRESS_INDEX_RESERVE, bitcoin: ADDRESS_INDEX_RESERVE, solana: ADDRESS_INDEX_RESERVE });
-    expect(s.journal().aiFunding?.index).toBe(AI_FUNDING_RESERVE);
+    for (const chain of ["evm", "bitcoin", "solana"]) expect(resumed(s.journal().chainIndexes[chain], 0, ADDRESS_INDEX_RESERVE), chain).toBe(true);
+    expect(resumed(s.journal().aiFunding?.index, 0, AI_FUNDING_RESERVE)).toBe(true);
     expect(s.journal().countersHeld).toBe(true);
     s.lock();
   });
@@ -37,7 +39,7 @@ describe("an unlock without its journal (D-2)", () => {
     s.lock();
     store.remove(JOURNAL_KEY);
     expect(await s.unlock("a password")).toBe(true);
-    expect(s.journal().chainIndexes.evm).toBe(ADDRESS_INDEX_RESERVE);
+    expect(resumed(s.journal().chainIndexes.evm, 0, ADDRESS_INDEX_RESERVE)).toBe(true);
     s.lock();
   });
 });
@@ -54,6 +56,11 @@ describe("a backup restored over this device's own wallet (D-4, D-6)", () => {
         base.set(k, v);
       },
       remove: (k) => base.remove(k),
+      // the restore writes its keystore and journal in one write (the eleventh review round, A11-7): each record of it seen here too
+      setMany: (entries) => {
+        for (const [k, v] of entries) if (v !== null) writes.push({ key: k, value: v });
+        base.setMany!(entries);
+      },
     };
     const s = new WalletSession(store, KDF);
     await s.create("a password");
@@ -78,7 +85,10 @@ describe("a backup restored over this device's own wallet (D-4, D-6)", () => {
         .swaps.map((x) => x.orderId)
         .sort(),
     ).toEqual(["0x0a", "0x0b"]);
-    expect(s.journal().chainIndexes, "every counter the higher of the two").toMatchObject({ evm: 7, bitcoin: 12 });
+    // this device's own index where it is ahead; past the reserve where the backup knows more (the eleventh review round, VF-N1: the backup's
+    // installation may have gone on after it was made)
+    expect(s.journal().chainIndexes.evm, "the device ahead: its own").toBe(7);
+    expect(resumed(s.journal().chainIndexes.bitcoin, 12, ADDRESS_INDEX_RESERVE), "the backup ahead: past its reserve").toBe(true);
     // the first journal the restore wrote, before its unlock: the counters held in it (a reload during the unlock found them free before)
     const first = writes.find((w) => w.key === JOURNAL_KEY)!;
     const seed = s.state().seed!;

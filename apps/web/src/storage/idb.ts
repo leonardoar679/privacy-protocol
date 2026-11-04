@@ -73,6 +73,15 @@ export async function idbPut(name: StoreName, key: string, value: string): Promi
 export async function idbDelete(name: StoreName, key: string): Promise<void> {
   await write(name, (s) => s.delete(key));
 }
+/** Several puts and deletes in one transaction (the eleventh review round, A11-7): all of them land, or none (null: a delete). */
+export async function idbWriteMany(name: StoreName, entries: readonly (readonly [string, string | null])[]): Promise<void> {
+  await write(name, (s) => {
+    for (const [k, v] of entries) {
+      if (v === null) s.delete(k);
+      else s.put(v, k);
+    }
+  });
+}
 export async function idbClear(name: StoreName): Promise<void> {
   await write(name, (s) => s.clear());
 }

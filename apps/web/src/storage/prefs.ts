@@ -1,6 +1,6 @@
 // The non-sensitive preferences (spec §8): the experience mode, the theme, the locale, the recent network, the
-// backup timestamps, the last connector, the first-launch flag — and nothing else: no amount, no pair, no address,
-// no operation time. Persisted in the `prefs` store under one key; a value outside the schema is refused, and a
+// backup timestamps, the last connector, the first-launch flag, the databases to delete at the next start — and nothing else: no amount, no
+// pair, no address, no operation time. Persisted in the `prefs` store under one key; a value outside the schema is refused, and a
 // stored value that no longer parses is replaced by the defaults (the wallet never fails to start over a preference).
 import { z } from "zod";
 import { hasIndexedDb, idbGet, idbPut } from "./idb";
@@ -16,6 +16,8 @@ export const PrefsSchema = z.object({
   backup: z.object({ phraseAcknowledgedAt: z.number().int().optional(), exportedAt: z.number().int().optional() }).strict().optional(),
   lastConnector: z.string().max(64).optional(),
   firstLaunchDone: z.boolean(),
+  // the eleventh review round (2026-11-04, A11-3/H11-4): a database a page could not delete under its own connection (WalletConnect's)
+  pendingWipe: z.array(z.string().max(64)).max(8).optional(),
 }).strict();
 export type Prefs = z.infer<typeof PrefsSchema>;
 
@@ -54,6 +56,10 @@ export function createPrefsStore(): PrefsStore {
   let loaded = !useIdb;
   let pending: Partial<Prefs> = {};
   let replace = false; // a reset not yet written: what is stored is not merged under it
+  let resets = 0;
+  // a patch on what the store holds when the write runs, never this page's whole copy (the eleventh review round, 2026-11-04, H11-7): a tab
+  // loaded before a Forget in another had written the forgotten wallet's connector, locale and experience back over the reset; a reset
+  // writes the defaults with this page's changes since
   const persist = () => {
     if (!useIdb) return;
     queue = queue
@@ -61,10 +67,25 @@ export function createPrefsStore(): PrefsStore {
         if (!loaded) await load();
         if (!loaded) return; // still unreadable: the changes stay in memory and pending
         const written = pending;
+        const wasReplace = replace;
+        const at = resets;
         pending = {};
         try {
-          await idbPut("prefs", PREFS_KEY, JSON.stringify(current));
-          replace = false;
+          let base: Prefs = { ...DEFAULT_PREFS };
+          if (!wasReplace) {
+            const raw = await idbGet("prefs", PREFS_KEY);
+            const parsed = raw === undefined ? null : PrefsSchema.safeParse(JSON.parse(raw));
+            base = parsed?.success ? parsed.data : { ...DEFAULT_PREFS };
+          }
+          const next = PrefsSchema.parse({ ...base, ...written, v: 1 });
+          await idbPut("prefs", PREFS_KEY, JSON.stringify(next));
+          if (resets === at) replace = false;
+          // what another tab wrote is this page's too, under the changes it has not written yet
+          const shown = PrefsSchema.parse({ ...next, ...pending, v: 1 });
+          if (JSON.stringify(shown) !== JSON.stringify(current)) {
+            current = shown;
+            emit();
+          }
         } catch (e) {
           pending = { ...written, ...pending };
           throw e;
@@ -98,7 +119,7 @@ export function createPrefsStore(): PrefsStore {
       emit();
       return next;
     },
-    reset: () => { current = { ...DEFAULT_PREFS }; pending = { ...DEFAULT_PREFS }; replace = true; persist(); emit(); },
+    reset: () => { current = { ...DEFAULT_PREFS }; pending = { ...DEFAULT_PREFS }; replace = true; resets++; persist(); emit(); },
     subscribe: (l) => { listeners.add(l); return () => { listeners.delete(l); }; },
     flush: () => queue,
     reload: () => (queue = queue.then(load, load)),

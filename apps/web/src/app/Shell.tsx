@@ -17,6 +17,7 @@ import type { MessageKey } from "./i18n/en";
 const Background = lazy(() => import("./Background").then((m) => ({ default: m.Background })));
 import { NotificationToasts } from "./notifications";
 import { StorageNotice } from "./StorageNotice";
+import { PublicWalletNotice } from "./PublicWalletNotice";
 import { useConnection, useConnectivity, usePrefs, useSession } from "../hooks/core";
 import { moreEntries } from "../features/more/entries";
 import { ConnectSheet } from "../features/wallet/ConnectSheet";
@@ -111,6 +112,7 @@ export function Shell() {
       <NotificationToasts />
       <ConnectionBanner />
       <StorageNotice />
+      <PublicWalletNotice />
       {s.journalUnreadable ? (
         <div className="notice" data-testid="journal-unreadable">
           <p>

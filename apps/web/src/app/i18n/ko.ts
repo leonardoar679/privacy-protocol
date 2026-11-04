@@ -60,6 +60,18 @@ export const ko: Record<MessageKey, string> = {
   "lock.passwordBackup": "해당 백업의 비밀번호",
   "lock.unlock": "잠금 해제",
   "lock.wrongPassword": "비밀번호가 틀렸습니다.",
+  "lock.refused.notABackup": "이 파일은 지갑 백업이 아닙니다. 아무것도 복원되지 않았습니다.",
+  "lock.refused.journalNotWallet": "이 백업의 기록이 손상되었거나 지갑의 기록이 아닙니다. 아무것도 복원되지 않았습니다.",
+  "lock.refused.journalDoesNotOpen": "이 백업의 기록이 손상되었거나 다른 지갑의 것이어서 아무것도 복원되지 않았습니다. 지갑의 복구 문구로 복원할 수 있습니다.",
+  "lock.refused.phraseLength": "복구 문구는 24개 단어입니다. 빠진 단어가 없는지, 단어 사이가 공백으로 구분되어 있는지 확인하세요.",
+  "lock.refused.phraseInvalid": "올바른 복구 문구가 아닙니다: 철자가 틀렸거나 순서가 바뀐 단어가 있습니다. 백업과 단어를 하나씩 대조해 확인하세요.",
+  "lock.refused.publicPhrase":
+    "이 복구 문구는 누구나 찾아볼 수 있는 공개된 테스트 문구라서, 이 문구로 만든 지갑의 자산은 누구나 쓸 수 있습니다. 새 지갑을 만드세요.",
+  "lock.refused.publicBackup": "이 백업은 공개된 테스트 문구로 만든 지갑입니다. 누구나 그 자산을 쓸 수 있습니다. 아무것도 복원되지 않았습니다.",
+  "lock.refused.publicWallet":
+    "이 지갑의 복구 문구는 누구나 찾아볼 수 있는 공개된 테스트 문구라서, 누구나 그 자산을 쓸 수 있고 이 지갑은 사용할 수 없습니다. 새 지갑을 만들고 이 지갑으로는 아무것도 보내지 마세요.",
+  "lock.walletRemoved":
+    "이 지갑이 더 이상 이 기기에 저장되어 있지 않습니다: 다른 탭에서 삭제되었거나 이 사이트의 브라우저 데이터가 지워졌습니다. 복구 문구나 백업 파일로 복원하거나 새 지갑을 만드세요.",
   "lock.wrongBackupPassword": "이 백업의 비밀번호가 틀렸습니다.",
   "lock.createIntro": "이 기기에서 새 시드가 생성됩니다. 저장하기 전에 비밀번호로 암호화되며, 24단어 복구 문구는 한 번만 표시됩니다.",
   "lock.create": "지갑 만들기",
@@ -355,6 +367,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.journal_not_kept.reason":
     "이 브라우저가 지갑의 데이터를 보관하지 않아, 실행자가 받기 전까지 자금을 되돌릴 유일한 수단인 스왑 기록이 이 탭을 닫으면 사라집니다. 아무것도 전송되지 않았습니다. 공간을 확보하거나 사이트 데이터를 보관하는 브라우저를 사용한 뒤 다시 시도하세요.",
   "storage.memoryTitle": "이 브라우저가 지갑 데이터를 저장하지 않습니다",
+  "shell.publicWallet.title": "누구나 이 지갑의 자산을 사용할 수 있습니다",
+  "shell.publicWallet.body":
+    "이 지갑의 복구 문구는 누구나 찾아볼 수 있는 공개 테스트 문구입니다. 지금 보유한 자산을 새 지갑으로 옮기고, 이 지갑으로는 더 이상 보내지 마세요.",
   "storage.memoryBody": "지갑과 활동 기록은 이 탭에만 있으며 탭을 닫으면 사라집니다. 복구 문구를 보관하세요. 복구 문구로 지갑을 되살릴 수 있습니다.",
   "fees.total": "총 수수료",
   "fees.viewDetails": "수수료 상세 보기",
@@ -1195,6 +1210,7 @@ export const ko: Record<MessageKey, string> = {
   "review.tradeCheck.privacy": "프라이버시",
   "review.tradeCheck.execution": "실행",
   "review.tradeCheck.risk": "위험",
+  "review.tradeCheck.withheld": "표시하지 않음: 답변에 이 지갑이 쓰지 않는 표현이 있었습니다.",
   "review.reviewHold": "검토 대기: 확인 후 자금 투입은 최소 {minutes}분 기다리며, 그동안 주문을 취소할 수 있습니다 (스왑 → 열린 스왑 → 포기).",
   "review.export": "검토용으로 내보내기 (JSON)",
   "review.factor.next": "{button} (다음: 2차 확인)",
@@ -1608,7 +1624,8 @@ export const ko: Record<MessageKey, string> = {
   "security.factor.remove": "삭제",
   "security.factor.registering": "플랫폼 인증기에 등록하는 중…",
   "security.factor.registered": "등록되었습니다. 2차 확인 기준 금액을 넘는 이체는 먼저 인증기에 요청하며, 비밀번호는 계속 대체 수단으로 남습니다.",
-  "security.factor.removed": "삭제되었습니다. 대신 비밀번호를 요청합니다.",
+  "security.factor.removed":
+    "삭제되었습니다. 대신 비밀번호를 요청합니다. 패스키 “privacy-wallet”은 브라우저나 휴대폰의 비밀번호 관리자에 남습니다: 다른 곳에서 쓰지 않는다면 그곳에서 삭제하세요.",
   "security.tiers.title": "대규모 이체",
   "security.tiers.body":
     "이 USD 금액을 넘으면 지갑이 검토, 프라이버시 점검, 시뮬레이션, 길게 눌러 확인, 2차 확인을 이 순서대로 추가합니다. 금액은 본인의 RPC 엔드포인트를 통해 체인링크에서 가져오며, 가격 정보가 없으면 고액 통제가 적용됩니다.",
@@ -1621,8 +1638,12 @@ export const ko: Record<MessageKey, string> = {
   "security.tier.institutional": "기관 검토 기준 (USD)",
   "security.forget.title": "이 기기에서 이 지갑 지우기",
   "security.forget.body":
-    "이 기기에서 키 저장소와 암호화된 기록을 삭제하고, 공개 지갑의 연결과 WalletConnect 페어링, 환경 설정, 속도를 위해 보관한 증명 파일, 프라이빗 AI의 크레딧 지갑(백업에 포함되지 않으므로 사용하지 않은 크레딧을 먼저 인출하세요), 그리고 Tornado Classic이 여기서 제공되는 경우 그 기록도 지웁니다. 이후에는 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 FORGET을 입력하세요.",
+    "이 기기에서 키 저장소와 암호화된 기록을 삭제하고, 공개 지갑의 연결과 WalletConnect 페어링(다른 탭이 WalletConnect를 쓰는 중이면 그런 탭이 없는 다음 시작 때), 환경 설정, 속도를 위해 보관한 증명 파일, 프라이빗 AI의 크레딧 지갑(백업에 포함되지 않으므로 사용하지 않은 크레딧을 먼저 인출하세요), 그리고 Tornado Classic이 여기서 제공되는 경우 그 기록도 지웁니다. 이후에는 복구 문구나 백업 파일로만 되돌릴 수 있습니다. 확인하려면 FORGET을 입력하세요.",
   "security.forget.open": "이 지갑 지우기…",
+  "security.forget.passkeyFactor":
+    "이 지갑이 두 번째 확인용으로 등록한 패스키 “privacy-wallet”은 브라우저나 휴대폰의 비밀번호 관리자에 남습니다: 지우기로는 삭제할 수 없습니다. 다른 기기나 브라우저가 이 지갑과 함께 그 패스키를 쓰고 있지 않다면 그곳에서 직접 삭제하세요.",
+  "security.forget.passkeyDevice":
+    "패스키 “privacy-wallet-second-device”는 등록한 별도 기기(보안 키나 휴대폰)에 남습니다: 지우기로는 삭제할 수 없습니다. 이 지갑의 다른 설치가 그 패스키를 쓰고 있지 않다면 그 기기의 설정에서 삭제하세요.",
   "security.forget.typeWord": "FORGET 입력",
   "security.forget.confirm": "이 지갑 지우기",
   // More → Wallet
@@ -1712,7 +1733,8 @@ export const ko: Record<MessageKey, string> = {
     "기관 규모의 작업은 이 기기에서 확인한 뒤 보안 키나 휴대폰이 한 번 더 확인합니다. 휴대폰 하나만 탈취되어서는 그 규모에 도달할 수 없습니다. 두 번째 기기는 비밀번호로 대신할 수 없습니다.",
   "advanced.protection.deviceRegistering": "별도 기기를 등록하는 중 (보안 키, 또는 기기 간 연결을 통한 휴대폰)…",
   "advanced.protection.deviceDone": "등록되었습니다. 기관 규모의 작업은 2차 확인 후 이 기기에 요청하며, 비밀번호로 대신할 수 없습니다.",
-  "advanced.protection.deviceRemoved": "삭제되었습니다. 기기를 다시 등록하기 전까지 기관 규모의 작업은 확인할 수 없습니다.",
+  "advanced.protection.deviceRemoved":
+    "삭제되었습니다. 기기를 다시 등록하기 전까지 기관 규모의 작업은 확인할 수 없습니다. 패스키 “privacy-wallet-second-device”는 그 기기에 남습니다: 다른 곳에서 쓰지 않는다면 그 기기의 설정에서 삭제하세요.",
   // More: the experience switch
   "more.experienceToggle": "암호 기술 정보 표시 (노트, 리프, 진행 중인 자금, 점수)",
   // The Privacy Center

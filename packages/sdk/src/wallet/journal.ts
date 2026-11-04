@@ -213,6 +213,12 @@ export interface JournalData {
   proofStats?: ProofStats;
   /** V6 Stage 10 (doc §71; spec v2.0 §10): the deployment fingerprint first seen per chain id (deploymentGuard.ts) — a different one blocks every operation until it is forgotten under Advanced. Optional, never written by emptyJournal(). */
   deploymentFingerprints?: Record<string, string>;
+  /**
+   * The eleventh review round (2026-11-04, NF-1): a journal a restore began holds the indexes its source knew (a phrase restore's are none),
+   * past which it resumed. A backup merged into it later compares its own indexes with these, not with the resume point — a guess, not what
+   * this device handed out. Optional, never written by emptyJournal(): every earlier journal stays valid.
+   */
+  resumedPast?: { chainIndexes: Record<string, number>; aiFunding: number };
 }
 
 export interface EncryptedJournal { v: 1; nonce: string; ct: string }
@@ -240,40 +246,92 @@ export const emptyJournal = (): JournalData => ({ v: 1, notes: [], noteCounter: 
  */
 export const ADDRESS_INDEX_RESERVE = 1000;
 export const AI_FUNDING_RESERVE = 100;
-export function reservedIndexes(from: Record<string, number> = {}): Record<string, number> {
+/**
+ * Where an index resumes past what a journal knows (the eleventh review round, 2026-11-04, F11-7): the reserve past it, plus a draw of up to
+ * another reserve — two restores from one source (the phrase twice, one backup on two devices) had resumed at the same index and handed out
+ * the first one's addresses again. One rule for a restore and a merge alike; the draw is journaled with the restore's first write. `rng`: tests.
+ */
+export function resumePast(known: number, reserve: number, rng: () => number = Math.random): number {
+  return known + reserve + Math.min(reserve - 1, Math.floor(rng() * reserve));
+}
+export function reservedIndexes(from: Record<string, number> = {}, rng?: () => number): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const chain of ["evm", "bitcoin", "solana", ...Object.keys(from)]) out[chain] = (from[chain] ?? 0) + ADDRESS_INDEX_RESERVE;
+  for (const chain of ["evm", "bitcoin", "solana", ...Object.keys(from)]) out[chain] = resumePast(from[chain] ?? 0, ADDRESS_INDEX_RESERVE, rng);
   return out;
 }
-/** A restore's first journal: the counters held, the fresh addresses and Private AI's funding index past their reserves (D-2, D-6). */
-export const restoredJournal = (from: JournalData = emptyJournal()): JournalData => ({
+/** A restore's first journal: the counters held, the fresh addresses and Private AI's funding index past their reserves (D-2, D-6, F11-7). */
+export const restoredJournal = (from: JournalData = emptyJournal(), rng?: () => number): JournalData => ({
   ...from,
   countersHeld: true,
-  chainIndexes: reservedIndexes(from.chainIndexes),
-  aiFunding: { index: (from.aiFunding?.index ?? 0) + AI_FUNDING_RESERVE },
+  chainIndexes: reservedIndexes(from.chainIndexes, rng),
+  aiFunding: { index: resumePast(from.aiFunding?.index ?? 0, AI_FUNDING_RESERVE, rng) },
+  resumedPast: { chainIndexes: { ...from.chainIndexes }, aiFunding: from.aiFunding?.index ?? 0 },
 });
+
+/** The funding facts of an order a backup holds beside this device's row of it (A11-1): each one the device's row lacks comes from the backup's. */
+const FUNDING_FACTS = ["fundingAttempt", "fundedTx", "fundedAt", "fundedFee", "jobId", "handedOverAt", "handOverAttempt", "executionTx", "executionRef", "relayerUrl"] as const;
+const withFundingFacts = (device: StoredSwap, backup: StoredSwap): StoredSwap => {
+  const out: StoredSwap = { ...device };
+  const from = backup as unknown as Record<string, unknown>;
+  for (const k of FUNDING_FACTS) if (out[k] === undefined && from[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = from[k];
+  return out;
+};
 
 /**
  * A backup's journal merged into this device's own journal of the same wallet (the tenth review round, D-4): the device's is the base — what
  * this device did last, kept as the phrase restore keeps it (n45) —, and the backup's notes, orders, campaigns, schedule, operation records
  * and address book entries the device does not hold are added (an order funded on another device and not handed over is only there: its
- * escrow had been stranded), every counter the higher of the two.
+ * escrow had been stranded), the note counter the higher of the two.
+ *
+ * The eleventh review round (2026-11-04): an index the backup knows past what this device knows resumes past the reserve, as a restore does
+ * (VF-N1, NF-1) — the backup's installation may have gone on after the backup, and a journal a restore began knows only its source (its
+ * `resumedPast`), never what lies between it and its resume point; an order both hold keeps the funding facts only the backup's row has
+ * (A11-1: a funding sent on the other device had been dropped, and the runner could fund the order again); the backup's settings,
+ * deployment fingerprints, light-client store and maintenance spend come where this device's journal has none (A11-1 — a phrase restore's
+ * journal holds no settings until its first unlock mirrors the experience: the second factor, the velocity limit, the mode, the pause and
+ * the relayer had been dropped silently; with both, the session merges them, settings.ts mergeSettings, which also takes the backup's whole
+ * over settings that hold no choice of the user's); a maintenance action never comes from the backup (A11-9: a cancelled one had come back
+ * pending beside the device's own).
  */
-export function mergeJournals(device: JournalData, backup: JournalData): JournalData {
+export function mergeJournals(device: JournalData, backup: JournalData, rng?: () => number): JournalData {
   const union = <T>(a: readonly T[] | undefined, b: readonly T[] | undefined, key: (x: T) => string): T[] => {
     const have = new Set((a ?? []).map(key));
     return [...(a ?? []), ...(b ?? []).filter((x) => !have.has(key(x)))];
   };
-  const chainIndexes: Record<string, number> = { ...backup.chainIndexes };
-  for (const [k, v] of Object.entries(device.chainIndexes)) chainIndexes[k] = Math.max(v, chainIndexes[k] ?? 0);
-  const ai = (device.aiFunding?.index ?? -1) >= (backup.aiFunding?.index ?? -1) ? device.aiFunding : backup.aiFunding;
+  const known = device.resumedPast;
+  const chainIndexes: Record<string, number> = { ...device.chainIndexes };
+  for (const [k, b] of Object.entries(backup.chainIndexes)) {
+    const d = device.chainIndexes[k] ?? 0;
+    chainIndexes[k] = b > (known ? (known.chainIndexes[k] ?? 0) : d) ? Math.max(d, resumePast(b, ADDRESS_INDEX_RESERVE, rng)) : d;
+  }
+  const dAi = device.aiFunding?.index ?? 0;
+  const bAi = backup.aiFunding?.index ?? 0;
+  const aiPast = bAi > (known ? known.aiFunding : dAi) ? resumePast(bAi, AI_FUNDING_RESERVE, rng) : undefined;
+  const ai = aiPast !== undefined && aiPast > dAi ? { index: aiPast } : device.aiFunding;
+  const bySwap = new Map(backup.swaps.map((s) => [s.orderId.toLowerCase(), s] as const));
+  const swaps = device.swaps.map((s) => {
+    const b = bySwap.get(s.orderId.toLowerCase());
+    return b ? withFundingFacts(s, b) : s;
+  });
+  // what this merged journal knows: the restore's source and the backup, never the resume points between them
+  const resumedPast = known
+    ? {
+        chainIndexes: Object.fromEntries([...new Set([...Object.keys(known.chainIndexes), ...Object.keys(backup.chainIndexes)])].map((k) => [k, Math.max(known.chainIndexes[k] ?? 0, backup.chainIndexes[k] ?? 0)])),
+        aiFunding: Math.max(known.aiFunding, bAi),
+      }
+    : undefined;
   return {
     ...device,
+    ...(device.settings === undefined && backup.settings !== undefined ? { settings: backup.settings } : {}),
+    ...(device.deploymentFingerprints || backup.deploymentFingerprints ? { deploymentFingerprints: { ...(backup.deploymentFingerprints ?? {}), ...(device.deploymentFingerprints ?? {}) } } : {}),
+    ...(device.lightClient === undefined && backup.lightClient !== undefined ? { lightClient: backup.lightClient } : {}),
+    ...(device.housekeeping === undefined && backup.housekeeping !== undefined ? { housekeeping: backup.housekeeping } : {}),
+    ...(resumedPast ? { resumedPast } : {}),
     notes: union(device.notes, backup.notes, (n) => String(n.leafIndex)),
     noteCounter: Math.max(device.noteCounter, backup.noteCounter),
     chainIndexes,
-    swaps: union(device.swaps, backup.swaps, (s) => s.orderId.toLowerCase()),
-    schedule: union(device.schedule, backup.schedule, (a) => a.id),
+    swaps: union(swaps, backup.swaps, (s) => s.orderId.toLowerCase()),
+    schedule: union(device.schedule, backup.schedule.filter((a) => a.kind !== "housekeeping"), (a) => a.id),
     ...(device.campaigns || backup.campaigns ? { campaigns: union(device.campaigns, backup.campaigns, (c) => c.id) } : {}),
     ...(device.operations || backup.operations ? { operations: union(device.operations, backup.operations, (o) => o.id) } : {}),
     ...(device.activity || backup.activity ? { activity: union(device.activity, backup.activity, (x) => x.id) } : {}),

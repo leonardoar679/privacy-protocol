@@ -675,7 +675,12 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             // an order an older build committed under the privacy address's owner commitment (the audit round of 2026-10-16,
             // c18) is never funded: abandoned with nothing sent, and the step planned again under its own owner commitments
             abandonSwap(stored.orderId, s);
-            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order was set up by an older version of the wallet under the privacy address's owner commitment: the order is abandoned unfunded and the step planned again");
+            // each refusal in its own words (the eleventh review round, A11-11): an order whose refund is not this wallet's had read as an older version's
+            const why =
+              (e as { code?: unknown })?.code === "order_not_ours"
+                ? "its order's refund was not set up for this wallet's keys: the order is abandoned unfunded and the step planned again"
+                : "its order was set up by an older version of the wallet under the privacy address's owner commitment: the order is abandoned unfunded and the step planned again";
+            c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, why);
             nextAt = now + 1000;
             break;
           }

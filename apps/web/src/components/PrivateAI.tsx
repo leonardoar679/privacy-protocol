@@ -214,6 +214,11 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
   }
 
   async function withdrawCredit() {
+    // the next fresh funding address, journaled outside React by the opening the close began in (the eleventh review round, 2026-11-04, H11-2):
+    // inside a state updater it never ran once the screen had unmounted — the address stayed "funded" and current, and the next credit was
+    // deposited from it again, two credit notes linked by one address
+    const next = fundingIndex + 1;
+    const opened = session.pinned();
     await run("Closing the credit note (mutual close)…", async () => {
       // back to where it came from (the eighth review round, C-L2): the connected account in connected mode — the close is sent from it
       // anyway — never a fresh address that mode never showed and no screen spends from
@@ -221,7 +226,12 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
       // Enable, and the withdrawal had been refused after any reload
       await zkapiClient.withdraw("mutual", (m: string) => setStatus(String(m)), fundingMode === "fresh" ? { destination: fresh.address } : {});
       setStatus(fundingMode === "fresh" ? `Credit withdrawn to the fresh address ${fresh.address.slice(0, 10)}…; shield it back into the pool from there.` : "Credit withdrawn to the connected account.");
-      setFundingIndex((i) => { session.update((j) => { j.aiFunding = { index: i + 1 }; }); return i + 1; }); // the next credit note gets a new fresh address, journaled
+      try {
+        opened.update((j) => { j.aiFunding = { index: next }; }); // the next credit note gets a new fresh address, journaled
+      } catch {
+        // locked, or another wallet opened since: that one's journal is not this one's
+      }
+      setFundingIndex(next);
     });
   }
 

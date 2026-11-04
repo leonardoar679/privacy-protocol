@@ -56,6 +56,15 @@ export const en = {
   "lock.passwordBackup": "The password of that backup",
   "lock.unlock": "Unlock",
   "lock.wrongPassword": "Wrong password.",
+  "lock.refused.notABackup": "This file is not a wallet backup. Nothing was restored.",
+  "lock.refused.journalNotWallet": "This backup's records are damaged or are not a wallet's. Nothing was restored.",
+  "lock.refused.journalDoesNotOpen": "This backup's records are damaged or belong to another wallet, so nothing was restored. The wallet's recovery phrase restores it.",
+  "lock.refused.phraseLength": "A recovery phrase has 24 words. Check that every word is there, separated by spaces.",
+  "lock.refused.phraseInvalid": "This is not a valid recovery phrase: a word is misspelt or one is out of place. Check each word against your backup.",
+  "lock.refused.publicPhrase": "This recovery phrase is publicly known — a test phrase anyone can look up — so anyone could spend what a wallet made from it holds. Create a new wallet instead.",
+  "lock.refused.publicBackup": "This backup holds a wallet made from a publicly known test phrase: anyone could spend what it holds. Nothing was restored.",
+  "lock.refused.publicWallet": "This wallet's recovery phrase is publicly known — a test phrase anyone can look up — so anyone can spend what it holds, and this wallet cannot be used. Create a new wallet and send nothing to this one.",
+  "lock.walletRemoved": "This wallet is no longer stored on this device: it was removed in another tab, or the browser's data for this site was cleared. Restore it from its recovery phrase or a backup, or create a new one.",
   "lock.wrongBackupPassword": "Wrong password for this backup.",
   "lock.createIntro":
     "A new seed is generated on this device. It is encrypted with your password before anything is stored; you will be shown a 24-word recovery phrase once.",
@@ -352,6 +361,9 @@ export const en = {
   "op.error.journal_not_kept.reason":
     "This browser is not keeping the wallet's data, so a swap's record, the only way back for its funds until the executor has it, would be lost when this tab closes. Nothing was sent: free some space, or use a browser that keeps site data, then try again.",
   "storage.memoryTitle": "This browser is not keeping the wallet's data",
+  "shell.publicWallet.title": "Anyone can spend what this wallet holds",
+  "shell.publicWallet.body":
+    "Its recovery phrase is publicly known — a test phrase anyone can look up. Before you create or restore anything here, send what it holds to a wallet made from a new phrase in another browser or on another device, or to your own public address: once replaced or forgotten, this wallet cannot be restored, and its backups are refused. Send nothing more to it.",
   "storage.memoryBody":
     "Your wallet and its activity are kept in this tab only and are gone when it closes. Keep your recovery phrase: it brings the wallet back.",
   "fees.total": "Total fees",
@@ -1208,6 +1220,7 @@ export const en = {
   "review.tradeCheck.privacy": "Privacy",
   "review.tradeCheck.execution": "Execution",
   "review.tradeCheck.risk": "Risk",
+  "review.tradeCheck.withheld": "Not shown: the assistant's answer used words this wallet does not use.",
   "review.reviewHold":
     "Review hold: after you confirm, the funding waits at least {minutes} minutes and the order can be cancelled meanwhile (Swap → open swaps → Abandon).",
   "review.export": "Export for review (JSON)",
@@ -1629,7 +1642,7 @@ export const en = {
   "security.factor.remove": "Remove",
   "security.factor.registering": "Registering with the platform authenticator…",
   "security.factor.registered": "Registered. Transfers above the second-confirmation threshold ask the authenticator first; your password stays the fallback.",
-  "security.factor.removed": "Removed; the password is asked instead.",
+  "security.factor.removed": "Removed; the password is asked instead. The passkey “privacy-wallet” stays in your browser's or phone's password manager: remove it there if nothing else uses it.",
   "security.tiers.title": "Large transfers",
   "security.tiers.body":
     "Above these USD values the wallet adds a review, a privacy check, a simulation, a hold to confirm and a second confirmation, in that order. Values come from Chainlink through your own RPC endpoints; when no price is available the high-value controls apply.",
@@ -1642,8 +1655,12 @@ export const en = {
   "security.tier.institutional": "Institutional review from (USD)",
   "security.forget.title": "Forget this wallet on this device",
   "security.forget.body":
-    "Removes the keystore and the encrypted journal from this device, disconnects the public wallet and clears its WalletConnect pairing, the preferences, the proving files kept for speed, Private AI's credit wallet (withdraw unused credit first: it is not in your backup) and, when Tornado Classic is served here, its records. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
+    "Removes the keystore and the encrypted journal from this device, disconnects the public wallet and clears its WalletConnect pairing (while another tab uses WalletConnect, at the next start where none does), the preferences, the proving files kept for speed, Private AI's credit wallet (withdraw unused credit first: it is not in your backup) and, when Tornado Classic is served here, its records. Your phrase or a backup file is then the only way back. Type FORGET to confirm.",
   "security.forget.open": "Forget this wallet…",
+  "security.forget.passkeyFactor":
+    "The passkey “privacy-wallet” this wallet registered for its second confirmation stays in your browser's or phone's password manager: a Forget cannot remove it. Remove it there yourself — unless another device or browser still uses this wallet with it.",
+  "security.forget.passkeyDevice":
+    "The passkey “privacy-wallet-second-device” stays on your separate device (the security key or the phone you registered): a Forget cannot remove it. Remove it in that device's own settings — unless another installation of this wallet still uses it.",
   "security.forget.typeWord": "Type FORGET",
   "security.forget.confirm": "Forget this wallet",
   // More → Wallet (spec §7; High-Value Protection spec §13)
@@ -1736,7 +1753,7 @@ export const en = {
   "advanced.protection.deviceRegistering": "Registering a separate device (a security key, or a phone over the cross-device flow)…",
   "advanced.protection.deviceDone":
     "Registered. Operations at the institutional size ask this device after the second confirmation; there is no password fallback for it.",
-  "advanced.protection.deviceRemoved": "Removed. Operations at the institutional size cannot be confirmed until a device is registered again.",
+  "advanced.protection.deviceRemoved": "Removed. Operations at the institutional size cannot be confirmed until a device is registered again. The passkey “privacy-wallet-second-device” stays on that device: remove it in its own settings if nothing else uses it.",
   // More (spec §6): the experience switch
   "more.experienceToggle": "Show the cryptographic detail (notes, leaves, the funds in flight, scores)",
   // The Privacy Center (spec §3.13, §15)

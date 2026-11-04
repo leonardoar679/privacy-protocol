@@ -140,6 +140,8 @@ export function SecuritySection() {
           <Button variant="destructive" onClick={() => setForgetOpen(true)} data-testid="forget-open">{t("security.forget.open")}</Button>
         </Collapsible>
         <Modal open={forgetOpen} onClose={() => { setForgetOpen(false); setForget(""); }} title={t("security.forget.title")} description={t("security.forget.body")} danger testId="forget-modal">
+          {s.secondFactor.credentialId ? <p className="ds-note" data-testid="forget-passkey-factor">{t("security.forget.passkeyFactor")}</p> : null}
+          {s.protection.secondDevice.credentialId ? <p className="ds-note" data-testid="forget-passkey-device">{t("security.forget.passkeyDevice")}</p> : null}
           <Field label={t("security.forget.typeWord")} htmlFor="forget-word"><Input id="forget-word" value={forget} onChange={(e) => setForget(e.target.value)} placeholder="FORGET" autoComplete="off" data-testid="forget-input" /></Field>
           <Button variant="destructive" full disabled={forget !== "FORGET"} onClick={() => void forgetEverything().then(() => restartAfterForget())} data-testid="forget-confirm">{t("security.forget.confirm")}</Button>
         </Modal>

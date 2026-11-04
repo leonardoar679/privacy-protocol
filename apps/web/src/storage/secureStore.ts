@@ -5,7 +5,7 @@
 // IndexedDB present but refusing at hydrate is the same (2026-10-17, the audit's unverified m49): `backend` says
 // "memory" — the shell says so — and the page never writes over, deletes or reads back what it could not see. So is a
 // write it refuses later (audit round 2, r16): from then on the store is this tab's mirror alone, and says so at once.
-import { hasIndexedDb, idbDelete, idbEntries, idbPut } from "./idb";
+import { hasIndexedDb, idbDelete, idbEntries, idbPut, idbWriteMany } from "./idb";
 import { assertSecureShape } from "./guard";
 import { migrateFromLocalStorage, type MigrationReport } from "./migrate";
 import type { KeyValueStorage } from "@privacy-wallet/sdk/wallet/storage";
@@ -47,6 +47,23 @@ export function createSecureStore(): SecureStore {
     for (const l of listeners) l();
   };
   const enqueue = (op: () => Promise<void>) => { queue = queue.then(op, op).catch(refuse); return queue; };
+  // the last write queued and not yet started (the eleventh review round, 2026-11-04, H11-5): a write of the same key right after it takes its
+  // place — every set had queued a closure holding its own full blob, a scan of n notes holding about n journals at once before the first put
+  // ran. Only the last one collapses, so no write ever lands before one queued ahead of it (null: a delete)
+  let tail: { k: string; v: string | null; started: boolean } | null = null;
+  const write = (k: string, v: string | null): void => {
+    if (tail && !tail.started && tail.k === k) {
+      tail.v = v;
+      return;
+    }
+    const slot = { k, v, started: false };
+    tail = slot;
+    void enqueue(() => {
+      slot.started = true;
+      if (!kept()) return Promise.resolve();
+      return slot.v === null ? idbDelete("secure", slot.k) : idbPut("secure", slot.k, slot.v);
+    });
+  };
 
   const ready: Promise<void> = (async () => {
     if (backend === "memory") return;
@@ -73,11 +90,17 @@ export function createSecureStore(): SecureStore {
     set: (k, v) => {
       assertSecureShape(k, v);
       mirror.set(k, v);
-      if (kept()) void enqueue(() => (kept() ? idbPut("secure", k, v) : Promise.resolve()));
+      if (kept()) write(k, v);
     },
     remove: (k) => {
       mirror.delete(k);
-      if (kept()) void enqueue(() => (kept() ? idbDelete("secure", k) : Promise.resolve()));
+      if (kept()) write(k, null);
+    },
+    setMany: (entries) => {
+      for (const [k, v] of entries) if (v !== null) assertSecureShape(k, v);
+      for (const [k, v] of entries) if (v === null) mirror.delete(k); else mirror.set(k, v);
+      tail = null; // nothing collapses into a write queued before these
+      if (kept()) void enqueue(() => (kept() ? idbWriteMany("secure", entries) : Promise.resolve()));
     },
     keys: () => [...mirror.keys()].sort(),
     flush: () => queue,

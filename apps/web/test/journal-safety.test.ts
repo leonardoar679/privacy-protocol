@@ -76,10 +76,13 @@ describe("unreadable journal", () => {
     // the journal in memory resumes past the reserve (the tenth review round, D-2): never the first address again — and while unreadable
     // still nothing is reserved
     expect(peekFreshAddress(seed, "evm", s).address, "never the first one again").not.toBe(first.address);
+    const resumedAt = { ...s.journal().chainIndexes };
+    // at a draw past the reserve (the eleventh review round, F11-7)
+    for (const chain of Object.keys(reservedIndexes())) expect(resumedAt[chain] >= ADDRESS_INDEX_RESERVE && resumedAt[chain] < 2 * ADDRESS_INDEX_RESERVE, chain).toBe(true);
     expect(() => consumeFreshAddress(seed, "evm", s)).toThrow(/journal could not be read/);
-    expect(s.journal().chainIndexes, "nothing reserved past the reserve").toEqual(reservedIndexes());
+    expect(s.journal().chainIndexes, "nothing reserved past the resume point").toEqual(resumedAt);
     s.discardUnreadableJournal();
-    expect(consumeFreshAddress(seed, "bitcoin", s).index, "saved again: reserved").toBe(ADDRESS_INDEX_RESERVE);
+    expect(consumeFreshAddress(seed, "bitcoin", s).index, "saved again: reserved").toBe(resumedAt.bitcoin);
   });
 
   it("while the browser keeps nothing past this tab, no swap is committed, started or funded: its record would die with the tab (audit round 2, n46)", async () => {
