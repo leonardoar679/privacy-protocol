@@ -20,6 +20,16 @@ const p: OrderParams = {
   executorTip: BigInt(vec.params.executorTip),
 };
 
+describe("a word is a uint256 or nothing (the seventh review round, 2026-11-03)", () => {
+  it("a value past 2^256 or below zero is refused, never truncated: c and c + 2^256 had predicted the same escrow", async () => {
+    const { word } = await import("../src/endpoints");
+    expect(word((1n << 256n) - 1n).toString("hex")).toBe("ff".repeat(32));
+    expect(() => word(1n << 256n)).toThrow(RangeError);
+    expect(() => word(-1n)).toThrow(RangeError);
+    expect(() => word(((1n << 256n) + 5n).toString())).toThrow(/not a uint256/);
+  });
+});
+
 describe("one-time EVM endpoint == SwapOrderFactory.predict (forge vector)", () => {
   it("abi.encode(OrderParams) is 12 words", () => {
     expect(encodeOrderParams(p).length).toBe(12 * 32);

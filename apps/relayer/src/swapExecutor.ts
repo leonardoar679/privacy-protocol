@@ -29,6 +29,7 @@
 // left stays re-shieldable by anyone: refund() and refundToken() are permissionless.
 import { BYTECODE } from "@privacy-wallet/contracts";
 import { redactUrls } from "@privacy-wallet/server-kit/redact";
+import { FIELD } from "@privacy-wallet/protocol/field";
 import { encodeFunctionData, keccak256, parseAbi, parseAbiItem, toFunctionSelector, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { Journal } from "./journal";
@@ -156,7 +157,10 @@ export function loadEscrowCreationCode(): Hex {
 
 /** The most provider calldata a call may carry: a route's deposit or swap call is a few hundred bytes (the review round of 2026-11-03, F2). */
 export const MAX_CALLDATA_BYTES = 65_536;
-const isUint = (x: unknown): boolean => (typeof x === "string" ? /^\d{1,78}$/.test(x) : typeof x === "number" && Number.isSafeInteger(x) && x >= 0);
+/** A uint256 in base units (the seventh review round, 2026-11-03): 78 digits reach past 2^256, and such a value had aliased a vouched escrow. */
+const isUint = (x: unknown): boolean => (typeof x === "string" ? /^\d{1,78}$/.test(x) && BigInt(x) < 1n << 256n : typeof x === "number" && Number.isSafeInteger(x) && x >= 0);
+/** A field element: the refund note's owner commitment and secret are hashed into its commitment, as the circuit reads them. */
+const isField = (x: unknown): boolean => isUint(x) && BigInt(x as string | number) < FIELD;
 const isSeconds = (x: unknown): boolean => (typeof x === "number" && Number.isSafeInteger(x) && x >= 0) || (typeof x === "string" && /^\d{1,15}$/.test(x));
 /**
  * The order's parameters as the executor keeps them — the twelve fields, nothing else a request carried (the review round of
@@ -189,8 +193,15 @@ const mergeTokens = (a: Address[] | undefined, b: Address[] | undefined): Addres
   return all.length ? all : undefined;
 };
 /** A job's refund tokens and floors with a request's merged in: at most MAX_REFUND_TOKENS in all, and a floor only ever rises. */
-function mergeRefunds(job: Pick<SwapJob, "refundTokens" | "refundFloors"> | undefined, req: { refundTokens?: Address[]; refundFloors?: Record<string, string> }): Pick<SwapJob, "refundTokens" | "refundFloors"> {
-  const refundTokens = mergeTokens(job?.refundTokens, req.refundTokens);
+function mergeRefunds(
+  job: Pick<SwapJob, "refundTokens" | "refundFloors"> | undefined,
+  req: { refundTokens?: Address[]; refundFloors?: Record<string, string> },
+  /** a hand-over (an execution the order key signed): its own tokens come first and the stored ones fill what room is left — a
+   *  refund-only request listing four tokens had made the honest hand-over fail "at most 4" (the seventh review round, 2026-11-03) */
+  o: { requestFirst?: boolean } = {},
+): Pick<SwapJob, "refundTokens" | "refundFloors"> {
+  let refundTokens = mergeTokens(job?.refundTokens, req.refundTokens);
+  if (o.requestFirst && (refundTokens?.length ?? 0) > MAX_REFUND_TOKENS) refundTokens = mergeTokens(req.refundTokens, job?.refundTokens)?.slice(0, MAX_REFUND_TOKENS);
   if ((refundTokens?.length ?? 0) > MAX_REFUND_TOKENS) throw new SwapJobError("bad_refund_tokens", `at most ${MAX_REFUND_TOKENS} refund tokens per order`);
   const floors: Record<string, string> = { ...(job?.refundFloors ?? {}) };
   for (const [k, v] of Object.entries(req.refundFloors ?? {})) {
@@ -209,6 +220,13 @@ const REPLACEABLE: SwapJobState[] = ["waiting-funding", "expired", "execute-fail
  * only dust) ends it again at the next pass.
  */
 const REOPENED_BY_REFUND: SwapJobState[] = [...REPLACEABLE, "completed"];
+/** An executed order re-shielded once inside its watch ends "refunded"; a refund held past the watch is reopened like a completed one (the seventh review round, 2026-11-03). */
+const reopenedByRefund = (j: SwapJob): boolean => REOPENED_BY_REFUND.includes(j.state) || (j.state === "refunded" && !!j.executed);
+/** The params a job was registered with, in one canonical form: a request for the same order with other params is refused, never answered with the stored job (the seventh review round, 2026-11-03). */
+const paramsKey = (p: SwapParamsJson): string =>
+  [p.orderId, p.asset, p.orderSigner, p.refundVault, p.refundNoteDataHash].map((x) => String(x).toLowerCase()).join("|") +
+  "|" +
+  [p.assetType, p.amount, p.executeDeadline, p.refundAfter, p.refundOwnerCommitment, p.refundNoteSecret, p.executorTip].map((x) => BigInt(x as string | number).toString()).join("|");
 
 export class SwapExecutor {
   private jobs = new Map<string, SwapJob>();
@@ -259,8 +277,8 @@ export class SwapExecutor {
     // wrong length, had reached the encoders — a plain Error (500) at admission, or a refund that erred every tick and never lapsed
     if (!isHex(p.orderId, 32) || !isHex(p.asset, 20) || !isHex(p.orderSigner, 20) || !isHex(p.refundVault, 20) || !isHex(p.refundNoteDataHash, 32))
       throw new SwapJobError("bad_request", "params need a 32-byte orderId and refundNoteDataHash, and 20-byte asset, orderSigner and refundVault");
-    if (![p.amount, p.executorTip, p.refundOwnerCommitment, p.refundNoteSecret].every(isUint) || !isSeconds(p.executeDeadline) || !isSeconds(p.refundAfter))
-      throw new SwapJobError("bad_request", "params need base-unit amounts and unix-second deadlines");
+    if (![p.amount, p.executorTip].every(isUint) || ![p.refundOwnerCommitment, p.refundNoteSecret].every(isField) || !isSeconds(p.executeDeadline) || !isSeconds(p.refundAfter))
+      throw new SwapJobError("bad_request", "params need base-unit amounts (uint256), field elements for the refund note and unix-second deadlines");
     if (Number(p.assetType) !== 0 && Number(p.assetType) !== 1) throw new SwapJobError("unsupported_asset", "assetType must be 0 (ETH) or 1 (ERC-20)");
     if (!isHex(req.refundNoteData, 169)) throw new SwapJobError("bad_refund_payload", "refundNoteData must be the 169-byte payload");
     if (keccak256(req.refundNoteData) !== String(p.refundNoteDataHash).toLowerCase()) throw new SwapJobError("refund_payload_mismatch", "refundNoteData does not hash to the committed refundNoteDataHash");
@@ -331,8 +349,9 @@ export class SwapExecutor {
       throw new SwapJobError("unvouched_order", "the swap service did not vouch for this order: the executor refunds only orders it committed");
     const id = p.orderId.toLowerCase();
     const existing = this.jobs.get(id);
+    if (existing && paramsKey(existing.params) !== paramsKey(pickParams(p))) throw new SwapJobError("order_mismatch", "this order is registered here with other params");
     if (existing) {
-      if (REOPENED_BY_REFUND.includes(existing.state) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
+      if (reopenedByRefund(existing) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
         const merged = mergeRefunds(existing, req);
         existing.execution = undefined; existing.state = "refund-only"; existing.txHash = undefined; existing.error = undefined; existing.updatedAt = Date.now();
         Object.assign(existing, merged);
@@ -375,10 +394,11 @@ export class SwapExecutor {
       throw new SwapJobError("deadline_too_close", `the call's deadline is less than ${EXECUTE_MARGIN_SECONDS} s away, too close for the executor to send it: sign a fresh one`);
     const state: SwapJobState = "waiting-funding";
     const existing = this.jobs.get(id);
+    if (existing && paramsKey(existing.params) !== paramsKey(pickParams(p))) throw new SwapJobError("order_mismatch", "this order is registered here with other params");
     if (existing) {
       // a re-signed execution (fresh quote after expiry / a failed provider call) replaces the old one; an order already executing or settled is left alone
       if (REPLACEABLE.includes(existing.state) && existing.escrow.toLowerCase() === escrow.toLowerCase()) {
-        const merged = mergeRefunds(existing, req);
+        const merged = mergeRefunds(existing, req, { requestFirst: true });
         existing.execution = pickExecution(x); existing.state = state; existing.txHash = undefined; existing.error = undefined; existing.updatedAt = Date.now();
         Object.assign(existing, merged);
         this.persist();
@@ -493,7 +513,7 @@ export class SwapExecutor {
     let floor = BigInt(job.refundFloors?.[f.token.toLowerCase()] ?? "0");
     if (native) { const g = await this.gasFloor(gas); if (g > floor) floor = g; }
     if (f.amount < floor) return false;
-    await this.dispatch(job, job.escrow, data, gas, "refunding", true); // not sent: retried next tick
+    await this.dispatch(job, job.escrow, data, gas, "refunding", true, true); // not sent: retried next tick
     return true;
   }
 
@@ -650,13 +670,13 @@ export class SwapExecutor {
   }
 
   /** The transaction moving the job to `next`, through the account's one sender; false when it never left (noted, tried again next tick). */
-  private async dispatch(job: SwapJob, to: Address, data: Hex, gas: bigint, next: SwapJobState, unpaid = false): Promise<boolean> {
+  private async dispatch(job: SwapJob, to: Address, data: Hex, gas: bigint, next: SwapJobState, unpaid = false, foreign = false): Promise<boolean> {
     const before = { state: job.state, txHash: job.txHash, sent: job.sent, executionTx: job.executionTx, unpaidRefunds: job.unpaidRefunds };
     const sent = await this.sender.send({ to, data, gas: (gas * 12n) / 10n }, {
       // journaled before it leaves (the fourth review round, 2026-11-03): a crash between the broadcast and the record had the job back
       // in its pre-send state at the restart, and sent again — the first copy landed, the second reverted at this relayer's gas
       beforeBroadcast: (hash) => {
-        job.sent = { from: before.state, at: this.now(), ...(unpaid ? { unpaid } : {}) };
+        job.sent = { from: before.state, at: this.now(), ...(unpaid ? { unpaid } : {}), ...(foreign ? { foreign } : {}) };
         job.txHash = hash; job.state = next;
         if (next === "executing") job.executionTx = hash;
         if (unpaid) job.unpaidRefunds = (job.unpaidRefunds ?? 0) + 1;
@@ -710,14 +730,29 @@ export class SwapExecutor {
   /** One pass over every open job: read the escrow balance and the clock, act exactly once per state change. */
   private async pass(): Promise<void> {
     const now = this.now();
-    for (const job of this.jobs.values()) {
+    // the funded hand-overs first, the nearest deadline first (the seventh review round, 2026-11-03): one walk in registration order had put a
+    // short-lived call behind every open job's reads; and one job's failure is that job's tick, never the pass's — a job whose encoding threw
+    // (an order integer past a uint256) had aborted every pass, and every job registered after it waited for good
+    const urgency = (j: SwapJob): number => (j.state === "waiting-funding" && j.execution ? Number(j.execution.deadline) : Number.POSITIVE_INFINITY);
+    const jobs = [...this.jobs.values()].sort((a, b) => urgency(a) - urgency(b));
+    for (const job of jobs) {
+      try {
+        await this.passJob(job, now);
+      } catch (e) {
+        this.note(job, `this job's tick failed: ${firstLine(e, 160)}; tried again next tick`);
+      }
+    }
+  }
+
+  /** One job's part of a pass (the body of the walk, as it was). */
+  private async passJob(job: SwapJob, now: number): Promise<void> {
       const p = job.params;
       // an executed order is watched past refundAfter for a provider's late refund; anything else is done once refunded
       const watchEnd = Number(p.refundAfter) + (job.executed ? (this.cfg.lateRefundWatchSeconds ?? LATE_REFUND_WATCH_SECONDS) : 0);
-      if (TERMINAL.includes(job.state) && !(job.state === "refunded" && now < watchEnd)) continue;
+      if (TERMINAL.includes(job.state) && !(job.state === "refunded" && now < watchEnd)) return;
       if (job.state === "executing" || job.state === "refunding") {
         const receipt = job.txHash ? await this.cfg.publicClient.getTransactionReceipt({ hash: job.txHash }).catch(() => null) : null;
-        if (!receipt) { await this.resendIfDropped(job, now); continue; }
+        if (!receipt) { await this.resendIfDropped(job, now); return; }
         const ok = receipt.status === "success";
         const from = job.sent?.from;
         // a mined refund that reverted goes back to the state it was sent from, tried again later (m07)
@@ -730,18 +765,21 @@ export class SwapExecutor {
           job.error = `the refund ${receipt.transactionHash} reverted; tried again in ${REFUND_RETRY_SECONDS / 60} min`;
           job.updatedAt = Date.now();
           this.persist();
-          continue;
+          return;
         }
+        const foreignFrom = job.state === "refunding" && ok && job.sent?.foreign ? job.sent.from : undefined;
         job.sent = undefined;
         job.gasUsed = receipt.gasUsed.toString();
         job.actualNetworkWei = (receipt.gasUsed * receipt.effectiveGasPrice).toString();
         // our execution reverted because a copy of it landed first: the order is executed all the same (audit c08/c30)
-        if (job.state === "executing" && !ok && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job, receipt.blockNumber); continue; }
+        if (job.state === "executing" && !ok && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job, receipt.blockNumber); return; }
         if (job.state === "executing" && ok) job.executed = true;
-        job.state = job.state === "executing" ? (ok ? "executed" : "execute-failed") : (ok ? "refunded" : "refund-failed");
+        // a foreign token's refund is not the order's (the seventh review round, 2026-11-03): ended "refunded", a never-executed escrow kept the
+        // order's own funding for good — the job goes back to where it was, and the next pass refunds what else the escrow holds
+        job.state = job.state === "executing" ? (ok ? "executed" : "execute-failed") : ok ? (foreignFrom ?? "refunded") : "refund-failed";
         job.updatedAt = Date.now();
         this.persist();
-        continue;
+        return;
       }
       // one escrow that cannot be read is that job's tick, never the pass's (the audit's unverified m08: it aborted every job after it)
       let balances: { spendable: bigint; refundable: bigint };
@@ -749,7 +787,7 @@ export class SwapExecutor {
         balances = await this.escrowBalances(job);
       } catch (e) {
         this.note(job, `could not read the escrow: ${firstLine(e, 160)}; read again next tick`);
-        continue;
+        return;
       }
       const { spendable: balance, refundable } = balances;
       job.balance = refundable.toString();
@@ -757,11 +795,11 @@ export class SwapExecutor {
       // provider paid back first (refundToken on the deployed escrow), then the order's asset (incl. WETH for ETH). After
       // execution nothing pays for that, so it is bounded (PP-S12): a budget per order, and a floor per asset
       // a refund that reverted waits REFUND_RETRY_SECONDS before it is tried again (m07)
-      if (now >= Number(p.refundAfter) && job.revertedAt !== undefined && now - job.revertedAt < REFUND_RETRY_SECONDS) continue;
+      if (now >= Number(p.refundAfter) && job.revertedAt !== undefined && now - job.revertedAt < REFUND_RETRY_SECONDS) return;
       if (now >= Number(p.refundAfter)) {
         // an order this executor did not execute may have been executed by a copy of its call (audit c08/c30): then it is an
         // executed order, under the watch and the budget of one
-        if (!job.executed && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job); continue; }
+        if (!job.executed && (await this.executedElsewhere(job))) { await this.markExecutedElsewhere(job); return; }
         const foreign = await this.foreignHeld(job);
         const deployed = foreign.length > 0 && ((await this.cfg.publicClient.getCode({ address: job.escrow }).catch(() => undefined)) ?? "0x") !== "0x";
         const budget = !job.executed || this.unpaidBudgetLeft(job);
@@ -773,9 +811,9 @@ export class SwapExecutor {
           // a read that fails while a re-shield is priced (the gas price) is that job's tick, never the pass's (audit round 2,
           // n01: it aborted every job after it), and never the end of its watch: the job is read again next tick
           this.note(job, `could not price a re-shield: ${firstLine(e, 160)}; tried again next tick`);
-          continue;
+          return;
         }
-        if (acted) continue;
+        if (acted) return;
         // never executed and nothing in the escrow a day past its window (audit c07): never funded, or its funds already
         // back — the job has ended, and no pass reads it again. So has one whose escrow holds less than its tip (audit round
         // 2, r00): no refund of that is ever paid (refundOwn waits for the tip), and dust at a vouched escrow had kept the job
@@ -789,24 +827,29 @@ export class SwapExecutor {
             : foreign.length ? "ended a day past its window: the escrow holds only other tokens, and no provider ever held this order's funds" : "ended: nothing in the escrow a day past its window";
           job.updatedAt = Date.now();
           this.persist();
-          continue;
+          return;
         }
         if (!budget && (foreign.length || refundable > 0n)) this.note(job, `the ${this.cfg.maxUnpaidRefunds ?? MAX_UNPAID_REFUNDS} re-shields after execution that no tip pays for are used: what arrives now stays in the escrow, where anyone can re-shield it`);
         else if (!deployed && foreign.length && refundable === 0n) this.note(job, "foreign tokens at an escrow that was never deployed: nothing here deploys it");
         // dust below its floor stays; so does a reopened executed order's (r36), its job ended again
         if ((job.state === "executed" || (job.state === "refund-only" && job.executed)) && now >= watchEnd) { job.state = "completed"; job.updatedAt = Date.now(); this.persist(); }
-        continue;
+        return;
       }
       if (job.state === "waiting-funding" && job.execution) {
         // never in the last blocks before the signed deadline (the audit's unverified m10): one mined just after it reverts
-        // DeadlinePassed at the relayer's gas — such an order goes the way of an expired one
-        if (now + EXECUTE_MARGIN_SECONDS > Number(job.execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); continue; }
+        // DeadlinePassed at the relayer's gas — such an order goes the way of an expired one. The clock is read now, not at the pass's
+        // start (the seventh review round, 2026-11-03): behind slow reads of other jobs a hand-over had gone out after its deadline
+        const execution = job.execution;
+        if (this.now() + EXECUTE_MARGIN_SECONDS > Number(execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); return; }
         if (balance >= BigInt(p.amount)) {
-          const data = encodeDeployAndExecute(p, job.execution);
+          const data = encodeDeployAndExecute(p, execution);
           const priced = Number(p.assetType) === 0 ? await this.belowCost(job, data) : { wait: false };
+          // the job read again after the estimate (the seventh review round, 2026-11-03): a Return funds answered meanwhile (refund-only, its
+          // execution dropped) had been overtaken by the execution this pass had read; and the deadline is checked once more
+          if (job.state !== "waiting-funding" || job.execution !== execution) return;
+          if (this.now() + EXECUTE_MARGIN_SECONDS > Number(execution.deadline)) { job.state = "expired"; job.updatedAt = Date.now(); this.persist(); return; }
           if (!priced.wait) await this.send(job, data, "executing", "execute-failed", { estimated: priced.gas });
         }
       }
-    }
   }
 }

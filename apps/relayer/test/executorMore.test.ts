@@ -213,7 +213,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(d.args).toEqual([expect.stringMatching(new RegExp(USDT.slice(2), "i")), req.refundNoteData]);
     receiptStatus = "0x1";
     await ex.tick();
-    expect(job.state).toBe("refunded");
+    expect(job.state, "a foreign token's refund returns the job to where it was (the seventh review round, 2026-11-03)").toBe("executed");
     receiptStatus = null; tokenBalances[USDT] = 0n;
     await ex.tick(); // ODD: its vault refuses it, so it is dropped with the reason
     expect(job.refundTokens).toEqual([USDT]);
@@ -290,7 +290,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(d.args).toEqual([ZERO, req.refundNoteData]);
     receiptStatus = "0x1";
     await ex.tick();
-    expect(job.state).toBe("refunded");
+    expect(job.state, "a foreign token's refund returns the job to where it was (the seventh review round, 2026-11-03)").toBe("executed");
     escrowCode = "0x"; ethBalance = 0n; receiptStatus = null; raws.length = 0;
   });
 
@@ -392,7 +392,7 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
   it("refundFloors name listed tokens in base units; a later request only raises a floor; an order lists at most four tokens in all", () => {
     clock = 1000; // before the calls' deadlines: one within its last seconds is refused (audit round 2, r02)
     const ex = executorWith();
-    const [A, B, C, D, E] = ["a1", "b1", "c1", "d1", "e1"].map((x) => "0x" + x.padStart(40, "0"));
+    const [A, B, C, D, E, F] = ["a1", "b1", "c1", "d1", "e1", "f1"].map((x) => "0x" + x.padStart(40, "0"));
     const base = makeRequest(("0x" + "2c".repeat(32)) as Hex, 1500);
     expect(() => ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [B]: "1" } })).toThrow(/refundFloors/);
     expect(() => ex.add({ ...base, refundTokens: [A] as any, refundFloors: { [A]: "1.5" } })).toThrow(/refundFloors/);
@@ -401,7 +401,13 @@ describe("late provider refunds and foreign tokens (PP-S11, refundToken)", () =>
     expect(job.refundFloors, "a lower floor does not replace a higher one").toEqual({ [A]: "100" });
     ex.add({ ...base, refundTokens: [B, C, D] as any, refundFloors: { [B]: "1", [C]: "1", [D]: "1" } });
     expect(job.refundTokens).toHaveLength(4);
-    expect(() => ex.add({ ...base, refundTokens: [E] as any, refundFloors: { [E]: "1" } })).toThrow(/at most 4 refund tokens per order/);
+    // a hand-over's own tokens come first and the stored ones fill what room is left (the seventh review round, 2026-11-03): a
+    // refund-only request listing four had made the honest hand-over fail; still at most four in all
+    ex.add({ ...base, refundTokens: [E] as any, refundFloors: { [E]: "1" } });
+    expect(job.refundTokens).toHaveLength(4);
+    expect(job.refundTokens?.[0]).toBe(E);
+    // a refund-only request still merges, and is refused past four in all
+    expect(() => ex.addRefund(vouched({ factory: base.factory, params: base.params, refundNoteData: base.refundNoteData, refundTokens: [F], refundFloors: { [F]: "1" } } as any, CHAIN_ID, creationCode))).toThrow(/at most 4 refund tokens per order/);
     expect(job.refundTokens, "a refused request changes nothing").toHaveLength(4);
   });
 });

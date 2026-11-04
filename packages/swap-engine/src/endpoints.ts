@@ -11,6 +11,9 @@ const hex = (b: Uint8Array) => ("0x" + Buffer.from(b).toString("hex")) as `0x${s
 const bytes = (h: string) => Buffer.from(h.replace(/^0x/, ""), "hex");
 export const word = (v: bigint | number | string): Buffer => {
   let x = typeof v === "string" ? BigInt(v) : BigInt(v);
+  // refused, never truncated (the seventh review round, 2026-11-03): c and c + 2^256 had encoded alike, so params no contract call can
+  // take predicted a vouched order's escrow and its vouches verified for them
+  if (x < 0n || x >= 1n << 256n) throw new RangeError(`not a uint256: ${String(v).slice(0, 80)}`);
   const out = Buffer.alloc(32);
   for (let i = 31; i >= 0; i--) { out[i] = Number(x & 0xffn); x >>= 8n; }
   return out;

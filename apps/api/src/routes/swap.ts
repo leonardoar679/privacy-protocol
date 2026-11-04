@@ -6,6 +6,7 @@
 // lives in the database until finalize nulls it. The wallet's tier is a hint that can only raise the tier, the policy may
 // be derived from a preference, prepare keeps the approved minimum and runs the price guard, /track reads a provider's
 // status for an executed order.
+import { FIELD } from "@privacy-wallet/protocol/field";
 import { MinimumMovedError, asProviderFailure, type PreparedExecution, type PrivateSwapEngine, type QuoteHint } from "@privacy-wallet/swap-engine/engine";
 import { riskDb } from "@privacy-wallet/swap-engine/risk/riskDb";
 import { securityBreakdown } from "@privacy-wallet/swap-engine/risk/security";
@@ -121,6 +122,10 @@ const hintsOf = (b: any): QuoteHint => ({ tier: tierHint(b), preference: prefere
 // error over it could have counted against the provider's health for every user.
 /** a uint256 in decimal: at most 78 digits */
 const UINT = /^\d{1,78}$/;
+/** a uint256 (the seventh review round, 2026-11-03): 78 digits reach past 2^256, and such an order integer aliased a vouched escrow */
+const isUint256 = (x: unknown): boolean => UINT.test(String(x ?? "")) && BigInt(String(x)) < 1n << 256n;
+/** a field element: the refund note's owner commitment and secret are hashed into its commitment */
+const isFieldElement = (x: unknown): boolean => isUint256(x) && BigInt(String(x)) < FIELD;
 const HEX32 = /^0x[0-9a-fA-F]{64}$/;
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const short = (x: unknown, max: number): boolean => typeof x === "string" && x.length > 0 && x.length <= max;
@@ -162,7 +167,8 @@ function paramsOf(p: any): OrderParams {
     !(typeof p.orderId === "string" && HEX32.test(p.orderId)) ||
     !(p.assetType === 0 || p.assetType === 1 || p.assetType === "0" || p.assetType === "1") ||
     ![p.asset, p.orderSigner, p.refundVault].every((a) => typeof a === "string" && ADDRESS.test(a)) ||
-    ![p.amount, p.refundOwnerCommitment, p.refundNoteSecret, p.executorTip].every((n) => UINT.test(String(n ?? ""))) ||
+    ![p.amount, p.executorTip].every(isUint256) ||
+    ![p.refundOwnerCommitment, p.refundNoteSecret].every(isFieldElement) ||
     !integer(p.executeDeadline) ||
     !integer(p.refundAfter) ||
     !(typeof p.refundNoteDataHash === "string" && HEX32.test(p.refundNoteDataHash))
@@ -307,8 +313,8 @@ export class SwapApi {
     if (
       typeof b.orderSigner !== "string" ||
       !ADDRESS.test(b.orderSigner) ||
-      !UINT.test(String(b.refundOwnerCommitment)) ||
-      !UINT.test(String(b.refundNoteSecret)) ||
+      !isFieldElement(b.refundOwnerCommitment) ||
+      !isFieldElement(b.refundNoteSecret) ||
       typeof b.refundNoteDataHash !== "string" ||
       !HEX32.test(b.refundNoteDataHash)
     )

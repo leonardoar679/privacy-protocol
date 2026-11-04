@@ -102,6 +102,11 @@ describe("the request bodies, checked at the edge", () => {
       { refundNoteDataHash: "0xab" },
       // a refund time years ahead: the operation it records would never be purged (the audit round of 2026-10-16, c18)
       { refundAfter: 99_999_999_999 },
+      // integers past a uint256, refund-note fields past the field (the seventh review round, 2026-11-03): they aliased a vouched escrow
+      { amount: ((1n << 256n) + 5n).toString() },
+      { executorTip: ((1n << 256n) + 1n).toString() },
+      { refundNoteSecret: "21888242871839275222246405745257275088548364400416034343698204186575808495617" },
+      { refundOwnerCommitment: ((1n << 256n) + 7n).toString() },
     ]) {
       const body = { ...swapRequest(), provider: "thorchain", params: { ...params, ...bad } };
       expect(await refused("/v1/operations", body), JSON.stringify(bad)).toEqual({ status: 400, code: "invalid_request" });

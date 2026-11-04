@@ -21,6 +21,8 @@ export interface SentTx<S extends string> {
   from: S;
   at: number;
   unpaid?: boolean;
+  /** a refund of a foreign token (refundToken): mined, the job goes back to `from` — the order's own asset may still be in the escrow (the seventh review round, 2026-11-03) */
+  foreign?: boolean;
 }
 
 /** A transaction the node took (or holds after all), by its hash; or one that never left, or that the node refused: nothing to wait for. */
