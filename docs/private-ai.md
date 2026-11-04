@@ -39,6 +39,8 @@ wallet tab ──(1) private withdrawal, bucket + fee reserve──▶ fresh fun
 ```
 cd apps/web
 ZKAPI_NETWORK=sepolia npm run zkapi:assets   # buildBrowserSdkAssets → public/zkapi (config, worker, wasm, 2 proving keys; hashes verified by the helper)
+node scripts/pin-zkapi-sdk.mjs                # after reviewing a new commit of the clone: apps/web/zkapi-sdk.pins.json (its commit, every file of sdk/ by hash);
+                                              # the build, the asset emitter and verify-all refuse a clone that differs (the sixth review round, 2026-11-03)
 ZKAPI_NETWORK=sepolia npm run zkapi:pins     # spec §3: 12 local checks + tools/zkapi-lab/verify-mainnet.mjs (23 chain/manifest/bytecode/key/feed checks) → public/zkapi/pin-check.json
 npm run build                                # tsc -b + vite build (522 modules; the SDK is bundled, its worker/wasm/keys stay static)
 npm run dev                                  # /zkapi-deployment/* is proxied to the pinned protocol server of ZKAPI_NETWORK

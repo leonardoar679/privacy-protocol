@@ -794,7 +794,7 @@ resolves when its page is gone (from the chain: within minutes through a relayer
 **As landed (the second review round, 2026-11-03), the screens.** The trading preference rows and the Privacy Center say
 what the runner does: a swap is funded as soon as it is confirmed, and only "Delay for more privacy" on a swap adds a random
 1–24 h — the posture scores the funding as immediate (the Home badge follows; audit gap 65); the Privacy Center says the
-RPC endpoints learn the wallet's own nullifiers when it checks whether its notes were spent (gap 48); "Remove from this
+RPC endpoints see the pool's spends with its deposits in one fetch-all read and are never asked about the wallet's own notes, and that the endpoint behind a light client's proofs sees the notes it proves (the sixth review round, 2026-11-03; audit gap 80); "Remove from this
 device" removes a finished record with its line; a Protect's Review stays closed without a wallet to pay, and "no injected
 wallet" is `wallet_disconnected`; a reveal of the recovery phrase reads "Phrase shown … no backup yet", only an export reads
 "backup created"; the enhanced Send Review closes its confirmation offline as the V6 Review does; the Korean fee-policy
