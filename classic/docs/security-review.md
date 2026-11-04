@@ -109,6 +109,21 @@ accepted the recorded proof).
 | C2-8 a relayed job whose page was gone stayed "Sent" | closed: read again (`jobOf`) when the history is read, never re-submitted |
 | C2-9 a crashed prover worker lost every tree until a reload | closed: the tree is loaded again from the device's copy; a phone's sub-workers get 1,000 pages |
 | C2-10 no on-chain isSpent before a withdrawal | closed: read before proving and again right before anything is sent |
+| C10-1 the confirmation followed the mode selected since and named neither the recipient nor the relayer (the tenth review round, 2026-11-04) | closed: the inputs fixed while a flow runs; the confirmation built from the proof's public signals — the recipient in full, the relayer and its account, the fee, what arrives |
+| C10-2 a valid note called invalid when the history failed or lagged | closed: a miss says what the history knows — verified up to block N, or not checkable ("This does not mean the note is invalid") |
+| C10-3 a relayer's CONFIRMED taken as the outcome | closed: complete once the pool says the note is spent or the synced Withdrawal events hold its transaction; "Reported by the relayer" until then |
+| C10-4 a late deposit read "did not go through" | closed: kept sent and waiting ("Keep your note"); a revert says nothing was deposited; a reload asked first while a flow is in flight |
+| C10-5 the history's own check accepted a root of fewer leaves | closed: the pool's last root exactly at the history's block |
+| C10-6 a deposit's timestamp is the source's word | open as stated (audit gap 111) |
+| C10-7 "spent" from unverified events hid the chain check | closed: "Check on chain" offered beside the source named; the pool's answer wins |
+| C10-8 token contracts passed the recipient rule | closed: WETH, stETH, wstETH and rETH refused by name |
+| C10-9 the sanctions switch was a Connect-time check that failed open | closed behind the switch (off): every account screened, a failed read disconnects, the sending account screened before each send |
+| C10-10 no chain binding at the send | closed: the wallet's chain read right before every send and named in it |
+| C10-11 closing the shared prover ended other pools' work | closed: the close waits, bounded, for the requests still pending |
+| C10-12 the user's own receipts went to the app's endpoint | closed: read through the connected wallet, the app's endpoint only when the wallet answers none |
+| C10-13 the spent read ran before the confirmation | closed: only after it, said under the Withdraw button |
+| C10-14 a relayed proof on an invented root | closed: a second endpoint is asked about the root before a relayed submission too (tornado-relayer 4.x checks none) |
+| C10-15 the smaller items | closed: a relayer's or a wallet's free text kept as one plain line, a deposit's answer in its own note's modal, the relayers asked only when a withdrawal is live, the router-disabled warning, the tooltip, the snapshot size bound, chain 1 in production, a pool function switched on only with `legal-review.md` clearing it (`classic/scripts/live-gate.mjs`); open as stated (audit gap 111): the backup file's name, History's spent filters, two tabs, Clear history's leftovers |
 | N-4 the served code | open as stated (§2): the policy, pins and scan bound it; the host's integrity remains |
 
 ## 6. What awaits the external security review

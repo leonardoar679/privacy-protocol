@@ -34,7 +34,9 @@ A keystore that fails authentication is "wrong password": implementations MUST N
 wrong password from a tampered file. Unsafe parameters (N < 2^10, not a power of two, r or p < 1,
 dkLen ≠ 32) MUST be refused before any work is done. A keystore has exactly these five fields, a 16-byte salt, a
 24-byte nonce and a 48-byte ciphertext; anything else is not a keystore of this wallet's (the fifth review round,
-2026-11-03; both cores refuse it since the seventh). The device's keystore is wrapped at the build's scrypt cost: a backup restored, or a stored keystore below
+2026-11-03; both cores refuse other sizes since the seventh, and the web's store refuses any other field on write — the cores'
+unlock reads the five and ignores another, and a backup's keystore is re-wrapped without it at the restore: the tenth review
+round, 2026-11-04). The device's keystore is wrapped at the build's scrypt cost: a backup restored, or a stored keystore below
 the configured N at an unlock, is encrypted again under a fresh salt and nonce — the file's own parameters never become
 the device's.
 ```
@@ -60,7 +62,8 @@ carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}
 `delayed {since, code}`, `declined {at, code}`, `settlement`, and (a V6 follow-up of 2026-10-14) optional `refs`
 `noteCounter` (the note a Protect deposits or a Send makes as change), `nullifiers` (a Send's two, decimal) and
 `relayerUrl`, kept at "submitting" (and, since the ninth review round, a COMPLETED swap's optional `outcome`: `partial` or
-`refunded-at-destination`); a V5 record is upgraded when the journal is decrypted
+`refunded-at-destination`; since the tenth, `partial-unreturned` and `other-token`, the token in the optional `outcomeAsset` — an
+outcome a build does not know is dropped as the journal is read); a V5 record is upgraded when the journal is decrypted
 (`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. A swap record's `track`
 may carry `settlement` (where the money is, spec v2.0 §12.4), and the record itself `operationId` (V6 Stage 9: the API's
 `op_` id of the order, from its commit or its first resume; spec v2.0 §15). V6 Stage 10 (spec v2.0 §10): the optional
@@ -146,7 +149,11 @@ byte for byte (`healProtection` fills the new settings with their defaults).
 
 The journal is readable only with the seed, never with the password alone. Losing the journal loses
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
-is why the backup file includes it. Nothing in either file is ever stored in the clear. V5 (Privacy Wallet Web
+is why the backup file includes it. A backup restored over this device's own journal of the same wallet is merged into it (the tenth
+review round, 2026-11-04: the device's journal is the base; the backup's notes, orders, campaigns, schedule, records and address
+book entries it lacks are added; every counter is the higher); its journal is checked — the exact `{v, nonce, ct}` shape, opening
+under the backup's own keystore — before anything is written, and the journal the restore writes holds the counters from that first
+write. Over another wallet the replaced wallet's settings go. Nothing in either file is ever stored in the clear. V5 (Privacy Wallet Web
 spec §8): the only secure-store records are `pp.keystore` and `pp.journal` (`pp.journal.unreadable` when one is set
 aside; "Forget this wallet" removes all three — the audit's unverified m44, 2026-10-17: the set-aside one had stayed), in
 the IndexedDB database `privacy-wallet`, store `secure` — moved once from localStorage, which then holds
@@ -164,7 +171,13 @@ Root = BIP-32 master key of the BIP-39 seed (`"Bitcoin seed"` HMAC-SHA512).
 | per-dApp EVM account | `m/44'/60'/0'/0/j`, `j = keccak256("privacy-protocol/v1/dapp" ‖ lowercase(origin))[0..4] & 0x7fffffff` | as EVM |
 
 Fresh addresses are handed out in index order; the next index per chain lives in the journal
-(`chainIndexes`) and is reserved when an address is shown as a destination, so no address is reused.
+(`chainIndexes`) and is reserved when an address is shown as a destination, so no address is reused. A journal that began without
+the whole of an earlier one — a restore from the phrase or from a backup without this device's own journal of the wallet, an unlock
+that finds no journal it can read, a journal set aside earlier — resumes
+every chain's index 1,000 past what it holds (`ADDRESS_INDEX_RESERVE`) and Private AI's funding index 100 past it
+(`AI_FUNDING_RESERVE`) (the tenth review round, 2026-11-04): the indexes live in the journal only, and a restore had handed out
+again the addresses the earlier installation gave to payers or used as destinations. A wallet that discovers addresses by a gap limit
+sees one past the reserve only once its limit is raised (audit gap 117).
 The permanent public address of the user is never the default destination of anything.
 
 ## 4. Privacy address (spec §12, `docs/crypto-spec.md`)
