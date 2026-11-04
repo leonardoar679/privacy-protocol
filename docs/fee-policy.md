@@ -18,6 +18,9 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
   rounded up by at most one base unit a piece.
 - **Merges, splits, refunds and re-shields pay no privacy fee.** They pay the relayer's cost `F` where a relayer acts. The
   merges a swap's funding needs are named on its Review and bound by the Review's `F` (the second review round, 2026-11-03).
+  A Send or a one-confirmation swap that needs more merges first than its Review named — none named, none run — stops before
+  any is paid (`merges_moved`), and private balance maintenance pays at most the fee each step's daily cap was checked against
+  (the eighth review round, 2026-11-03).
 - **A send your connected wallet submits (Advanced) pays no privacy fee and no relayer fee**: the wallet pays the network fee
   itself, and the Review says so (audit gap 31 records the unpaid fee).
 - **A Protect followed later by a Swap are two operations, and each pays its 1 %.** Protecting funds costs 1 % of the
@@ -40,7 +43,9 @@ English and Korean). Tornado Classic has its own fee lines and none of this (§6
 - **The executor tip** of a swap is the execution's gas cost, estimated from the chain's fee history — never a
   percentage and never a fixed gas price; the escrow caps it at 1 % of the funding. A protected execution's steps each pay
   their own tip at their time, within the bounds; the Review's relayer row for steps carries today's estimate of them,
-  marked as an estimate (the third review round, 2026-11-03).
+  marked as an estimate (the third review round, 2026-11-03). A one-order swap's tip is the one its Review showed while that is
+  at least half of the service's price at the commit and not above it; below half the commit is refused (`tip_moved`) and the
+  Review is shown again (the eighth review round).
 - A Protect pays its own network cost from the connected wallet, in the chain's coin, as any transaction does.
 
 ## 3. When nothing is charged

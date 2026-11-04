@@ -11,12 +11,14 @@ call before signing, and its own chain reads win on any disagreement.
 
 It holds **no** note, key, recovery phrase, witness, balance, user address, IP address, user agent or funding
 transaction (`test/schema.test.ts` pins the tables; `test/flow.test.ts` reads the database after a full flow). A quote
-row has no amount. An operation's destination and refund material live only until finalize. Every record leaves on
+row has no amount. An operation's destination and refund material live only until finalize, or its execution deadline when that
+comes first; what is deleted is overwritten in the file (`PRAGMA secure_delete`) and the WAL is emptied after a finalize and
+every purge (the eighth review round, 2026-11-03). Every record leaves on
 schedule (`src/db.ts` `RETENTION`):
 
 - quotes, 1 h after they expire;
 - a finished operation, after 7 days;
-- an abandoned order, 2 days past its refund window;
+- an abandoned order, 2 days past its refund window; one no reconcile saw funded, an hour past its execution deadline;
 - events after 7 days; provider health after 48 h;
 - in memory, a reconcile's answer only while its 5-second throttle serves it.
 

@@ -259,7 +259,9 @@ Both services send the same headers on every answer, from `packages/server-kit/s
 Their configuration: `apps/api/.env.example` (and the engine's, `packages/swap-engine/.env.example`) and
 `apps/relayer/.env.example`. Every number in it is read strictly (`packages/server-kit/src/env.ts`): one that is not a
 whole number in its range stops the service at start, naming the setting. Their CORS headers go to the origins in `ALLOWED_ORIGINS` only. Both rate-limit per caller
-(`RATE_PER_MINUTE`), and the address is never logged. By default the caller is the socket's address and no proxy header
+(`RATE_PER_MINUTE`), and the address is never logged. The API bounds what it stores too (the eighth review round, 2026-11-03):
+`COMMITS_PER_MINUTE` (default 4, a burst of 30) operations a caller may create a minute, commits and restores alike, and
+`MAX_OPEN_OPERATIONS` (default 50,000) operations not yet ended; past either it answers 429 or 503. By default the caller is the socket's address and no proxy header
 is read. `TRUST_PROXY_HOPS` names how many proxies in front of the service append to `X-Forwarded-For`; the caller is
 then the entry the outermost of them wrote, so what a client writes there itself buys nothing. A request with fewer
 entries keeps its socket's address. A POST that is not JSON answers 415. The API's `EXPOSURE_POLICY_FILE` (V7 Stage 13, spec v3.0 §4)

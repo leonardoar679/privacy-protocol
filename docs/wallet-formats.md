@@ -75,7 +75,9 @@ was sent and never confirmed, `funding_unconfirmed`, a V6 follow-up; since 2026-
 closed before its funding, `order_expired` with the state `abandoned`, and on a funded one whose window closed before
 its hand-over, `execution_window_closed`); a V6 follow-up of 2026-10-14: a swap order's
 funding, journaled before it is sent, is `fundingAttempt { nullifiers: [decimal, decimal], by: "relayer" | "wallet",
-relayerUrl?, txHash?, at }` (the transaction once known); its ticks are scheduled actions of the kind
+relayerUrl?, txHash?, inputsDigest?, at }` (the transaction once known; since the eighth review round the call's public-inputs
+digest, which tells its own spend from another call's) — the order's `reviewedMerges?` is the count of merges its Review named,
+and `aiFunding.funded?` the fresh funding index already funded from the pool; its ticks are scheduled actions of the kind
 `order-tick` (id `order-tick:<orderId>`); a note this wallet created carries `addedAt` (unix ms) — all optional. The
 audit round of 2026-10-16: `countersHeld: true` while a journal that began without the whole of an earlier one (a restore
 from the phrase or a backup) has had no complete scan — no note counter is handed out meanwhile (PP-P03); optional, never

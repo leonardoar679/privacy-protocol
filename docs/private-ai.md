@@ -7,6 +7,12 @@ the SDK assets are built and hash-verified here, the deployment-pin check (`docs
 machine: a browser session with testnet ETH (no browser, no funds, and the Sepolia server needs its
 shared testnet password) — that is the first thing to do on a workstation.
 
+Status (2026-11-03, the eighth review round): **not enabled with the current pins.** The pin check requires the
+`zkapi-v2-note-bound-v1` circuit while the pinned SDK builds its concession circuit, and both pinned profiles are
+`not_deployed`: `zkapiEnabled` stays false, which fails closed (audit gap 98). The round fixed what would have broken a
+build that passes — the transport refused every request the SDK sends, the policy blocked the profile's RPC and verifier — and
+what a Forget and a lock left behind; re-pinning the zkAPI pipeline, the emitted worker included, is the owner's step.
+
 ## What the user sees (plan §4)
 Model · Ask anything · Send · **Private balance** — plus two things the plan's mock-up does not show
 and the spec requires: the deployment-pin status ("checked at build: N checks + lab 23 ✔") and the
@@ -21,7 +27,7 @@ wallet tab ──(1) private withdrawal, bucket + fee reserve──▶ fresh fun
           ──(5) withdraw("mutual", destination = the fresh address) before expiry; next note → index i+1
 ```
 - **Runtime-key mode only.** The SDK's `transport` is `privateTransport` (`apps/web/src/zkapi/sdk.ts`):
-  it refuses the `preferProxy` hint, sends with `credentials: "omit"` and `redirect: "error"`. The
+  it takes the SDK's `preferProxy` as the routing hint it is — the host's own privacy proxy, which this wallet does not have — and sends the request directly (refused, as it was until the eighth review round, no deposit, lease or price read could ever succeed), with `credentials: "omit"` and `redirect: "error"`. The
   billing server sees proofs and leases; the provider sees the prompt and a key tied to OA's org
   (`require_oa_key_source: true`), never the funding address. Proxy mode does not exist in this wallet.
 - **Fresh funding address (spec §4, §6).** `apps/web/src/zkapi/freshAccountProvider.ts` derives key
