@@ -1,7 +1,7 @@
 // The wallet's client of the API (Privacy Wallet Web spec v2.0 §15; apps/api): every /v1 route, typed, through the one
 // transport policy (secureFetch). An operation is addressed by its opaque `op_` id — the order id never appears in a URL.
 // The wallet stays canonical for money and for the truth of its own reads; the API's records are a second source.
-import { secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
+import { AnswerTooLarge, readCapped, secureFetch } from "@privacy-wallet/privacy-engine/transport/http";
 import type { OperationState, Quote, SettlementState } from "@privacy-wallet/protocol-types";
 import { config } from "../config";
 
@@ -72,7 +72,13 @@ export async function apiCall<T>(
       },
       purpose,
     );
-    const j = (await r.json().catch(() => ({}))) as { error?: string; code?: string; approvedMin?: string; newMin?: string };
+    // read to a bound (the eleventh review round, the completeness critic); a body past it is refused, never an empty answer read as a success
+    const j = (await readCapped(r)
+      .then((t) => JSON.parse(t) as unknown)
+      .catch((e: unknown) => {
+        if (e instanceof AnswerTooLarge) throw e;
+        return {};
+      })) as { error?: string; code?: string; approvedMin?: string; newMin?: string };
     if (timedOut()) throw new ApiTimeout(timeoutMs); // the body was cut off: never an empty answer read as a success
     if (!r.ok) {
       if (r.status === 409 && j?.code === "minimum_moved" && j.approvedMin !== undefined && j.newMin !== undefined)

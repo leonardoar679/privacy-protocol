@@ -120,7 +120,9 @@ export class AcrossAdapter implements ProviderAdapter {
 
   async track(ref: { sourceTxHash?: string; providerRef?: string }): Promise<TrackStatus> {
     if (!ref.sourceTxHash) return { state: "unknown" };
-    const origin = ref.providerRef ?? "1";
+    // the origin chain's id when the reference is one (the eleventh review round's fifth critique: the wallet journals the provider call's target —
+    // the SpokePool's address — as its reference, and Across answered 400 to it as a chain id, read "unknown" for good)
+    const origin = ref.providerRef && /^[0-9]{1,10}$/.test(ref.providerRef) ? ref.providerRef : "1";
     const { data, status } = await getJson<any>(`${ACROSS_API}/deposit/status?originChainId=${origin}&depositTxHash=${ref.sourceTxHash}`);
     if (status !== 200) return { state: status === 404 ? "unknown" : "unknown", raw: data };
     switch (data.status) {

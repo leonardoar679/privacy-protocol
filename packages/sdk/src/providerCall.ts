@@ -12,7 +12,7 @@
 // refused. A minimum it cannot read (LI.FI into Mayan) is accepted only under the Fastest policy (§9).
 // Written independently of packages/swap-engine's adapters; the tests check both decoders agree on
 // real provider calls.
-import { fetchFor } from "@privacy-wallet/privacy-engine/transport/http";
+import { fetchFor, readCapped } from "@privacy-wallet/privacy-engine/transport/http";
 import { base58 } from "@scure/base";
 import { bytesToHex, decodeAbiParameters, decodeFunctionData, getAddress, hexToBytes, isAddress, padHex, parseAbi, type Address, type Hex } from "viem";
 import type { AssetRef, Policy } from "./swapService";
@@ -120,6 +120,8 @@ const CF_MAX_RETRY_BLOCKS = 14_400;
 /** A THORChain stream this wallet signs (whale spec §12): an explicit quantity (0 would let the network choose), at most THORNode's own day of 6-second blocks, at most 100 blocks apart. */
 const THOR_MAX_STREAM_PARTS = 14_400;
 const THOR_MAX_INTERVAL_BLOCKS = 100;
+/** A THORNode gateway's answer is read to at most this (its inbound addresses are tens of kB, its vault list a few hundred): beyond it, no answer. */
+export const THORNODE_ANSWER_MAX_BYTES = 4 * 1024 * 1024;
 /** The most digits a memo's limit may have (10^30 in 1e8 units: more than any asset's supply). */
 export const THOR_LIMIT_DIGITS = 30;
 
@@ -287,7 +289,7 @@ export async function thornodeInbound(chain: string, opts: { gateways?: string[]
     try {
       const r = await fetchFn(`${base}/thorchain/inbound_addresses`, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000) });
       if (!r.ok) return { base };
-      const list = (await r.json()) as any[];
+      const list = JSON.parse(await readCapped(r, THORNODE_ANSWER_MAX_BYTES)) as any[]; // a gateway's answer to a bound (the critic): one streaming without end is no answer
       const e = Array.isArray(list) ? list.find((c) => c?.chain === chain) : undefined;
       const ok = !!e && (THOR_EVM_CHAINS.includes(chain) ? isAddress(String(e.address)) && isAddress(String(e.router)) : typeof e.address === "string" && /^[a-zA-Z0-9:]{20,100}$/.test(e.address));
       const halted = list.filter((c) => !!(c?.halted || c?.global_trading_paused || c?.chain_trading_paused)).map((c) => String(c?.chain));
@@ -324,7 +326,7 @@ export async function thornodeActiveVault(chain: string, vault: string, opts: { 
     try {
       const r = await fetchFn(`${base}/thorchain/vaults/asgard`, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store", headers: { accept: "application/json" }, signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000) });
       if (!r.ok) return { base };
-      const vaults = (await r.json()) as any[];
+      const vaults = JSON.parse(await readCapped(r, THORNODE_ANSWER_MAX_BYTES)) as any[];
       const active = (Array.isArray(vaults) ? vaults : [])
         .filter((v) => v?.status === "ActiveVault" && Array.isArray(v.addresses))
         .flatMap((v) => v.addresses.filter((a: any) => a?.chain === chain && typeof a.address === "string").map((a: any) => String(a.address)));

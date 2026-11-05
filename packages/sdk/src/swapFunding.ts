@@ -274,7 +274,7 @@ export const FUNDING_MARGIN_MS = 5 * 60_000;
 
 /** The chain's latest block's timestamp, in seconds. */
 export type LatestBlockTime = (d: Deployment) => Promise<bigint>;
-const latestBlockTime: LatestBlockTime = async (d) => (await clientFor(d).getBlock({ blockTag: "latest" })).timestamp;
+export const latestBlockTime: LatestBlockTime = async (d) => (await clientFor(d).getBlock({ blockTag: "latest" })).timestamp;
 
 /**
  * The clock a funding reads its order's window by: the later of the device's and the chain's latest block (audit round 2,

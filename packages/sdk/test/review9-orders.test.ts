@@ -16,7 +16,7 @@ import { swapRecordId, syncSwapRecord } from "../src/operations/swapRecords";
 import { actionsFor } from "../src/operations/recovery";
 import { ApiError } from "../src/api/client";
 import { indexSpends, rememberSpendIndex, forgetSpendIndexes } from "../src/wallet/spends";
-import { HANDOVER_RECHECK_MS, runOrderTick, signRetryMs, type OrderIo } from "../src/wallet/orderRunner";
+import { CHAIN_SETTLE_MS, HANDOVER_RECHECK_MS, runOrderTick, signRetryMs, type OrderIo } from "../src/wallet/orderRunner";
 import type { Deployment } from "../src/chain";
 import type { Hex } from "viem";
 
@@ -282,6 +282,246 @@ describe("C-09: a hand-over whose answer was lost, at the window's end", () => {
     due(later);
     expect(await tick(o, later)).toBe("paused");
     expect(stored().paused?.code, "nothing executes past the deadline: the full escrow says nothing was swapped").toBe("execution_window_closed");
+  });
+
+  it("the settle reads the chain's clock too: a device clock minutes fast never says 'nothing was swapped' while the chain still executes (the eleventh review round, B11-4)", async () => {
+    put({ state: "funded", fundedTx: "0xf00d", handOverAttempt: T0, relayerUrl: "http://relayer.test" });
+    const later = DEADLINE_S * 1000 + 20 * 60_000; // the device: twenty minutes past the window
+    session.update((j) => {
+      j.schedule = [action(later)];
+    });
+    const at = (chain: number | null) => baseIo({ escrowBalance: async () => AMOUNT, job: async () => null, track: unused, chainTime: async () => chain });
+    expect(await tick(at(DEADLINE_S * 1000 - 60_000), later)).toBe("paused");
+    expect(stored().paused?.code, "the chain a minute before its deadline: not known yet").toBe("handover_unknown");
+    due(later + 60_000);
+    expect(await tick(at(null), later + 60_000), "already paused as not known: it waits").toBe("waiting");
+    expect(stored().paused?.code, "the chain's time unread: not known yet").toBe("handover_unknown");
+    due(later + 120_000);
+    expect(await tick(at(DEADLINE_S * 1000 + CHAIN_SETTLE_MS + 1000), later + 120_000)).toBe("paused");
+    expect(stored().paused?.code, "the chain past it as well: nothing was swapped").toBe("execution_window_closed");
+  });
+
+  it("a refusal after the executor was asked keeps the attempt journaled — the relayer's own 'Not handed over' never erases it (B11-3)", async () => {
+    put({ state: "funded", fundedTx: "0xf00d" });
+    session.update((j) => {
+      j.schedule = [action(T0)];
+    });
+    const o = baseIo({
+      escrowBalance: async () => AMOUNT,
+      job: async () => null,
+      sign: async () => ({ sim: { ok: true, gas: 1n }, label: "signed" }) as never,
+      handOver: async (_st, _signed, onSending) => {
+        onSending?.("http://relayer.test");
+        throw new Error("Not handed over: the executor builds for another chain");
+      },
+      track: unused,
+    });
+    expect(await tick(o, T0)).toBe("paused");
+    expect(stored().paused?.code, "an outcome not known — never 'nothing was handed over' (the critique)").toBe("reconcile");
+    expect(stored().handOverAttempt, "the executor was asked: the attempt stays").toBe(T0);
+  });
+
+  it("a deadline refusal after the executor was asked keeps the attempt too, and the next tick comes a second later (the critique, T5)", async () => {
+    put({ state: "funded", fundedTx: "0xf00d" });
+    session.update((j) => {
+      j.schedule = [action(T0)];
+    });
+    const o = baseIo({
+      escrowBalance: async () => AMOUNT,
+      job: async () => null,
+      sign: async () => ({ sim: { ok: true, gas: 1n }, label: "signed" }) as never,
+      handOver: async (_st, _signed, onSending) => {
+        onSending?.("http://relayer.test");
+        throw Object.assign(new Error("deadline too close"), { code: "deadline_too_close" });
+      },
+      track: unused,
+    });
+    expect(await tick(o, T0)).toBe("waiting");
+    expect(stored().handOverAttempt, "asked: kept").toBe(T0);
+    expect(pending()?.dueAt).toBe(T0 + 1000);
+  });
+
+  it("the settle waits for the chain's margin: a chain just past the deadline, within CHAIN_SETTLE_MS, is not settled (the critique, T4)", async () => {
+    put({ state: "funded", fundedTx: "0xf00d", handOverAttempt: T0, relayerUrl: "http://relayer.test" });
+    const later = DEADLINE_S * 1000 + 20 * 60_000;
+    session.update((j) => {
+      j.schedule = [action(later)];
+    });
+    const io = baseIo({
+      escrowBalance: async () => AMOUNT,
+      job: async () => null,
+      track: unused,
+      chainTime: async () => DEADLINE_S * 1000 + CHAIN_SETTLE_MS - 1000,
+    });
+    expect(await tick(io, later)).toBe("paused");
+    expect(stored().paused?.code, "within the margin: not known yet").toBe("handover_unknown");
+  });
+
+  it("an order the executor was asked about, its refund found, no job, never executed and the escrow empty: the runner closes it refunded with its pause — handover_unknown and execution_window_closed alike (the critique, T2; K4)", async () => {
+    for (const code of ["handover_unknown", "execution_window_closed"]) {
+      session.update((j) => {
+        j.operations = []; // a record left by the last code would pass the REFUNDED check by itself (the second critique, T5)
+      });
+      resetOperationsMemory();
+      put({
+        state: "funded",
+        fundedTx: "0xf00d",
+        handOverAttempt: T0,
+        paused: { code, detail: "…", at: T0 },
+        refunds: [{ leafIndex: 9, vault: "0x" + "00".repeat(20), amount: AMOUNT.toString() }],
+      });
+      const later = DEADLINE_S * 1000 + 3 * 3_600_000;
+      session.update((j) => {
+        j.schedule = [action(later)];
+      });
+      const io = baseIo({ escrowExecuted: async () => false, escrowBalance: async () => 0n, job: async () => null, track: unused });
+      expect(await tick(io, later), code).toBe("settled");
+      expect(stored().state, code).toBe("refunded");
+      expect(stored().paused, code).toBeUndefined();
+      expect(getOperation(swapRecordId(ORDER))?.state, code).toBe("REFUNDED");
+      expect(pending(), "no more asking every hour").toBeUndefined();
+    }
+  });
+
+  it("1b closes on the escrow's own flag: executed, a flag or an escrow not read, an escrow still holding the order leave it open; dust is empty (the second critique, T2, T8, W5; K4)", async () => {
+    const setUp = () => {
+      session.update((j) => {
+        j.operations = [];
+      });
+      resetOperationsMemory();
+      put({
+        state: "funded",
+        fundedTx: "0xf00d",
+        handOverAttempt: T0,
+        paused: { code: "handover_unknown", detail: "…", at: T0 },
+        refunds: [{ leafIndex: 9, vault: "0x" + "00".repeat(20), amount: AMOUNT.toString() }],
+      });
+      session.update((j) => {
+        j.schedule = [action(later)];
+      });
+    };
+    const later = DEADLINE_S * 1000 + 3 * 3_600_000;
+    const cases: [string, Partial<OrderIo>, string][] = [
+      ["the flag not read", { escrowExecuted: async () => null, escrowBalance: async () => 0n }, "funded"],
+      ["no flag reader at all", { escrowBalance: async () => 0n }, "funded"],
+      [
+        "executed (another copy's hand-over): read as a handed-over order",
+        {
+          escrowExecuted: async () => true,
+          escrowBalance: async () => 0n,
+          track: (st) =>
+            trackOrder(st, {
+              deployment: null,
+              readers: { job: async () => null, balance: async () => 0n, track: async () => null, executed: async () => true, executionTx: async () => null },
+            }),
+        },
+        "executed",
+      ],
+      ["the escrow not read", { escrowExecuted: async () => false, escrowBalance: async () => null }, "funded"],
+      ["the escrow still holding the order", { escrowExecuted: async () => false, escrowBalance: async () => AMOUNT }, "funded"],
+      ["one wei of dust in it", { escrowExecuted: async () => false, escrowBalance: async () => 1n }, "refunded"],
+    ];
+    for (const [name, over, state] of cases) {
+      setUp();
+      const step = await tick(baseIo({ job: async () => null, track: unused, ...over }), later);
+      expect(step === "settled", name).toBe(state === "refunded");
+      expect(stored().state, name).toBe(state);
+      // its refund came back: the pause ends whatever the flag says (the fifth critique), but for an escrow still holding the order, whose return
+      // the later steps take — paused there "execution_window_closed"
+      if (state !== "refunded") expect(stored().paused?.code, name).toBe(name === "the escrow still holding the order" ? "execution_window_closed" : undefined);
+    }
+  });
+
+  it("the tracker: a partial fill whose rest came back closes the order completed, whatever the job says (the second critique, T6)", async () => {
+    for (const jobState of ["executed", "refund-failed"]) {
+      const s = put({
+        state: jobState,
+        fundedTx: "0xf00d",
+        jobId: "job-1",
+        executionTx: "0x" + "ee".repeat(32),
+        relayerUrl: "http://relayer.test",
+        refunds: [{ leafIndex: 9, vault: "0x" + "00".repeat(20), amount: (AMOUNT / 2n).toString() }],
+      });
+      const job = { id: "job-1", escrow: ESCROW, state: jobState, executionTx: "0x" + "ee".repeat(32), updatedAt: T0 } as unknown as SwapJob;
+      const r = await trackOrder(s, {
+        deployment: null,
+        now: T0 + 3_600_000,
+        readers: { job: async () => job, balance: async () => 0n, track: async () => ({ state: "partial", deliveredAmount: 1_500_000n }) as never },
+      });
+      expect(r.tracked.state, jobState).toBe("PARTIAL");
+      expect(stored().state, jobState).toBe("completed");
+    }
+  });
+
+  it("the tracker: another token is journaled, and kept from the journal when the provider is not read the next time (the second critique, W4, T7)", async () => {
+    const s = put({ state: "executed", fundedTx: "0xf00d", jobId: "job-1", executionTx: "0x" + "ee".repeat(32), relayerUrl: "http://relayer.test" });
+    const job = { id: "job-1", escrow: ESCROW, state: "executed", executionTx: "0x" + "ee".repeat(32), updatedAt: T0 } as unknown as SwapJob;
+    await trackOrder(s, {
+      deployment: null,
+      now: T0 + 60_000,
+      readers: { job: async () => job, balance: async () => 0n, track: async () => ({ state: "partial", deliveredAsset: "USD₮0" }) as never },
+    });
+    expect(stored().track?.otherToken, "journaled with the reading").toBe(true);
+    expect(stored().track?.deliveredAsset, "no symbol outside the shown characters").toBeUndefined();
+    const again = await trackOrder(stored(), {
+      deployment: null,
+      now: T0 + 120_000,
+      readers: { job: async () => job, balance: async () => 0n, track: async () => null },
+    });
+    expect(again.tracked.otherToken, "the provider not read: the journal's reading").toBe(true);
+    expect(stored().track?.otherToken, "and not dropped from the journal").toBe(true);
+  });
+
+  it("the tracker: an executed order, its refund found, the provider not read and nothing journaled of what it delivered, is read again — executing, never refunded in full (the second critique, T3; K4)", async () => {
+    const s = put({
+      state: "executed",
+      fundedTx: "0xf00d",
+      jobId: "job-1",
+      executionTx: "0x" + "ee".repeat(32),
+      relayerUrl: "http://relayer.test",
+      refunds: [{ leafIndex: 9, vault: "0x" + "00".repeat(20), amount: (AMOUNT / 2n).toString() }],
+    });
+    const job = { id: "job-1", escrow: ESCROW, state: "executed", executionTx: "0x" + "ee".repeat(32), updatedAt: T0 } as unknown as SwapJob;
+    const r = await trackOrder(s, { deployment: null, now: T0 + 60_000, readers: { job: async () => job, balance: async () => 0n, track: async () => null } });
+    expect(r.tracked.state, "read again: what it delivered is not known (K4)").toBe("PROVIDER_EXECUTING");
+    expect(stored().state, "still open").toBe("executed");
+  });
+
+  it("the tracker: an order asked about without a jobId, its refund found, is never closed by a Refresh's reading unless the escrow's flag says it never executed (the second critique, T2; K4)", async () => {
+    const s = put({
+      state: "funded",
+      fundedTx: "0xf00d",
+      handOverAttempt: T0,
+      refunds: [{ leafIndex: 9, vault: "0x" + "00".repeat(20), amount: AMOUNT.toString() }],
+    });
+    const r = await trackOrder(s, { deployment: null, now: T0 + 60_000, readers: { job: async () => null, balance: async () => 0n, track: async () => null } });
+    expect(r.tracked.state, "whether it executed is not known: read again, never refunded in full").toBe("PROVIDER_EXECUTING");
+    expect(stored().state, "left open for the runner").toBe("funded");
+    const read = await trackOrder(stored(), {
+      deployment: null,
+      now: T0 + 120_000,
+      readers: { job: async () => null, balance: async () => 0n, track: async () => null, executed: async () => false },
+    });
+    expect(read.tracked.state, "the escrow's flag: never executed").toBe("REFUNDED");
+    expect(stored().state, "closed on it").toBe("refunded");
+  });
+
+  it("a job the relayer ended (refund-failed), its refund found since: the reading settled on it closes the order (the critique, T1)", async () => {
+    const s = put({
+      state: "refund-failed",
+      fundedTx: "0xf00d",
+      jobId: "job-1",
+      relayerUrl: "http://relayer.test",
+      refunds: [{ leafIndex: 9, vault: "0x" + "00".repeat(20), amount: AMOUNT.toString() }],
+    });
+    const job = { id: "job-1", escrow: ESCROW, state: "refund-failed", updatedAt: T0 } as unknown as SwapJob;
+    const r = await trackOrder(s, {
+      deployment: null,
+      now: T0 + 3_600_000,
+      readers: { job: async () => job, balance: async () => 0n, track: async () => null },
+    });
+    expect(r.tracked.state).toBe("REFUNDED");
+    expect(stored().state, "closed whatever the job says").toBe("refunded");
   });
 
   it("without a hand-over attempt, the escrow holding the order: 'nothing was swapped' stands, read from the escrow", async () => {

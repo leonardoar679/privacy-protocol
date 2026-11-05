@@ -6,9 +6,9 @@
 // is never a bare "failed": the label says where the money is. Nothing here says "atomic". V6 Stage 12 (spec v2.0
 // §11.2): a same-chain swap into the protected balance is complete when its delivered note is in the pool (the shield
 // receipt's leaves), whatever the provider's own tracking says.
-import type { Address } from "viem";
+import { parseAbi, parseAbiItem, type Address, type Hex, type PublicClient } from "viem";
 import { STALL_FACTOR } from "@privacy-wallet/protocol/wallet/campaign";
-import { clientsFor, type Deployment } from "./chain";
+import { clientsFor, logsInWindows, type Deployment } from "./chain";
 import { erc20Abi } from "./privacyProtocol";
 import { relayerSwapStatus, type SwapJob } from "./relayer";
 import { swapService, type TrackResult } from "./swapService";
@@ -48,6 +48,14 @@ export interface TrackFacts {
   track: TrackResult["track"] | null;
   /** the refund note of this order was found in the pool (PP-S09) */
   refundFound: boolean;
+  /** the provider was asked about the execution and gave no track: its read failed, or its answer carried none (the eleventh review round's K4) */
+  providerUnread?: boolean;
+  /**
+   * The escrow's own `executed` flag, read once its funds came back (the eleventh review round's K4 critique): a refund is made only past the
+   * execute deadline, so the flag is final then — the word over a job not read and over the transaction a relayer keeps of a reverted
+   * execution. Null: read and not agreed on; absent: not read.
+   */
+  escrowExecuted?: boolean | null;
 }
 export interface Tracked {
   state: OrderState;
@@ -61,6 +69,8 @@ export interface Tracked {
   deliveredUnits?: string;
   /** the seventh review round: the asset delivered when it is not the order's (LI.FI's PARTIAL: a bridge's alternative token) — no amount of the output exists */
   deliveredAsset?: string;
+  /** the order's asset did not arrive, another token did (LI.FI's PARTIAL) — whether or not its symbol is one to show (B11-13's critique) */
+  otherToken?: boolean;
   refundedAmount?: string;
   destinationTxHash?: string;
   progress?: { parts: number; done: number };
@@ -128,8 +138,15 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
   const delivered = units !== undefined ? `${fmtUnits(units, to.decimals ?? 0)} ${to.symbol ?? ""}`.trim() : undefined;
   const refunded = t?.refundedAmount !== undefined ? `${fmtUnits(t.refundedAmount, from.decimals ?? 18)} ${from.symbol ?? ""}`.trim() : undefined;
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of the output
-  const otherToken = t?.state === "partial" && t.deliveredAmount === undefined && !!t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase();
-  const extras = { deliveredAmount: delivered, ...(units !== undefined ? { deliveredUnits: units } : {}), ...(otherToken ? { deliveredAsset: t!.deliveredAsset } : {}), refundedAmount: refunded, destinationTxHash: t?.destinationTxHash, progress: t?.progress };
+  // ... or, this read without the provider's answer — none, or one that tells nothing (unknown, pending, executing: the fourth critique) —, as
+  // the journal's last reading had it (the second critique, as the units are)
+  const fromJournal = (!t || t.state === "unknown" || t.state === "pending" || t.state === "executing") && s.track?.otherToken === true;
+  const otherToken = (t?.state === "partial" && t.deliveredAmount === undefined && !!t.deliveredAsset && t.deliveredAsset.toUpperCase() !== String(to.symbol ?? "").toUpperCase()) || fromJournal;
+  // a provider's token symbol only as a symbol (the eleventh review round, B11-13): the screen's own sentence carried any words it sent. The
+  // classification stays apart (the critique): a symbol refused is still another token — "another token" in the words
+  const symbol = !otherToken ? undefined : t && !fromJournal ? (/^[A-Za-z0-9.+_-]{1,16}$/.test(String(t.deliveredAsset)) ? t.deliveredAsset : undefined) : s.track?.deliveredAsset;
+  const otherName = symbol ?? "another token";
+  const extras = { deliveredAmount: delivered, ...(units !== undefined ? { deliveredUnits: units } : {}), ...(symbol ? { deliveredAsset: symbol } : {}), ...(otherToken ? { otherToken: true } : {}), refundedAmount: refunded, destinationTxHash: t?.destinationTxHash, progress: t?.progress };
 
   if (s.state === "abandoned") return out("CANCELLED", "Not started", [true, false, false, false], "Abandoned before funding: nothing left your private balance.");
   const refundedToo = f.refundFound || (s.refunds?.length ?? 0) > 0;
@@ -143,22 +160,54 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
     return out("COMPLETED", "Completed", [true, true, true, true], `${got} added to your protected balance.`, into);
   }
   // a partial fill whose rest came back (a V6 follow-up of 2026-10-16, audit c32): the refund note is the remainder, not the order —
-  // read as Refunded, a campaign re-planned and swapped again what was already delivered
-  const executed = !!(f.job?.executionTx ?? s.executionTx) || f.job?.state === "executed" || f.job?.state === "completed";
+  // read as Refunded, a campaign re-planned and swapped again what was already delivered. The escrow's own flag, read once its funds came
+  // back, over every other word (K4): a relayer keeps a reverted execution's transaction as its executionTx
+  const execTx = f.job?.executionTx ?? s.executionTx;
+  const executed = f.escrowExecuted === false ? false : f.escrowExecuted === true || !!execTx || f.job?.state === "executed" || f.job?.state === "completed";
+  const refundBack = refundedToo || f.job?.state === "refunded";
   // the relayer's word that it re-shielded the rest counts as the refund note does (audit round 2, r14): read before the note
   // was found, such an order read Refunded, and the order runner settled it there — a swap that delivered, called refunded
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60) is read before
   // a refund (audit round 2, n06): with a leftover re-shielded too it had read Refunded in full, and a campaign planned the
   // delivered step's whole amount again
-  if ((refundedToo || f.job?.state === "refunded") && executed && otherToken)
-    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t!.deliveredAsset} at the destination instead of ${to.symbol}; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
-  if ((refundedToo || f.job?.state === "refunded") && executed && unitsOf(units) > 0n)
+  if (refundBack && executed && otherToken)
+    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${otherName} at the destination instead of ${to.symbol}; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
+  if (refundBack && executed && unitsOf(units) > 0n)
     return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "Part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
-  if (refundedToo || f.job?.state === "refunded") return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
+  // the provider's word of a delivery without its amount (K4; the ninth review round's A9-6 refined — Mayan's and Across's tracks never give one):
+  // part was delivered, never a refund in full
+  if (refundBack && executed && (t?.state === "completed" || t?.state === "destination-final" || t?.state === "partial"))
+    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered at the destination (the provider did not say how much); ${refunded ?? "the remainder"} came back to the escrow and was re-shielded into your private balance.`, extras);
+  // ... and of one still on its way: nothing final yet, read again until the provider's last word (a refund in full is final) — waiting for its
+  // destination, never "returning to your balance": what came back is in it already (K4's third critique)
+  if (refundBack && executed && t?.state === "destination-submitted")
+    return out("DESTINATION_SUBMITTED", "Waiting for destination", [true, true, true, false], `The provider sent the destination transaction${t.destinationTxHash ? ` ${t.destinationTxHash.slice(0, 10)}…` : ""}; ${refunded ?? "the rest"} came back to the escrow and was re-shielded into your private balance, and what the swap delivered is read again.`, extras);
+  // a refund in full after an execution only on the provider's word that nothing was delivered — its refund, its failure — or, with no answer
+  // this time, on a journaled reading that said so (units 0) (K4's third critique). An answer that tells nothing — unknown, pending, executing:
+  // four of the adapters answer "unknown" for their own failures —, or no answer — a provider not read, no transaction to ask it about — with
+  // nothing journaled of a delivery: read again, never settled as a refund in full; part may have been delivered (the API's reconcile keeps it so)
+  const toldNothing = t ? !(t.state === "refunded" || t.state === "failed") : units === undefined && (f.providerUnread === true || !execTx);
+  if (refundBack && executed && toldNothing)
+    return out(
+      "PROVIDER_EXECUTING",
+      "Executing",
+      [true, true, false, false],
+      execTx
+        ? "The escrow's remaining funds came back and were re-shielded into your private balance; what the swap delivered is read again from the provider."
+        : "The escrow's remaining funds came back and were re-shielded into your private balance; the swap's execution transaction is looked for again, to read what it delivered.",
+      extras,
+    );
+  // its funds came back and whether it executed first is not known yet (K4): the executor was asked, and neither its job (read this time) nor the
+  // escrow's flag says — read again, never settled as a refund in full. Not executed is someone's word: the escrow's flag, the job read this
+  // time, or no hand-over ever asked of anyone
+  const asked = !!s.jobId || s.handOverAttempt !== undefined || s.handedOverAt !== undefined;
+  if (refundBack && !executed && f.escrowExecuted !== false && asked && (!f.job || f.job.state === "executing"))
+    return out("PROVIDER_EXECUTING", "Executing", [true, true, false, false], "Your funds came back to your private balance; whether the swap delivered part of them first is read again.", extras);
+  if (refundBack) return out("REFUNDED", "Refunded", [true, true, false, false], `The escrow was re-shielded into your private balance${refunded ? ` (${refunded})` : ""}.`, extras);
   // another token at the destination (LI.FI's PARTIAL: a bridge's alternative token; the audit's unverified m60): no amount of
   // the output, and nothing said to have come back
   if (otherToken)
-    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${t.deliveredAsset} at the destination instead of ${to.symbol}: the route gave another token.`, extras);
+    return out("PARTIAL", "Partial", [true, true, true, true], `Delivered in ${otherName} at the destination instead of ${to.symbol}: the route gave another token.`, extras);
   // a refund the provider paid at the DESTINATION (the sixth review round, 2026-11-03; Mayan Fast-MCTP: USDC to the fresh address):
   // final — nothing reaches the escrow, nothing is left to return; the order closes and the fresh address is retired
   if (executed && t?.state === "refunded" && refundTargetOf(s, t) === "destination")
@@ -183,7 +232,17 @@ function deriveOrderState(s: StoredSwap, f: TrackFacts): Tracked {
     // rest came back after the watch had settled as delivered on a failed balance read
     if (f.escrowBalance === null)
       return out("PROVIDER_EXECUTING", "Executing", [true, true, true, false], "The executor's watch ended; the escrow's balance could not be read this time, so the order is read again before it settles.", extras);
-    if (t?.state === "partial") return out("PARTIAL", "Partial", [true, true, true, true], `${delivered ?? "part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded.`, extras);
+    // what is known of the rest (the eleventh review round, B11-9): re-shielded only where its refund was found
+    if (t?.state === "partial")
+      return out(
+        "PARTIAL",
+        "Partial",
+        [true, true, true, true],
+        refundedToo
+          ? `${delivered ?? "part"} delivered at the destination; ${refunded ?? "the remainder"} came back to the escrow and was re-shielded.`
+          : `${delivered ?? "part"} delivered at the destination; the executor's watch ended with nothing back in the escrow${refunded ? ` (the provider reports ${refunded} refunded)` : ""}.`,
+        extras,
+      );
     // delivered on the provider's word only (r36): a provider still delivering, or refunding, keeps the order open
     if (t?.state === "completed" || t?.state === "destination-final")
       return out("COMPLETED", "Completed", [true, true, true, true], `${delivered ? `${delivered} delivered` : "Delivered"} at your fresh address; the executor's watch for a late refund ended with nothing left in the escrow.`, extras);
@@ -253,13 +312,68 @@ export async function escrowBalance(deployment: Deployment, escrow: Address, tok
   return reads.every((r) => r === reads[0]) ? (reads[0] as bigint) : null;
 }
 
+const escrowFlagAbi = parseAbi(["function executed() view returns (bool)"]);
+/**
+ * The escrow's own `executed` flag from every endpoint (the API's read, A9-12; the eleventh review round's K4 critique): null unless they all answer
+ * the same. An escrow with no code answers no data: null, never "not executed".
+ */
+export async function escrowExecuted(deployment: Deployment, escrow: Address): Promise<boolean | null> {
+  const clients = clientsFor(deployment);
+  const reads = await Promise.all(clients.map((c) => c.readContract({ address: escrow, abi: escrowFlagAbi, functionName: "executed" }).then((v) => v as boolean, () => null)));
+  if (reads.some((r) => r === null)) return null;
+  return reads.every((r) => r === reads[0]) ? (reads[0] as boolean) : null;
+}
+
+const executedEvent = parseAbiItem("event Executed(address indexed provider, uint256 value, bytes32 calldataHash, address executor)");
+/**
+ * How far before the order's creation by this device's clock the search for its execution starts (the fourth critique: a device clock minutes
+ * fast — B11-4's case — had started it after an execution made a minute or two after the commit). The escrow executes once; an hour of blocks
+ * is a fraction of one window.
+ */
+export const EXECUTION_SEARCH_MARGIN_S = 3600;
+/** The first block at or after `t` (unix s) between `lo` and `hi`, by the blocks' own times. */
+async function firstBlockAtOrAfter(c: PublicClient, t: bigint, lo: bigint, hi: bigint): Promise<bigint> {
+  while (lo < hi) {
+    const mid = (lo + hi) / 2n;
+    if ((await c.getBlock({ blockNumber: mid })).timestamp < t) lo = mid + 1n;
+    else hi = mid;
+  }
+  return lo;
+}
+/**
+ * The transaction that executed the escrow, from its own Executed event (the eleventh review round's K4 critique, its third pass): an escrow the
+ * flag says executed, with no transaction known — the user's own deployAndExecute (submission "wallet"), a relayer that lost its job, a job that
+ * named none. The execution lies between the order's creation — an hour before it by this device's clock — and its execute deadline (the block
+ * whose time is the deadline included: execute() takes block.timestamp <= the deadline): those blocks' logs are read as the pool's are
+ * (logsInWindows: one read, else windows halved on an endpoint's refusal), from every endpoint — a hash they all name, else null (none found,
+ * or an endpoint that did not answer or disagrees). An escrow executes once.
+ */
+export async function executionTxOf(deployment: Deployment, escrow: Address, createdAtMs: number, executeDeadlineS: number): Promise<Hex | null> {
+  const found = await Promise.all(
+    clientsFor(deployment).map(async (c) => {
+      try {
+        const latest = await c.getBlockNumber();
+        const from = await firstBlockAtOrAfter(c, BigInt(Math.floor(createdAtMs / 1000) - EXECUTION_SEARCH_MARGIN_S), deployment.fromBlock < latest ? deployment.fromBlock : 0n, latest);
+        // the last block whose time is the deadline or before it (the first after it can hold no execution; the latest when none is after it)
+        const after = await firstBlockAtOrAfter(c, BigInt(executeDeadlineS) + 1n, from, latest);
+        const upTo = after > from && (await c.getBlock({ blockNumber: after })).timestamp > BigInt(executeDeadlineS) ? after - 1n : after;
+        const logs = await logsInWindows(c, from, (fromBlock, toBlock) => c.getLogs({ address: escrow, event: executedEvent, fromBlock, toBlock }), undefined, upTo);
+        return logs[0]?.transactionHash ?? null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return found[0] && found.every((h) => h === found[0]) ? found[0] : null;
+}
+
 export interface TrackDeps {
   deployment: Deployment | null;
   relayerUrl?: string | null;
   now?: number;
   session?: WalletSession;
   /** tests: replace the readers */
-  readers?: { job?: (s: StoredSwap) => Promise<SwapJob | null>; balance?: (s: StoredSwap) => Promise<bigint | null>; track?: (s: StoredSwap, tx: string) => Promise<TrackResult["track"] | null> };
+  readers?: { job?: (s: StoredSwap) => Promise<SwapJob | null>; balance?: (s: StoredSwap) => Promise<bigint | null>; track?: (s: StoredSwap, tx: string) => Promise<TrackResult["track"] | null>; executed?: (s: StoredSwap) => Promise<boolean | null>; executionTx?: (s: StoredSwap) => Promise<Hex | null> };
   /**
    * High-Value Protection spec §10: the hand-over time (unix s) and the plan's seconds, by which the wallet suspects a
    * stalled settlement. The read then names the order's operation, and the service decides from its own records (the
@@ -281,27 +395,44 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
   // ninth review round, C-01): read from today's relayer, a handed-over order was unknown there and read as never funded
   const relayer = stored.relayerUrl ?? deps.relayerUrl;
   const job = await (r.job ? r.job(stored) : stored.jobId && relayer ? relayerSwapStatus(relayer, stored.jobId).catch(() => null) : Promise.resolve(null));
-  // the job's, once it is read (audit round 2, r01): the relayer names the transaction that executed the escrow — a copy of
-  // its own call that landed first replaces the one it had sent, which reverted and which no provider saw
-  const executionTx = job ? job.executionTx : stored.executionTx;
+  // the escrow's own flag once its funds came back — a refund found, or the job's word (K4): final then, the one fact that tells a refund in full from
+  // the rest of an execution when the job or the provider is not read, or when a relayer keeps a reverted execution's transaction. Read before
+  // the provider, whom the execution is asked about
+  const refundBack = (stored.refunds?.length ?? 0) > 0 || job?.state === "refunded";
+  const flag = !refundBack ? undefined : r.executed ? await r.executed(stored).catch(() => null) : deps.deployment ? await escrowExecuted(deps.deployment, stored.endpoint as Address).catch(() => null) : undefined;
+  // the transaction asked about. The job's, once it is read (audit round 2, r01): the relayer names the transaction that executed the escrow —
+  // a copy of its own call that landed first replaces the one it had sent, which reverted and which no provider saw. With no job's: the escrow's
+  // flag, read once its funds came back, decides (K4's third and fourth critiques) — executed: the escrow's own Executed event names its one
+  // execution, over the journal's, which may be the relayer's own call that reverted (a handed-over order's; a jobId-less order's was the
+  // event's), the journal's only when the event cannot be read; not read: the journal's (another relayer's job — a Return funds answered by the
+  // relayer Settings names — knows no execution, and the order had read refunded in full, its transaction deleted); never executed: none.
+  // Before its funds came back (no flag read), a job that names none takes the journal's away (r01), and with no job read the journal's stands
+  const eventFirst = flag === true && !job?.executionTx && (!!stored.jobId || !stored.executionTx);
+  const fromEvent = eventFirst
+    ? await (r.executionTx ? r.executionTx(stored) : deps.deployment ? executionTxOf(deps.deployment, stored.endpoint as Address, stored.createdAt, params(stored).executeDeadline) : Promise.resolve(null)).catch(() => null)
+    : null;
+  const executionTx = job?.executionTx ?? fromEvent ?? (flag === true || flag === null || (flag === undefined && !job) ? stored.executionTx : undefined) ?? undefined;
   const fromToken = (stored.request as { from?: { asset?: string } })?.from?.asset;
   const balance = await (r.balance ? r.balance(stored) : fundedOf(stored) && deps.deployment ? escrowBalance(deps.deployment, stored.endpoint as Address, fromToken && fromToken !== "native" ? (fromToken as Address) : null).catch(() => null) : Promise.resolve(null));
   const track = executionTx ? await (r.track ? r.track(stored, executionTx) : swapService.track(stored.provider, { tx: executionTx, ...decimalsOf(stored), ...(stored.executionRef ? { ref: stored.executionRef } : {}), ...(deps.stall && stored.operationId && (now / 1000 - deps.stall.since) > STALL_FACTOR * deps.stall.expected ? { operation: stored.operationId } : {}) }).then((x) => x.track, () => null)) : null;
-  const tracked = deriveState(stored, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0 });
-  // a `completed` job closes the order only once it reads settled (audit round 2, r36): until then it stays open, as executed —
-  // its "Return funds" and the next reads still reach it
-  // a refund paid at the destination closes the order whatever the executor's watch says (the sixth review round)
-  const own = tracked.state === "REFUNDED_AT_DESTINATION" ? "completed" : job?.state === "completed" && !CLOSED_BY_TRACK.includes(tracked.state) ? "executed" : job?.state;
+  // the provider asked about the execution and giving no track: its read failed, or its answer carried none (K4). The order as read: with the
+  // transaction asked about
+  const asRead = executionTx && executionTx !== stored.executionTx && !job?.executionTx ? { ...stored, executionTx } : stored;
+  const tracked = deriveState(asRead, { now, job, escrowBalance: balance, track, refundFound: (stored.refunds?.length ?? 0) > 0, providerUnread: !!executionTx && track == null, ...(flag !== undefined ? { escrowExecuted: flag } : {}) });
+  const own = journalStateOf(stored, tracked, job);
   // journal: executionTx once, the read, a transition when the state changed
   if (s.isUnlocked()) {
     s.update((j) => {
       const x = j.swaps.find((y) => y.orderId.toLowerCase() === stored.orderId.toLowerCase());
       if (!x) return;
-      if (job && x.executionTx !== job.executionTx) {
-        if (job.executionTx) x.executionTx = job.executionTx;
-        else delete x.executionTx;
-      }
-      x.track = { state: tracked.state, label: tracked.label, at: now, ...(tracked.settlement ? { settlement: tracked.settlement } : {}), ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : x.track?.deliveredAmount !== undefined ? { deliveredAmount: x.track.deliveredAmount } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : x.track?.refundedAmount !== undefined ? { refundedAmount: x.track.refundedAmount } : {}), ...(track?.progress ? { progress: track.progress } : {}) };
+      // the transaction asked about, as above: a job naming none before the funds came back (r01), or the flag's word that the escrow never
+      // executed, takes the journal's away
+      if (executionTx && x.executionTx !== executionTx) x.executionTx = executionTx;
+      else if (!executionTx && x.executionTx && (job || flag === false)) delete x.executionTx;
+      // a pause waiting for the user's choice ends with a settled reading, or with the escrow's word that it executed (the fourth critique): read
+      // by a Refresh first, an executed order had kept "nothing was swapped; your funds wait in your one-time escrow", and its runner had stopped
+      if (x.paused && (own === "refunded" || own === "completed" || (flag === true && !x.jobId))) delete x.paused;
+      x.track = { state: tracked.state, label: tracked.label, at: now, ...(tracked.settlement ? { settlement: tracked.settlement } : {}), ...(track?.destinationTxHash ? { destinationTxHash: track.destinationTxHash } : {}), ...(track?.deliveredAmount !== undefined ? { deliveredAmount: String(track.deliveredAmount) } : x.track?.deliveredAmount !== undefined ? { deliveredAmount: x.track.deliveredAmount } : {}), ...(track?.refundedAmount !== undefined ? { refundedAmount: String(track.refundedAmount) } : x.track?.refundedAmount !== undefined ? { refundedAmount: x.track.refundedAmount } : {}), ...(track?.progress ? { progress: track.progress } : {}), ...(tracked.otherToken ? { otherToken: true } : {}), ...(tracked.deliveredAsset ? { deliveredAsset: tracked.deliveredAsset } : {}) };
       const last = x.history?.[x.history.length - 1];
       if (!last || last.state !== tracked.state) x.history = [...(x.history ?? []), { state: tracked.state, at: now, note: tracked.label }];
       if (own && x.state !== own) x.state = own;
@@ -312,6 +443,29 @@ export async function trackOrder(stored: StoredSwap, deps: TrackDeps): Promise<{
     updateActivity(activityId("swap", stored.orderId), { status: own ?? stored.state, note: `${(stored.request as { to?: { symbol?: string } })?.to?.symbol ? `→ ${(stored.request as { to?: { symbol?: string } }).to!.symbol} · ` : ""}${tracked.label}` }, s);
   }
   return { tracked, job };
+}
+
+/**
+ * The journal's state a reading gives an order — trackOrder journals it, the order runner settles on it (the eleventh review round's K4 critique) —
+ * or undefined when the reading leaves it as it is. A `completed` job closes the order only once it reads settled (audit round 2, r36): until
+ * then it stays open, as executed — its "Return funds" and the next reads still reach it. A refund paid at the destination closes it whatever
+ * the executor's watch says (the sixth review round). A reading settled on the refund the scan found closes it whatever the job says (the
+ * eleventh review round's critique of B11-1): a lapsed, refund-failed or expired job had kept it open for good, holding the band's in-flight
+ * limit — refunded in full, or a partial fill whose rest came back. Only a settled reading closes it (K4): a refund in full is read only on a word
+ * that nothing executed — the escrow's flag, the job read, no hand-over ever asked — or the provider's that nothing was delivered (its refund, its
+ * failure); a refunded job whose reading has not settled — a delivery on its way, a provider not read or telling nothing, whether it executed not
+ * known — keeps the order open, as executed, whatever the job says (a refunded job whose provider was not read had closed it, its delivered part
+ * lost), and never reopens a closed one. A delivery final at the destination closes it too (the shield receipt's notes found: an order its runner
+ * stopped reading had stayed open, in flight)
+ */
+export function journalStateOf(stored: Pick<StoredSwap, "state" | "refunds">, tracked: Pick<Tracked, "state">, job: Pick<SwapJob, "state"> | null): string | undefined {
+  const refundFound = (stored.refunds?.length ?? 0) > 0;
+  if (tracked.state === "REFUNDED_AT_DESTINATION" || tracked.state === "COMPLETED") return "completed";
+  if (refundFound && tracked.state === "REFUNDED") return "refunded";
+  if (refundFound && tracked.state === "PARTIAL") return "completed";
+  if (job?.state === "refunded" && (tracked.state === "PROVIDER_EXECUTING" || tracked.state === "DESTINATION_SUBMITTED")) return stored.state === "refunded" || stored.state === "completed" ? undefined : "executed";
+  if (job?.state === "completed" && !CLOSED_BY_TRACK.includes(tracked.state)) return "executed";
+  return job?.state;
 }
 
 /** The §61 label of a journaled order without a fresh read (Activity rows): the last derived one, else from the relayer state. */

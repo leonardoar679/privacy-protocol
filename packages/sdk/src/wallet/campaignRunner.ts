@@ -199,7 +199,8 @@ const big = (x: string | undefined): bigint => BigInt(x ?? "0");
 const SENT = /handing it to the relayer|submitting through the connected wallet|Waiting for the transaction/i;
 
 /** The tranche state a tracker reading maps to (§7); `null` keeps the current one (an unknown reading never settles, I3). */
-function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, stored: StoredSwap, gate: Campaign["plan"]["gate"], chain: string, now: number, margins: Record<string, number>): { state: TrancheState; patch: Partial<Tranche>; note?: string } | null {
+/** A step's next state from its order's reading (exported for its tests). */
+export function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, stored: StoredSwap, gate: Campaign["plan"]["gate"], chain: string, now: number, margins: Record<string, number>): { state: TrancheState; patch: Partial<Tranche>; note?: string } | null {
   const s = tracked.state;
   const patch: Partial<Tranche> = { ...(job?.id && !t.jobId ? { jobId: job.id } : {}) };
   const rate = big(t.expected?.rateE18);
@@ -231,7 +232,7 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
   // stayed failed or partial for good
   if (s === "PROVIDER_FAILED") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "lost" } }, note: tracked.detail };
   if (s === "REFUNDED_AT_DESTINATION") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "refunded-at-destination" } }, note: tracked.detail };
-  if (s === "PARTIAL" && tracked.deliveredAsset !== undefined && deliveredOut === undefined) return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "other-token" } }, note: tracked.detail };
+  if (s === "PARTIAL" && (tracked.otherToken || tracked.deliveredAsset !== undefined) && deliveredOut === undefined) return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "other-token" } }, note: tracked.detail };
   if (s === "REFUND_PENDING" || s === "PROVIDER_TIMEOUT" || s === "DESTINATION_FAILED") return t.state === "refunding" ? null : { state: "refunding", patch, note: tracked.detail };
   if (s === "EXPIRED" || s === "CANCELLED") return t.state === "committed" ? { state: "skipped", patch, note: "the order expired before it was funded" } : null;
   if (s === "PARTIAL" || partialBack) {
@@ -239,6 +240,12 @@ function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null, store
     // the rest is back once the scan found its refund note (n19); nothing more comes back once the executor's watch ended (its job
     // `completed`) with no note — the seventh review round (D9): `completed` had read as "the rest came back", and the rest's
     // expected-rate equivalent was planned again though nothing had returned
+    // the provider's word of a delivery without its amount, the rest back (the eleventh review round's K4 critique, its third pass): settled for
+    // what did not come back — the step had come back "partial" at every pass, its whole amount in flight and the campaign paused as an anomaly
+    if (outcome.delivered === undefined && back > 0n) {
+      const refunded = back > amount ? amount : back;
+      return { state: "settled", patch: { ...patch, amount: (amount - refunded).toString(), funded: t.funded ?? t.amount, outcome: { ...outcome, refunded: refunded.toString() }, settledAt: now }, note: "partial fill: the rest returned to the private balance; the provider did not say how much it delivered" };
+    }
     const watchEnded = job?.state === "completed" && back === 0n;
     if (outcome.delivered !== undefined && (back > 0n || watchEnded)) {
       const deliveredIn = big(outcome.delivered) > amount ? amount : big(outcome.delivered);

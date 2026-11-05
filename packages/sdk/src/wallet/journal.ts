@@ -84,7 +84,7 @@ export interface StoredSwap {
   /** the relayer the order was handed to (audit round 2, r38): tracked, refunded and its shield job asked there, whatever Settings name since */
   relayerUrl?: string;
   /** the last derived settlement state (sdk/orderTracker.ts) and what the tracker read; V6 (spec v2.0 §12.4): `settlement`, where the money is (optional) */
-  track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; settlement?: string; at: number };
+  track?: { state: string; label: string; destinationTxHash?: string; deliveredAmount?: string; refundedAmount?: string; progress?: { parts: number; done: number }; settlement?: string; at: number; /** another token delivered, and its symbol when it is one to show (the eleventh review round) */ otherToken?: boolean; deliveredAsset?: string };
   /** every settlement transition with its time (spec §25) */
   history?: { state: string; at: number; note?: string }[];
   /** V3 (High-Value Protection spec §7, §17): the campaign this order is a tranche of; such an order is funded and handed over by the campaign runner, never by a fund-escrow action */

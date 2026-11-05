@@ -5,7 +5,7 @@
 // self-submission as fallbacks (plan §85 rule 5). The relayer never receives keys — only proofs,
 // public inputs, payloads, the fee note's opening (its own note), signed executions and refund payloads.
 import { feeForWithdrawal } from "@privacy-wallet/protocol/wallet/fees";
-import { fetchFor } from "@privacy-wallet/privacy-engine/transport/http"; // V5 (spec §7): the policy fetch is the default implementation
+import { fetchFor, readCapped } from "@privacy-wallet/privacy-engine/transport/http"; // V5 (spec §7): the policy fetch is the default implementation
 const relayerFetch: typeof fetch = fetchFor("relayer");
 import type { Address, Hex } from "viem";
 import type { ReceiverParamsJson } from "@privacy-wallet/contracts";
@@ -109,7 +109,8 @@ async function call<T>(url: string, path: string, body: unknown | undefined, fet
       method: body === undefined ? "GET" : "POST", headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body),
       credentials: "omit", redirect: "error", signal: ctl.signal,
     });
-    const text = await r.text(); // a body cut off by the timeout rejects here: never read as the relayer's answer
+    // a body cut off by the timeout rejects here: never read as the relayer's answer; and one past the bound is not read (the eleventh review round)
+    const text = await readCapped(r, 4 * 1024 * 1024);
     let j: any;
     try { j = JSON.parse(text); } catch { j = { error: text.slice(0, 200) }; }
     if (!r.ok) throw new RelayerRefusal(`relayer: ${j.error ?? r.status}${j.code ? ` (${j.code})` : ""}`, j.code, r.status);

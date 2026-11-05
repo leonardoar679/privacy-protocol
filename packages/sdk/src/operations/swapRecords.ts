@@ -58,13 +58,35 @@ export function syncSwapRecord(
   );
   // a partial fill whose rest is accounted for — the executor's watch ended, or its refund came back — is finished (the ninth review round,
   // 2026-11-04, C-03): it had stayed "needs attention" for good, its only action changing nothing; while the rest may still come back it waits
-  const restBack = job?.state === "refunded" || (stored.refunds?.length ?? 0) > 0;
-  const settledPartial = tracked?.state === "PARTIAL" && (job?.state === "completed" || restBack);
-  const m = settledPartial ? { state: "COMPLETED" as const, phase: "settlement" as const } : mapped;
+  // with no job given (a closed order's re-sync), the journal's own closed state is the job's last word (the second critique): "refunded" from a job
+  // — the rest came back — and "completed" — the watch ended — settle a partial fill as its runner's reading had
+  const restBack = job?.state === "refunded" || (stored.refunds?.length ?? 0) > 0 || (!job && stored.state === "refunded" && !!stored.jobId);
+  // the journal's last reading where no live one is given (the eleventh review round, 2026-11-04, B11-1): a refund the scan journals before the
+  // runner reads the refunded job re-syncs the closed order with none, and a partly delivered swap had been recorded REFUNDED for good
+  const partial: Pick<Tracked, "state" | "deliveredUnits" | "deliveredAsset" | "otherToken"> | null =
+    tracked?.state === "PARTIAL"
+      ? tracked
+      : !tracked && stored.track?.state === "PARTIAL"
+        ? {
+            state: "PARTIAL",
+            deliveredUnits: stored.track.deliveredAmount,
+            ...(stored.track.otherToken ? { otherToken: true } : {}),
+            ...(stored.track.deliveredAsset ? { deliveredAsset: stored.track.deliveredAsset } : {}),
+          }
+        : null;
+  const settledPartial = !!partial && (job?.state === "completed" || restBack || (!job && stored.state === "completed"));
+  // a provider failure whose funds came back later (the verifier's VB-N1): the refund note found makes it a refund — the bare journal state
+  // "completed" had recorded it "Swap complete", terminal
+  const failedBack = !tracked && stored.track?.state === "PROVIDER_FAILED" && restBack;
+  const m = settledPartial
+    ? { state: "COMPLETED" as const, phase: "settlement" as const }
+    : failedBack
+      ? { state: "REFUNDED" as const, phase: "settlement" as const }
+      : mapped;
   // what such an order came to, beside its state (C-03, C-07: a refund the provider paid at the destination had read "Swap complete") — and
   // only what the record knows (the tenth review round, A10-2): "the rest came back" with a refund note found or a refunded job; a completed job
   // re-shielded nothing, so the rest did not come back; a delivery in another token (LI.FI's) is its own outcome, the round-7 rule for steps
-  const otherToken = tracked?.state === "PARTIAL" && !!tracked.deliveredAsset;
+  const otherToken = !!partial?.otherToken || !!partial?.deliveredAsset;
   const outcome: OperationOutcome | undefined = settledPartial
     ? otherToken
       ? "other-token"
@@ -108,7 +130,13 @@ export function syncSwapRecord(
       ...(stored.approvedMin ? { minimumOutput: stored.approvedMin } : {}),
       outputAsset: req.to?.symbol,
       outputDecimals: req.to?.decimals,
-      ...(tracked?.deliveredUnits ? { delivered: tracked.deliveredUnits } : prev?.amounts.delivered ? { delivered: prev.amounts.delivered } : {}),
+      ...(partial?.deliveredUnits
+        ? { delivered: partial.deliveredUnits }
+        : tracked?.deliveredUnits
+          ? { delivered: tracked.deliveredUnits }
+          : prev?.amounts.delivered
+            ? { delivered: prev.amounts.delivered }
+            : {}),
     },
     fees: prev?.fees ?? [],
     destination: {
@@ -138,10 +166,14 @@ export function syncSwapRecord(
     ...(prev?.recovery ? { recovery: prev.recovery } : {}),
     ...(terminal
       ? prev!.outcome
-        ? { outcome: prev!.outcome, ...(prev!.outcomeAsset ? { outcomeAsset: prev!.outcomeAsset } : {}) }
+        ? // a rest that came back after the record settled refines what it says (the eleventh review round, B11-8; I-O1 holds the state)
+          {
+            outcome: prev!.outcome === "partial-unreturned" && (stored.refunds?.length ?? 0) > 0 ? "partial" : prev!.outcome,
+            ...(prev!.outcomeAsset ? { outcomeAsset: prev!.outcomeAsset } : {}),
+          }
         : {}
       : outcome && state === "COMPLETED"
-        ? { outcome, ...(outcome === "other-token" && tracked?.deliveredAsset ? { outcomeAsset: tracked.deliveredAsset } : {}) }
+        ? { outcome, ...(outcome === "other-token" && partial?.deliveredAsset ? { outcomeAsset: partial.deliveredAsset } : {}) }
         : {}),
     history: prev && prev.state === state ? prev.history : [...(prev?.history ?? []), { state, at: now, ...(tracked ? { note: tracked.label } : {}) }],
   };

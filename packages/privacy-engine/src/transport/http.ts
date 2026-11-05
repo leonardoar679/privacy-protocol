@@ -84,10 +84,56 @@ export function fetchFor(purpose: Purpose): typeof fetch {
   return (input, init) => secureFetch(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, init ?? {}, purpose);
 }
 
+/**
+ * A third party's answer larger than its reader's bound (the eleventh review round, 2026-11-04): the read is cancelled, never a truncated answer
+ * parsed.
+ */
+export class AnswerTooLarge extends Error {
+  constructor(readonly maxBytes: number) {
+    super(`the answer is larger than ${maxBytes} bytes: not read`);
+    this.name = "AnswerTooLarge";
+  }
+}
+/** The default bound of an answer read whole (8 MiB: far past any answer this wallet reads, far below what exhausts a phone's tab). */
+export const ANSWER_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * An answer's body read to at most `maxBytes` (the eleventh review round, 2026-11-04, the completeness critic): a declared length past it is not
+ * read at all; a stream past it is cancelled there.
+ */
+export async function readCapped(r: Response, maxBytes: number = ANSWER_MAX_BYTES): Promise<string> {
+  const declared = Number(r.headers?.get?.("content-length") ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await r.body?.cancel().catch(() => undefined);
+    throw new AnswerTooLarge(maxBytes);
+  }
+  if (!r.body) return r.text();
+  const reader = r.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new AnswerTooLarge(maxBytes);
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 export interface JsonResult<T> { ok: boolean; status: number; json: T | null; text: string }
 
 /** A JSON request: the body serialized, the answer parsed when it parses (the raw text kept for an error line). */
-export async function fetchJson<T>(url: string, opts: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number } = {}, purpose: Purpose = "other"): Promise<JsonResult<T>> {
+export async function fetchJson<T>(url: string, opts: { method?: string; body?: unknown; headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number; maxBytes?: number } = {}, purpose: Purpose = "other"): Promise<JsonResult<T>> {
   const init: RequestInit = {
     method: opts.method ?? (opts.body === undefined ? "GET" : "POST"),
     headers: { accept: "application/json", ...(opts.body === undefined ? {} : { "content-type": "application/json" }), ...(opts.headers ?? {}) },
@@ -95,7 +141,7 @@ export async function fetchJson<T>(url: string, opts: { method?: string; body?: 
     signal: opts.signal ?? (opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined),
   };
   const r = await secureFetch(url, init, purpose);
-  const text = await r.text();
+  const text = await readCapped(r, opts.maxBytes ?? ANSWER_MAX_BYTES);
   let json: T | null = null;
   try { json = JSON.parse(text) as T; } catch { json = null; }
   return { ok: r.ok, status: r.status, json, text };

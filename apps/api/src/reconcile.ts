@@ -79,9 +79,11 @@ export function stateFrom(
 ): { state: OperationState; code?: string; delayed?: true } {
   const j = job?.state;
   if (j === "refunded") {
-    // the wallet's rule (orderTracker deriveState; the ninth review round, 2026-11-04, A9-6): mined only on the relayer's own flag — it keeps
-    // a reverted execution's transaction —, and an executed order whose rest came back delivered part only with delivered units; a refund
-    // read without any is refunded. The API had read the track's state and contradicted the wallet on four of five shapes
+    // the wallet's rule (orderTracker deriveState; the ninth review round, 2026-11-04, A9-6, refined by the eleventh's K4 critique): mined only on
+    // the relayer's own flag — it keeps a reverted execution's transaction —; an executed order whose rest came back delivered part when the
+    // provider gave units or said it delivered, is read again while its delivery is on its way or the provider tells nothing (unknown, pending,
+    // executing) or is not read, and is a refund in full only on the provider's word that nothing was delivered (its refund, its failure). The
+    // API had read the track's state and contradicted the wallet on four of five shapes
     if (!job?.executed) return { state: "REFUNDED" };
     if (track === null) return { state: "REFUNDING" }; // the provider unread: nothing final on it
     let units = 0n;
@@ -90,7 +92,13 @@ export function stateFrom(
     } catch {
       units = 0n;
     }
-    return units > 0n ? { state: "RECOVERY_REQUIRED", code: "partial_delivery" } : { state: "REFUNDED" };
+    // the provider's word of a delivery without its amount is a partial delivery too (the eleventh review round's K4 critique; Mayan's and
+    // Across's tracks never give one)
+    const deliveredWord = track.state === "completed" || track.state === "destination-final" || track.state === "partial";
+    if (units > 0n || deliveredWord) return { state: "RECOVERY_REQUIRED", code: "partial_delivery" };
+    // ... a refund in full only on its word that nothing was delivered; one on its way, or an answer that tells nothing (four adapters answer
+    // "unknown" for their own failures), is nothing final yet: read again until the provider's last word
+    return track.state === "refunded" || track.state === "failed" ? { state: "REFUNDED" } : { state: "REFUNDING" };
   }
   // a refund the provider paid at the destination address (the sixth review round, 2026-11-03; Mayan Fast-MCTP): final, whatever
   // the executor's watch says — nothing reaches the escrow
@@ -191,15 +199,21 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
     now: nowS,
     ...(trackRead?.refundedTo ? { refundTarget: trackRead.refundedTo } : {}),
   });
-  const settlement = nextSettlement(row.settlement, legs);
+  // the row as it is now, read again after the last await (the eleventh review round, 2026-11-04, B11-6): a reconcile that started later and whose
+  // provider read failed had moved a row another reconcile finalized meanwhile back to an earlier step. node:sqlite answers synchronously, so this
+  // read and the write below are one step
   const funded = balance === null ? null : balance >= BigInt(row.amount);
   // with no job to read, an empty escrow's code says whether it moved (A-L1); read only then
   const deployed = !job && funded === false && reads.deployed ? await reads.deployed(row.escrow).catch(() => null) : null;
   const executedFlag = !job && funded === false && deployed === true && reads.executed ? await reads.executed(row.escrow).catch(() => null) : null;
+  const current = store.getOperation(row.id) ?? row;
+  const settlement = nextSettlement(current.settlement, legs);
+  // from the row as it is now too (the critique of B11-6): a failed relayer read had answered the start snapshot's state, written back over a row
+  // another reconcile had moved on
   const read: { state: OperationState; code?: string; delayed?: true } =
-    TERMINAL_STATES.includes(row.state) || jobRead === null
-      ? { state: row.state }
-      : stateFrom(row, job, trackRead, funded, nowS, balance !== null && lateRefundHeld(balance, BigInt(row.amount)), balance !== null, {
+    TERMINAL_STATES.includes(current.state) || jobRead === null
+      ? { state: current.state }
+      : stateFrom(current, job, trackRead, funded, nowS, balance !== null && lateRefundHeld(balance, BigInt(row.amount)), balance !== null, {
           finalized: !!exec,
           deployed,
           executed: executedFlag,
@@ -207,14 +221,18 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
   // an order this API finalized never goes from a later step of the execution back to an earlier one (the ninth review round, 2026-11-04,
   // A9-7): a job read "none" — another relayer, a changed RELAYER_URL — had moved DESTINATION_CONFIRMING back to PROVIDER_EXECUTING. One never
   // handed over still goes back when its escrow empties without a job (a reorg: the funding pending again)
-  const back = !!exec && FORWARD.indexOf(read.state) >= 0 && FORWARD.indexOf(read.state) < FORWARD.indexOf(row.state);
-  const derived = back ? { state: row.state } : read;
+  const back = !!exec && FORWARD.indexOf(read.state) >= 0 && FORWARD.indexOf(read.state) < FORWARD.indexOf(current.state);
+  const derived = back ? { state: current.state } : read;
   // never over a row a later-started reconcile wrote (A9-7; the tenth review round, B10-12: by the row it read, two overlapping reconciles had
   // kept the older snapshot when it wrote first, and the newer terminal answer, refused, was answered all the same): a refused write answers
   // what the row holds now
   const wrote = store.updateState(row.id, { state: derived.state, settlement }, { startedAt: now });
-  const answered = wrote ? derived : { state: store.getOperation(row.id)?.state ?? row.state };
-  if (wrote && derived.state !== row.state)
+  // a refused write answers the row as it is — its state, settlement and time — and nothing of the refused read (B11-7): its superseded
+  // settlement had been answered beside the newer state
+  const held = wrote ? null : (store.getOperation(row.id) ?? current);
+  const answered = wrote ? derived : { state: held!.state };
+  // a transition against the row as it is (the second critique): another reconcile's own move had been logged twice
+  if (wrote && derived.state !== current.state)
     store.event({ event: "operation.reconciled", operationId: row.id, provider: row.provider, state: derived.state, network: row.network });
 
   // doc §43: the executor's real cost against the tip it was committed (comparable for an ETH order only)
@@ -229,11 +247,14 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
       errorClass: "execution_above_tip",
     });
 
+  // the row's state, settlement and time — another reconcile's —; its sources stay this read's own reachability, what this reconcile reached
+  // (the critique: nothing else of the refused read is answered)
+  if (!wrote) return { state: held!.state, settlement: held!.settlement ?? null, refs: {}, checkedAt: held!.checkedAt ?? now, sources };
   return {
     state: answered.state,
     settlement,
-    ...(wrote && derived.delayed && derived.code ? { delayed: { code: derived.code } } : {}),
-    ...(wrote && derived.code && !derived.delayed ? { reason: { code: derived.code } } : {}),
+    ...(derived.delayed && derived.code ? { delayed: { code: derived.code } } : {}),
+    ...(derived.code && !derived.delayed ? { reason: { code: derived.code } } : {}),
     refs: { ...(executionTx ? { executionTx } : {}), ...(trackRead?.destinationTxHash ? { destinationTx: trackRead.destinationTxHash } : {}) },
     checkedAt: now,
     sources,

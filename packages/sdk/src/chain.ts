@@ -262,7 +262,16 @@ export const poolVaults = (d: Deployment): Address[] => [d.ethVault, ...(d.erc20
 
 /** Every Deposited event of the pool's vaults: fetch-all like the note events, never filtered by owner. */
 export async function depositedLogs(client: PublicClient, d: Deployment): Promise<DepositedLog[]> {
-  const logs = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: poolVaults(d), event: deposited, fromBlock, toBlock }));
+  const raw = await logsInWindows(client, d.fromBlock, (fromBlock, toBlock) => client.getLogs({ address: poolVaults(d), event: deposited, fromBlock, toBlock }));
+  // one event listed twice is one event, as the core's logs are (the eleventh review round, 2026-11-04, B11-5): a repeated Deposited log had made
+  // the endpoints disagree, every scan stopped, and the unlock's counter hold was never released. Two different deposits at one leaf still differ
+  const listed = new Set<string>();
+  const logs = raw.filter((l) => {
+    const key = `${l.transactionHash}|${String((l as { logIndex?: unknown }).logIndex ?? "")}|${l.address.toLowerCase()}|${String(l.args.ownerCommitment)}|${String(l.args.amount)}|${String(l.args.leafIndex)}`;
+    if (listed.has(key)) return false;
+    listed.add(key);
+    return true;
+  });
   return logs.map((l) => ({ vault: getAddress(l.address), ownerCommitment: field(BigInt(l.args.ownerCommitment!), "a Deposited owner commitment"), amount: l.args.amount! < 1n << 248n ? l.args.amount! : (() => { throw new OutOfField("a Deposited amount"); })(), leafIndex: Number(l.args.leafIndex), transactionHash: l.transactionHash }));
 }
 

@@ -159,6 +159,7 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
   const plan = (ceiling: bigint | null) =>
     planTranches(o.amount, { decimals: o.req.from.decimals, bandBps: band, capBps, sizing, maxParallel: sequential ? 1 : 2, maxPiece: ceiling ?? undefined, rng: o.rng ?? Math.random });
   let split: ReturnType<typeof planTranches>;
+  let fellBack = false;
   try {
     split = plan(maxPiece);
   } catch (e) {
@@ -172,10 +173,17 @@ export function recommendProtection(o: { set: QuoteSet; req: QuoteRequest; amoun
     because("limit-too-fine", "the provider's instant limit or the market's depth is too fine to stage this amount: the pieces go at the exposure cap and may wait at the provider");
     maxPiece = null;
     split = plan(null);
+    fellBack = true;
   }
   const pieces = split.pieces;
   const steps = pieces.length;
   const largest = pieces.length ? pieces.reduce((m, p) => (p > m ? p : m), 0n) : 0n;
+  // the fallback's pieces carry their own impact (the eleventh review round, 2026-11-04, B11-10): the halved ceiling's figure had stayed beside
+  // pieces at the cap, and the Review ticked "40 bps against a cap of 50" for steps of about 64
+  if (fellBack && impactBps !== undefined && o.amount > 0n) {
+    trancheImpactBps = Math.max(0, Math.round(((impactBps * Number(largest)) / Number(o.amount)) * 100) / 100);
+    thinMarket = trancheImpactBps > IMPACT_CAP_BPS;
+  }
   const smallest = pieces.length ? pieces.reduce((m, p) => (p < m ? p : m), pieces[0]) : 0n;
   // the time per step: the stream scales with the piece (never under 10 min), a single execution keeps its ETA; then the delivered margin and the cadence
   const scaled = chosen.plan && chosen.plan.mode !== "single" && o.amount > 0n ? Math.max(600, (chosen.etaSeconds * Number(largest / 10n ** BigInt(Math.max(0, o.req.from.decimals - 6)))) / Math.max(1, Number(o.amount / 10n ** BigInt(Math.max(0, o.req.from.decimals - 6))))) : chosen.etaSeconds;

@@ -162,6 +162,17 @@ describe("no plan of more steps than any campaign runs (A-M3 / D-M3)", () => {
     expect(out.protection!.reasons.length, "a reason's words with it").toBe(out.protection!.reasonCodes.length);
     expect(Date.now() - t0, "bounded, never seconds").toBeLessThan(2_000);
   });
+  it("the fallback's pieces carry their own impact, never the halved ceiling's (the eleventh review round, B11-10)", () => {
+    const out = protectionFor(set(q("thorchain", 1n, { impactBps: 8000, limits: { maxInstant: (amount * 2n) / 1000n } })), { ...reqBase, to: BTC, destination: DEST_BTC }, amount, "high-value-secondary", "balanced", 4000);
+    const p = out.protection!;
+    // the case is the fallback's (the critique, T8: it had returned before any assertion when the ceiling's plan fitted)
+    expect(p.reasonCodes.map((r) => r.code), "the fallback ran").toContain("limit-too-fine");
+    const [, largestUsd] = p.trancheUsd!;
+    const largest = (largestUsd / 4000) * 1e18;
+    expect(p.trancheImpactBps!, "the pieces' own impact").toBeCloseTo((8000 * largest) / Number(amount), 0);
+    expect(p.trancheImpactBps!).toBeGreaterThan(50);
+    expect(p.thinMarket).toBe(true);
+  });
   it("an absurd impact halves the piece only down to the step bound", () => {
     const p = recommendProtection({ set: set(q("thorchain", 1n, { impactBps: 1e15 })), req: { ...reqBase, to: BTC, destination: DEST_BTC }, amount, tier: "high-value-secondary", mode: "balanced", usdPerUnit: 4000, rng: () => 0.5 });
     expect(p, "a recommendation, bounded").not.toBeNull();

@@ -91,15 +91,22 @@ describe("A9-4: the checkpoint never waits for a reader", () => {
 
 describe("A9-6: a refunded executed job reads as the wallet reads it", () => {
   const row = { state: "PROVIDER_EXECUTING" as const, executeDeadline: 2_000_000_000, refundAfter: 2_000_086_400, amount: "1000" };
-  it("mined only on the relayer's own flag; delivered in part only with delivered units", () => {
+  it("mined only on the relayer's own flag; delivered in part with delivered units or the provider's word of a delivery (the eleventh review round's K4 critique)", () => {
     const now = 1_900_000_000;
     expect(stateFrom(row, { state: "refunded", executionTx: "0x" + "ee".repeat(32) }, null, null, now).state, "a reverted execution: refunded").toBe(
       "REFUNDED",
     );
     const executed = { state: "refunded" as const, executed: true, executionTx: "0x" + "ee".repeat(32) };
     expect(stateFrom(row, executed, null, null, now).state, "the provider unread: nothing final").toBe("REFUNDING");
-    expect(stateFrom(row, executed, { state: "completed" }, null, now).state).toBe("REFUNDED");
-    expect(stateFrom(row, executed, { state: "destination-submitted" }, null, now).state).toBe("REFUNDED");
+    for (const state of ["completed", "destination-final", "partial"])
+      expect(stateFrom(row, executed, { state }, null, now), `${state} without an amount: part was delivered (K4)`).toEqual({
+        state: "RECOVERY_REQUIRED",
+        code: "partial_delivery",
+      });
+    expect(stateFrom(row, executed, { state: "destination-submitted" }, null, now).state, "a delivery on its way: nothing final (K4)").toBe("REFUNDING");
+    for (const state of ["refunded", "failed"]) expect(stateFrom(row, executed, { state }, null, now).state, `${state}: nothing delivered`).toBe("REFUNDED");
+    for (const state of ["unknown", "pending", "executing"])
+      expect(stateFrom(row, executed, { state }, null, now).state, `${state}: tells nothing, read again (K4's third critique)`).toBe("REFUNDING");
     expect(stateFrom(row, executed, { state: "refunded", deliveredAmount: "5" }, null, now)).toEqual({ state: "RECOVERY_REQUIRED", code: "partial_delivery" });
   });
 });

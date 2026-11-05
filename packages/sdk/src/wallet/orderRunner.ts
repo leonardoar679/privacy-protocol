@@ -18,7 +18,8 @@ import type { Hex } from "viem";
 import type { Deployment } from "../chain";
 import { ProviderCallMismatch, ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { ApiError } from "../api/client";
-import { trackOrder, type Tracked } from "../orderTracker";
+import { deriveState, journalStateOf, trackOrder, type Tracked } from "../orderTracker";
+import { lateRefundHeld } from "@privacy-wallet/protocol/wallet/settlement";
 import { RelayerRefusal, relayerShieldRegister, relayerShieldStatus, relayerSwapStatus, RelayerTimeout, type ShieldJob, type SwapJob } from "../relayer";
 import { classify } from "../operations/errors/catalog";
 import {
@@ -47,12 +48,13 @@ import {
   FundingUnderWay,
   FUNDING_MARGIN_MS,
   isOpenSwap,
+  latestBlockTime,
   patchSwap,
   windowEndOf,
   type FundingFate,
 } from "../swapFunding";
 import type { Prepared, ServiceOrder } from "../swapService";
-import { escrowBalance } from "../orderTracker";
+import { escrowBalance, escrowExecuted } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
 import { fundedOf, type ScheduledAction, type StoredSwap } from "./journal";
 import { cancelAction, kickScheduler, sampleDueAt, scheduleAction, schedulerStatus } from "./schedule";
@@ -82,10 +84,6 @@ export const delayedExecuteWindowSeconds = (delayUntil: number, now: number): nu
 export const ACCEPTED_CALL_MARGIN_MS = 120_000;
 /** A withdrawal's status line once its submission started: after it, a failure's outcome is unknown (the reconcile boundary). */
 export const SENT_LINE = /handing it to the relayer|submitting through the connected wallet|Waiting for the transaction/i;
-const TERMINAL_TRACK = ["COMPLETED", "REFUNDED", "CANCELLED", "EXPIRED", "REFUNDED_AT_DESTINATION"];
-// a `completed` job settles an order only with a settled reading (audit round 2, r36): the executor's watch ending with the
-// escrow empty is not the provider's word, and a refund it held past the watch lands later
-const TERMINAL_JOB = ["refunded"];
 /** An order the executor no longer watches, not settled yet, is read this often: for the provider's word, or a late refund. */
 export const ORDER_LATE_TRACK_MS = 10 * 60_000;
 /** A hand-over whose outcome is not known past the window's end: the executor is asked again this often (the ninth review round, C-09). */
@@ -95,6 +93,8 @@ export const HANDOVER_RECHECK_MS = 60_000;
  * the window's last minutes (the tenth review round, A10-3): nothing executes past the deadline, attempt journaled or not.
  */
 export const HANDOVER_SETTLE_MS = 10 * 60_000;
+/** ...and the chain's own latest block this far past the deadline (B11-4): the endpoints' view of a last-block execution has had time to land. */
+export const CHAIN_SETTLE_MS = 2 * 60_000;
 
 /** Everything the runner reads or moves, behind one interface: the wallet's modules by default, fakes in the tests. */
 export interface OrderIo {
@@ -102,12 +102,22 @@ export interface OrderIo {
   /** what became of the order's journaled funding (swapFunding.ts `fundingFate`); absent: unknown, so nothing is sent */
   fundingFate?(stored: StoredSwap): Promise<FundingFate>;
   escrowBalance(stored: StoredSwap): Promise<bigint | null>;
+  /**
+   * the escrow's own `executed` flag (orderTracker.ts escrowExecuted): null when it cannot be read; absent (the tests' fakes), not read. Once the
+   * order's refund is found it is final — a refund is made only past the execute deadline (the eleventh review round's K4 critique)
+   */
+  escrowExecuted?(stored: StoredSwap): Promise<boolean | null>;
+  /** the chain's latest block time (ms), or null when it cannot be read; absent, the device's clock alone (the eleventh review round, B11-4) */
+  chainTime?(): Promise<number | null>;
   /** `reuse`: the call whose moved minimum the user accepted, checked again and signed instead of a fresh quote */
   sign(stored: StoredSwap, reuse?: Prepared): Promise<Signed | { moved: MinimumMoved; prepared?: Prepared }>;
   /** `onSending`: called right before the executor is asked, with its relayer (the tenth review round, A10-3) */
   handOver(stored: StoredSwap, signed: Signed, onSending?: (relayerUrl: string) => void): Promise<{ job?: SwapJob }>;
-  /** the executor's job for this order, if it has one (keyed by orderId) */
-  job(stored: StoredSwap): Promise<SwapJob | null>;
+  /**
+   * the executor's job for this order, if it has one (keyed by orderId); `at`: the relayer that answered, journaled as the order's (K4: one found
+   * at the relayer Settings name had been read at the order's own from then on, unknown there for good)
+   */
+  job(stored: StoredSwap): Promise<(SwapJob & { at?: string }) | null>;
   track(stored: StoredSwap): Promise<{ tracked: Tracked; job: SwapJob | null }>;
   refund(stored: StoredSwap): Promise<SwapJob>;
   /** a delayed funding's fresh minimum, nothing signed (audit round 2, n58): null when it holds; absent, nothing is asked */
@@ -127,6 +137,14 @@ export interface OrderDeps {
   now?: () => number;
   settings?: () => Settings;
 }
+
+/**
+ * A job found by orderId, for the journal: its state while the job is open; an ended one — refunded, completed — closes the order on a settled
+ * reading only (the eleventh review round's fifth critique: journaled as found, it had closed the order before any reading — a partial fill's
+ * delivered part lost, a provider failure recorded "Swap complete"). Until the tracker reads it, the order is funded: a job exists only for a
+ * funded escrow
+ */
+const foundState = (j: { state: string }): string => (isOpenSwap({ state: j.state }) ? j.state : "funded");
 
 /** The service forgets orders at a restart: the runner keeps the ones it saw and rebuilds the others from the journal. */
 const orders = new Map<string, ServiceOrder>();
@@ -170,11 +188,18 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
     fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus, relayerUrl }),
     fundingFate: async (stored) =>
       d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment), undefined, stored.endpoint) : "unknown",
+    // ms, or null when the block time cannot be read (the critique: a failed read had answered -1000, a time in 1969)
+    chainTime: async () => {
+      if (!d.deployment) return null;
+      const t = await latestBlockTime(d.deployment).catch(() => null);
+      return t === null ? null : Number(t) * 1000;
+    },
     escrowBalance: async (stored) => {
       if (!d.deployment) return null;
       const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
       return escrowBalance(d.deployment, stored.endpoint as Hex, token && token !== "native" ? (token as Hex) : null).catch(() => null);
     },
+    escrowExecuted: async (stored) => (d.deployment ? escrowExecuted(d.deployment, stored.endpoint as Hex).catch(() => null) : null),
     precheck: async (stored) =>
       minimumBeforeFunding({
         masterSeed: d.masterSeed,
@@ -209,8 +234,11 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
       const own = relayerOf(stored);
       if (!own) return null;
       const found = await relayerSwapStatus(own, stored.orderId).catch(() => null);
-      // unknown at the order's own relayer: the one Settings name now may hold it (a hand-over whose answer was lost)
-      return found ?? (relayerUrl && relayerUrl !== own ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : null);
+      if (found) return { ...found, at: own };
+      // unknown at the order's own relayer: the one Settings name now may hold it (a hand-over whose answer was lost) — and is the order's from then on
+      if (!relayerUrl || relayerUrl === own) return null;
+      const there = await relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null);
+      return there ? { ...there, at: relayerUrl } : null;
     },
     track: (stored) => trackOrder(stored, { deployment: d.deployment, relayerUrl: relayerOf(stored), session: d.session }),
     // the relayer it was handed to takes its refund; when that one cannot be reached, the one Settings name now does (the
@@ -424,8 +452,33 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
   // the critical section is taken again at every tick of an open order before its hand-over (unpaused, due): a tick that
   // threw releases it below — a dead tick had kept the lock off for the cap's thirty minutes (the review round of 2026-11-02)
   // a tick under the reconcile pause clears it and may sign and hand over (the review round of 2026-11-03, E5): held like any other
-  if ((!stored0.paused || stored0.paused.code === "reconcile") && !stored0.jobId && (stored0.runner?.delayUntil ?? 0) <= now)
+  // ... and never for an order whose refund was found (K4's third critique): nothing is signed or handed over for it, and a hold taken at every tick
+  // of one left open had kept the idle lock off and the tab's close asked for good
+  if ((!stored0.paused || stored0.paused.code === "reconcile") && !stored0.jobId && (stored0.runner?.delayUntil ?? 0) <= now && !(stored0.refunds?.length ?? 0))
     holdUntilHandedOver(a.orderId, s, now);
+  // a reading's end of the tick (the eleventh review round's K4 critique): settled once the reading closes the order — and only then — a terminal
+  // reading with the order still open, its job not read or a refunded job whose provider was not read, had cancelled the tick, the order open and
+  // in flight for good. The closing is the tracker's rule (orderTracker.ts journalStateOf: a `completed` job only with a settled reading — audit
+  // round 2, r36 —, a provider failure with nothing back — the sixth review round —, a refunded job only once its reading settled), journaled here
+  // too when the reader did not (a reader of its own). An order the executor no longer watches, or whose refund came back, is read every ten
+  // minutes until then
+  const settleOn = (r: { tracked: Tracked; job: SwapJob | null }, before: StoredSwap): OrderTickResult => {
+    const read = journaled(a.orderId, s) ?? before;
+    const next = journalStateOf(read, r.tracked, r.job);
+    if (next && isOpenSwap(read) && !isOpenSwap({ state: next })) patchSwap(a.orderId, { state: next }, s);
+    const st = journaled(a.orderId, s) ?? read;
+    syncSwapRecord(st, r.tracked, r.job, now, s);
+    if (!isOpenSwap(st)) {
+      // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan
+      if (r.tracked.state === "REFUNDED" || r.job?.state === "refunded") scheduleDiscovery(now, s);
+      cancelAction(a.id, s);
+      return { step: "settled", stored: st };
+    }
+    if (r.job?.state === "refunded" && !(st.refunds?.length ?? 0)) scheduleDiscovery(now, s);
+    const late = r.job?.state === "completed" || r.job?.state === "refunded" || (st.refunds?.length ?? 0) > 0;
+    tickAt(a.orderId, now + (late ? ORDER_LATE_TRACK_MS : ORDER_TRACK_MS), s, now);
+    return { step: "track", stored: st };
+  };
   let threw = false;
   try {
     // 1. handed over (journaled, or the executor answers by orderId — a hand-over whose answer was lost): track it
@@ -433,27 +486,60 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     if (!stored.jobId) {
       const known = fundedOf(stored) ? await io.job(stored) : null;
       if (known) {
-        patchSwap(a.orderId, { jobId: known.id, state: known.state, paused: undefined }, s);
+        // with the relayer that answered (the eleventh review round's K4 critique): found at the one Settings name, the job had been read at the
+        // order's own relayer from then on — unknown there, its refund closing nothing
+        patchSwap(a.orderId, { jobId: known.id, state: foundState(known), paused: undefined, ...(known.at ? { relayerUrl: known.at } : {}) }, s);
         stored = journaled(a.orderId, s)!;
       }
     }
     if (stored.jobId) {
       if (stored.shield) stored = await refreshShield(a.orderId, stored, io, s, now);
-      const r = await io.track(stored);
-      const st = journaled(a.orderId, s) ?? stored;
-      syncSwapRecord(st, r.tracked, r.job, now, s);
-      if (
-        TERMINAL_TRACK.includes(r.tracked.state) ||
-        (r.job && TERMINAL_JOB.includes(r.job.state)) ||
-        (r.job?.state === "completed" && (r.tracked.state === "PARTIAL" || r.tracked.state === "PROVIDER_FAILED")) // the sixth review round: a provider failure with nothing back ends the reads too
-      ) {
-        // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan
-        if (r.tracked.state === "REFUNDED" || r.job?.state === "refunded") scheduleDiscovery(now, s);
+      return settleOn(await io.track(stored), stored);
+    }
+    // 1b. its refund found (the scan journaled it), no job known and no execution journaled: the escrow's own flag decides (the eleventh review
+    // round's K4 critique) — a refund is made only past the execute deadline, so the flag is final then. Never executed, the escrow holding dust
+    // at most (lateRefundHeld's rule: a transfer anyone can make to a public address): refunded — by its own Return funds, another copy of the
+    // wallet, or anyone's deployAndRefund — and closed with its pause (the critique of B11-1, B11-2: an order paused after a hand-over attempt had
+    // stayed "your funds wait in your one-time escrow", asked about every hour for good; with no relayer to ask, or one that did not answer, it
+    // had stayed open for good). Executed — the user's own deployAndExecute (submission "wallet"), another copy's hand-over, a relayer that lost
+    // its job —: journaled so, its pause cleared, and read as a handed-over order is — the tracker finds its execution transaction from the
+    // escrow's Executed event and asks the provider what it delivered (K4's third critique: no job could ever come for it, and it had stayed open
+    // and in flight for good) — at every tick until a reading settles it: one whose execution is journaled (the event's transaction, found at an
+    // earlier read — a Refresh's too —, or the order journaled executed) goes there at once, its pause cleared (the fourth critique: the next
+    // tick had skipped it, paused it "the executor is asked again" and asked the provider no more). A flag or a balance not read: read again.
+    // Nothing is signed or handed over for an order whose refund came back; an escrow holding more than dust since (a funding that landed late)
+    // is the steps' below to return
+    if ((stored.refunds?.length ?? 0) > 0 && fundedOf(stored)) {
+      if (stored.executionTx || stored.state === "executed") {
+        if (stored.paused) patchSwap(a.orderId, { paused: undefined }, s);
+        const st = journaled(a.orderId, s)!;
+        return settleOn(await io.track(st), st);
+      }
+      // an order paused because its escrow still held the whole order past its deadline never executed — nothing executes after it —: its flag is
+      // not needed (the fifth critique)
+      const executed = stored.paused?.code === "execution_window_closed" ? false : io.escrowExecuted ? await io.escrowExecuted(stored).catch(() => null) : null;
+      const left = executed === false ? await io.escrowBalance(stored) : null;
+      if (executed === false && left !== null && !lateRefundHeld(left, amount)) {
+        patchSwap(a.orderId, { state: "refunded", paused: undefined }, s);
+        const st = journaled(a.orderId, s)!;
+        syncSwapRecord(st, null, null, now, s);
         cancelAction(a.id, s);
         return { step: "settled", stored: st };
       }
-      tickAt(a.orderId, now + (r.job?.state === "completed" ? ORDER_LATE_TRACK_MS : ORDER_TRACK_MS), s, now);
-      return { step: "track", stored: st };
+      if (executed === true) {
+        patchSwap(a.orderId, { state: "executed", paused: undefined }, s);
+        const st = journaled(a.orderId, s)!;
+        return settleOn(await io.track(st), st);
+      }
+      if (executed === null || left === null) {
+        // ... with its pause ended: its refund came back, and the pause's words — "your funds wait in your one-time escrow", Return funds — were no
+        // longer true (the fifth critique); the record says the funds came back and what the swap did is read again
+        if (stored.paused) patchSwap(a.orderId, { paused: undefined }, s);
+        const st = journaled(a.orderId, s)!;
+        syncSwapRecord(st, deriveState(st, { now, job: null, escrowBalance: null, track: null, refundFound: true, escrowExecuted: null }), null, now, s);
+        tickAt(a.orderId, now + HANDOVER_RECHECK_MS, s, now);
+        return { step: "track", stored: st };
+      }
     }
     // 2. a pause that waits for the user: nothing moves until they choose (the choice plans the next tick)
     if (stored.paused?.code === "minimum_moved" || stored.paused?.code === "execution_unavailable" || stored.paused?.code === "execution_window_closed") {
@@ -490,8 +576,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         if (fate === "landed") {
           const elsewhere = await io.job(stored).catch(() => null);
           if (elsewhere) {
-            patchSwap(a.orderId, { jobId: elsewhere.id, state: elsewhere.state, paused: undefined }, s);
-            syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now, s);
+            patchSwap(
+              a.orderId,
+              { jobId: elsewhere.id, state: foundState(elsewhere), paused: undefined, ...(elsewhere.at ? { relayerUrl: elsewhere.at } : {}) },
+              s,
+            );
+            syncSwapRecord(journaled(a.orderId, s)!, null, isOpenSwap({ state: elsewhere.state }) ? elsewhere : null, now, s);
             tickAt(a.orderId, now + 1000, s, now);
             return { step: "track", stored: journaled(a.orderId, s)! };
           }
@@ -520,8 +610,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
         // on, never funded again: its escrow, executed, read empty, and a second funding swapped the amount twice
         const elsewhere = await io.job(stored).catch(() => null);
         if (elsewhere) {
-          patchSwap(a.orderId, { jobId: elsewhere.id, state: elsewhere.state, paused: undefined }, s);
-          syncSwapRecord(journaled(a.orderId, s)!, null, elsewhere, now, s);
+          patchSwap(
+            a.orderId,
+            { jobId: elsewhere.id, state: foundState(elsewhere), paused: undefined, ...(elsewhere.at ? { relayerUrl: elsewhere.at } : {}) },
+            s,
+          );
+          syncSwapRecord(journaled(a.orderId, s)!, null, isOpenSwap({ state: elsewhere.state }) ? elsewhere : null, now, s);
           tickAt(a.orderId, now + 1000, s, now);
           return { step: "track", stored: journaled(a.orderId, s)! };
         }
@@ -641,7 +735,12 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       // window's end had replaced the reconcile pause with "nothing was swapped" and stopped the ticks, the swap possibly executed
       // with an attempt journaled, the escrow still holding the whole order HANDOVER_SETTLE_MS past the window settles it too (the tenth review
       // round, A10-3): nothing executes past the deadline, and a hand-over the service refused had been asked of the executor every minute for good
-      const settled = stored.handOverAttempt === undefined || now >= windowEndOf(stored) + HANDOVER_SETTLE_MS;
+      // on the chain's clock too (the eleventh review round, 2026-11-04, B11-4): a device clock minutes fast had settled "nothing was swapped"
+      // while the chain still accepted the execution. Its time read not at all: not settled, asked again
+      const chainNow = io.chainTime ? await io.chainTime().catch(() => null) : now;
+      const settled =
+        stored.handOverAttempt === undefined ||
+        (now >= windowEndOf(stored) + HANDOVER_SETTLE_MS && chainNow !== null && chainNow > windowEndOf(stored) + CHAIN_SETTLE_MS);
       const held = settled ? await io.escrowBalance(stored) : null;
       if (held !== null && held >= amount)
         return pause(
@@ -711,7 +810,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     // reconcile before the hand-over: the executor by orderId (another tab may have handed it over)
     const existing = await io.job(stored);
     if (existing) {
-      patchSwap(a.orderId, { jobId: existing.id, state: existing.state }, s);
+      patchSwap(a.orderId, { jobId: existing.id, state: foundState(existing), ...(existing.at ? { relayerUrl: existing.at } : {}) }, s);
     } else {
       // the journal read again before the hand-over (the sixth review round, 2026-11-03): the user's Return funds, a pause or another
       // tab's hand-over may have landed while the executor was asked — a signed call handed over after a refund began raced it
@@ -726,18 +825,26 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
       // finalize, with the relayer it goes to (the tenth review round, A10-3): one the service refused had reached no executor. A refusal that
       // sent nothing puts the earlier mark back
       const before = stored.handOverAttempt;
+      // whether the executor was asked (the eleventh review round, 2026-11-04, B11-3): only a refusal before it puts the earlier mark back — the
+      // relayer's own error text, matched as the wallet's, had erased an attempt it may have executed
+      let asked = false;
       try {
-        await io.handOver(stored, r, (relayerUrl) => patchSwap(a.orderId, { handOverAttempt: now, relayerUrl }, s));
+        await io.handOver(stored, r, (relayerUrl) => {
+          asked = true;
+          patchSwap(a.orderId, { handOverAttempt: now, relayerUrl }, s);
+        });
       } catch (e) {
         const m = (e as Error)?.message ?? String(e);
         // the call came too close to its deadline, here or at the relayer (audit round 2, r02): nothing was handed over, and
         // the next tick prepares and signs a fresh one — no pause for the user, nor the reconcile backoff
         if ((e as { code?: unknown })?.code === "deadline_too_close") {
-          patchSwap(a.orderId, { handOverAttempt: before }, s);
+          if (!asked) patchSwap(a.orderId, { handOverAttempt: before }, s);
           tickAt(a.orderId, now + 1000, s, now);
           return { step: "waiting", stored: journaled(a.orderId, s)! };
         }
-        if (/Not handed over|builds for/i.test(m)) {
+        // a refusal before the executor was asked: nothing was handed over. After it (the relayer's own words — B11-3), the outcome is not known:
+        // the reconcile pause below, never "nothing was handed over" (the critique)
+        if (/Not handed over|builds for/i.test(m) && !asked) {
           patchSwap(a.orderId, { handOverAttempt: before }, s);
           return pause("execution_unavailable", m);
         }
@@ -757,6 +864,6 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     schedulerStatus.finish();
     // handed over, paused for the user, over — or thrown to the scheduler's backoff: the critical section ends (the next tick takes it again)
     const st = journaled(a.orderId, s);
-    if (!st || threw || st.jobId || st.paused || !isOpenSwap(st)) releaseHandOver(a.orderId);
+    if (!st || threw || st.jobId || st.paused || !isOpenSwap(st) || (st.refunds?.length ?? 0) > 0) releaseHandOver(a.orderId);
   }
 }
