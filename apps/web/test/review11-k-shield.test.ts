@@ -66,14 +66,14 @@ async function lockAndReplaceWithB(): Promise<void> {
   await openWallet("password of B", seedB);
 }
 
-/** The deposit's receipt as the connected wallet's own provider gives it: mined, the core's NoteInserted of A's note at leaf 0. */
-function receiptOf(p: PreparedShield) {
-  const at = { blockNumber: "0x5", blockHash: "0x" + "22".repeat(32), transactionHash: HASH, transactionIndex: "0x0" };
+/** The deposit's receipt as the connected wallet's own provider gives it: mined, the core's NoteInserted of the note at `leafIndex` (A's at 0). */
+function receiptOf(p: PreparedShield, leafIndex = 0, hash: Hex = HASH) {
+  const at = { blockNumber: "0x5", blockHash: "0x" + "22".repeat(32), transactionHash: hash, transactionIndex: "0x0" };
   const log = {
     ...at,
     address: CORE,
-    topics: encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted", args: { leafIndex: 0 } }),
-    data: encodeAbiParameters([{ type: "uint256" }, { type: "bytes" }], [noteCommitment(noteBody(p.note), 0n), p.noteData]),
+    topics: encodeEventTopics({ abi: coreAbi, eventName: "NoteInserted", args: { leafIndex } }),
+    data: encodeAbiParameters([{ type: "uint256" }, { type: "bytes" }], [noteCommitment(noteBody(p.note), BigInt(leafIndex)), p.noteData]),
     logIndex: "0x0",
     removed: false,
   };
@@ -117,7 +117,7 @@ beforeAll(() => {
 afterEach(() => setActiveProvider(null));
 
 describe("A11-2: a lock and a REPLACE between prepareShield and trackShieldCost (while the deposit is prompted)", () => {
-  it("without a connected provider: locked_after_send before any endpoint is asked for the receipt; B's store, journal and stored journal hold none of A's note, and B's own deposit is recorded in B alone", async () => {
+  it("without a connected provider: locked_after_send before any endpoint is asked for the receipt; B's store, journal and stored journal hold none of A's note; B's own deposit is left to the scan without a provider, and recorded in B alone from its wallet's receipt", async () => {
     const rpc = await startMockCore({ core: CORE, events: {}, nextLeafIndex: 0, root: 0n });
     try {
       const p = await protectPreparedInA(rpc);
@@ -133,6 +133,10 @@ describe("A11-2: a lock and a REPLACE between prepareShield and trackShieldCost 
       // B's own deposit, prepared and tracked in B's opening, is recorded in B — and is all B holds
       const pB = prepareShield({ masterSeed: session.state().seed!, deployment: deploymentAt(rpc.url), amount: AMOUNT });
       rpc.mine(HASH_B, [{ leafIndex: 4, commitment: noteCommitment(noteBody(pB.note), 4n), noteData: pB.noteData }], 2n);
+      // without a provider the endpoints are not asked for its receipt either (the eleventh review round, F11-10): the scan records it
+      await expect(trackShieldCost(pB, HASH_B)).rejects.toMatchObject({ code: "deposit_unconfirmed" });
+      expect(rpc.state.methods, "no receipt read at the privacy endpoint").toEqual([]);
+      connectedWallet(receiptOf(pB, 4, HASH_B));
       expect(await trackShieldCost(pB, HASH_B)).toEqual({ leafIndex: 4, costWei: 21_000n });
       expect(noteStore.all().map((n) => ({ leafIndex: n.leafIndex, txHash: n.txHash, noteSecret: n.note.noteSecret }))).toEqual([
         { leafIndex: 4, txHash: HASH_B, noteSecret: pB.note.noteSecret },

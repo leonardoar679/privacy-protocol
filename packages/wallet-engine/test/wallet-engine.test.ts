@@ -166,7 +166,9 @@ describe("WalletConnect (the audit's unverified m65)", () => {
     }
   });
 
-  it("after a reload a session the provider restored is taken up without a pairing (V7 Stage 16): eth_accounts, never eth_requestAccounts; none stored stays disconnected", async () => {
+  // the layout an older WalletConnect wrote — a session list in localStorage; the installed one keeps its sessions in IndexedDB, where the
+  // reload check sees none (audit gap 112; apps/web/test/review11-wc-reload.test.ts, the eleventh review round's F11-2)
+  it("after a reload a session in localStorage (an older WalletConnect's layout) is taken up without a pairing (V7 Stage 16): eth_accounts, never eth_requestAccounts; none stored stays disconnected", async () => {
     configureWalletConnect("a-project-id");
     try {
       wc.restored = false;
@@ -192,7 +194,7 @@ describe("WalletConnect (the audit's unverified m65)", () => {
       resetWalletConnect();
     }
   });
-  it("WalletConnect's own store: a session list with an entry is a session to take up; an empty list, another key, garbage or no storage is not (the review round of 2026-11-02)", () => {
+  it("WalletConnect's localStorage layout (an older build's): a session list with an entry is a session to take up; an empty list, another key, garbage or no storage is not (the review round of 2026-11-02)", () => {
     try {
       expect(hasWalletConnectSession()).toBe(false);
       globalThis.localStorage.setItem("wc@2:client:0.3//session", "[]");

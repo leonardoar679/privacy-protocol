@@ -23,6 +23,7 @@ import { controlsFor, holdMs } from "@privacy-wallet/sdk/tiers";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
 import { engineListener } from "@privacy-wallet/sdk/operations/engineEvents";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
+import { scanForDeposit } from "@privacy-wallet/sdk/wallet/discovery";
 import { OperationProgress } from "../operations/OperationProgress";
 import { ProgressView } from "../progress/View";
 import { furthestLine, progressModelOf } from "../progress/model";
@@ -272,6 +273,9 @@ export function ProtectScreen(p: ProtectScreenProps) {
             : applyEvent(rec.id, { type: "submission-failed", code: c.code, detail: c.detail });
         if (!second || !second.ok) applyEvent(rec.id, { type: "submission-failed", code: c.code, detail: c.detail });
       }
+      // a deposit the connected wallet reported nothing for (the eleventh review round, F11-10): the scan records its note from the pool —
+      // half a minute from now, not at the next interval — and its stale pass completes the record
+      if (c.code === "deposit_unconfirmed") scanForDeposit();
       if (asset.token) void checkLeftover();
     }
   }

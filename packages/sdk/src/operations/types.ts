@@ -59,6 +59,8 @@ export type OperationEvent =
       i?: number;
       n?: number;
       noteCounter?: number;
+      /** the account a Protect's prompts come from (the eleventh review round's critique of F11-10) */
+      sender?: string;
       nullifiers?: [string, string];
       relayerUrl?: string;
       /** the digest of the call's public inputs (`transactInputsDigest`; the sixth review round, 2026-11-03): what a lost answer is settled by */

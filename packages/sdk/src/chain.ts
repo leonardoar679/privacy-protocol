@@ -8,7 +8,7 @@
 // VITE_SWAP_FACTORY (the SwapOrderFactory every swap escrow is checked against).
 import { rpcUrlsOf } from "./rpcUrls";
 import { publicClientFor } from "@privacy-wallet/privacy-engine/transport/chain";
-import { activeProvider } from "@privacy-wallet/wallet-engine/injected";
+import { activeProvider, connectedProvider } from "@privacy-wallet/wallet-engine/injected";
 import { formatTransactionReceipt, getAddress, keccak256, parseAbiItem, parseEventLogs, toHex, TransactionNotFoundError, TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient, type RpcTransactionReceipt, type TransactionReceipt } from "viem";
 import { ZERO_LEAF, type MerkleLayers } from "@privacy-wallet/protocol/merkle";
 import { TX_LEVELS } from "@privacy-wallet/protocol/txInputs";
@@ -351,41 +351,93 @@ export async function sendViaInjectedWallet(tx: TxRequest, chainId: number, expe
   })) as Hex;
 }
 
+/** Why the connected wallet gave no receipt (the eleventh review round, F11-10): what the caller may do instead depends on it. */
+export type NoWalletReceipt =
+  /** no provider is connected */
+  | "no-provider"
+  /** the wallet is on another network than the transaction's: it never finds it */
+  | "other-chain"
+  /**
+   * the provider answered no receipt read of this wait — WALLET_READ_TRIES tried, every one failed: WalletConnect's reads go to a host the
+   * policy blocks, a wallet may lack the method. One that answered before is read on through its failures, to the time (the eleventh review
+   * round's critique of F11-10: three failures after a wallet's node had answered had read as this)
+   */
+  | "unreadable"
+  /** not mined within the time */
+  | "timeout"
+  /** the flow is over (a lock, a replace) */
+  | "stopped";
+/** How many receipt reads may fail, none of them answered, before a provider is taken as one that cannot read (one failure is a hiccup). */
+export const WALLET_READ_TRIES = 3;
+/** How long, and how often, a flow reads the connected wallet for a receipt (tests shorten it). */
+export const walletReceiptTiming = { timeoutMs: 10 * 60_000, intervalMs: 1500 };
+
 /**
  * The receipt of a transaction the connected wallet sent, read through its OWN provider (the sixth review round, 2026-11-03;
  * threat-model A4): a Protect's receipt carries the user's public address as `from`, and read from this wallet's privacy
- * endpoints it had handed one operator the link public address → IP → every later private spend. Null when no provider is
- * connected, when it does not answer the method, or past `timeoutMs`: the caller then reads the endpoints, as before.
+ * endpoints it had handed one operator the link public address → IP → every later private spend. Without one, why — the caller
+ * never falls back to the endpoints for a deposit (the eleventh review round, F11-10).
  */
-export async function receiptViaInjectedWallet(
+export async function walletReceipt(
   hash: Hex,
   o: {
     timeoutMs?: number;
     intervalMs?: number;
     /** the flow is over (a lock, a replace): stop polling */ stop?: () => boolean;
-    /** the chain the transaction was sent on: a wallet switched to another network never finds it — the endpoints are read at once */ chainId?: number;
+    /** the chain the transaction was sent on: a wallet switched to another network never finds it — given up at once */ chainId?: number;
   } = {},
-): Promise<TransactionReceipt | null> {
+): Promise<{ receipt: TransactionReceipt } | { none: NoWalletReceipt }> {
   const eth = activeProvider();
-  if (!eth) return null;
-  const { timeoutMs = 10 * 60_000, intervalMs = 1500 } = o;
+  if (!eth) return { none: "no-provider" };
+  const { timeoutMs = walletReceiptTiming.timeoutMs, intervalMs = walletReceiptTiming.intervalMs } = o;
   const until = Date.now() + timeoutMs;
-  while (Date.now() < until && !o.stop?.()) {
+  let failed = 0;
+  let answered = false;
+  while (Date.now() < until) {
+    if (o.stop?.()) return { none: "stopped" };
     let raw: unknown;
     try {
       if (o.chainId !== undefined) {
         const id = await eth.request({ method: "eth_chainId" });
         const actual = typeof id === "string" && /^0x[0-9a-fA-F]+$/.test(id) ? parseInt(id, 16) : typeof id === "number" ? id : null;
-        if (actual !== o.chainId) return null;
+        if (actual !== o.chainId) return { none: "other-chain" };
       }
       raw = await eth.request({ method: "eth_getTransactionReceipt", params: [hash] });
+      answered = true;
     } catch {
-      return null;
+      if (!answered && ++failed >= WALLET_READ_TRIES) return { none: "unreadable" };
+      raw = null;
     }
-    if (raw && typeof raw === "object") return formatTransactionReceipt(raw as RpcTransactionReceipt);
+    if (raw && typeof raw === "object") return { receipt: formatTransactionReceipt(raw as RpcTransactionReceipt) };
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  return null;
+  return { none: o.stop?.() ? "stopped" : "timeout" };
+}
+
+
+/**
+ * A transaction the connected wallet sent, read once through ITS provider on the deployment's chain (the eleventh review round, F11-10): its
+ * receipt's status, "pending" while that provider knows it unmined, "unknown" when it does not know it. Null without an answer: no wallet
+ * connected (never the browser's injected wallet in its place), one that does not hold `sender` — the account the transaction came from: a
+ * transaction is never asked of another wallet's node (the critique of F11-10) —, another chain, a failed read. The privacy endpoints are
+ * never asked about it: its `from` is the user's public address.
+ */
+export async function walletTxStatus(hash: Hex, chainId: number, sender: string | undefined): Promise<"success" | "reverted" | "pending" | "unknown" | null> {
+  const eth = connectedProvider();
+  if (!eth || !sender) return null;
+  try {
+    const accounts = (await eth.request({ method: "eth_accounts" })) as unknown;
+    if (!Array.isArray(accounts) || !accounts.some((a) => typeof a === "string" && a.toLowerCase() === sender.toLowerCase())) return null;
+    const id = await eth.request({ method: "eth_chainId" });
+    const actual = typeof id === "string" && /^0x[0-9a-fA-F]+$/.test(id) ? parseInt(id, 16) : typeof id === "number" ? id : null;
+    if (actual !== chainId) return null;
+    const raw = await eth.request({ method: "eth_getTransactionReceipt", params: [hash] });
+    if (raw && typeof raw === "object") return formatTransactionReceipt(raw as RpcTransactionReceipt).status === "success" ? "success" : "reverted";
+    const tx = await eth.request({ method: "eth_getTransactionByHash", params: [hash] });
+    return tx && typeof tx === "object" ? "pending" : "unknown";
+  } catch {
+    return null;
+  }
 }
 
 

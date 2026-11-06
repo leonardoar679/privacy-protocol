@@ -572,8 +572,11 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 80. **V7 — what the endpoints still learn: the escrow reads and the light client's proofs (the sixth review round, 2026-11-03;
     the owner's call).** The quorum's per-nullifier `isNullifierSpent` reads are gone — the spent bits come from the pool's spend
     events read fetch-all with the note events (a swap funding's fate and the stale mover's fallback still asked them by name until
-    the ninth review round, 2026-11-04) — and a Protect's receipt is read through the connected wallet's own provider; the receipts of
-    the transactions this wallet sends are read by their hash (gap 101).
+    the ninth review round, 2026-11-04) — and a Protect's receipts are read through the connected wallet's own provider only (the
+    eleventh review round, F11-10: the stale mover had asked every endpoint for a Protect's hash, even with its note found, and the live
+    flow had when the wallet gave none — another network, a provider error, ten minutes; now the note or that provider settles it, and a
+    deposit the wallet reports nothing for is left to the scan; an ERC-20 approval through WalletConnect, whose provider answers no read under the policy: gap 100); the
+    receipts of the transactions this wallet sends are read by their hash (gap 101).
     Two reads remain address-specific: every order tick reads the escrow's balance on every endpoint, and where a light client
     applies, every scan proves each unspent note's nullifier slot (`eth_getProof`), which names this wallet's notes to the
     endpoint behind the proofs. Dropping the proofs weakens the defence against an endpoint hiding a spend (n44, threat-model A2);
@@ -680,10 +683,25 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     lease key and headers: the provider can still match a large swap to an escrow funded minutes later by pair, size class and
     time. A separate lease per check, and the check offered before the commit, would narrow it; the Review's hint says so. Since the tenth review round (B10-12) the summary's value is the rounded amount's,
     and it carries no minimum received and no expected loss: four proportional one-digit figures had pinned the amount to a few percent.
-100. **V7 — a WalletConnect Protect's receipt (the eighth review round; stated).** A WalletConnect provider sends the reads outside
-    its session's namespace to WalletConnect's RPC host, which the policy blocks: a Protect's receipt is then read from the
-    wallet's own endpoints (the link gap 80 removed for injected wallets), and an allowance it cannot read is cleared to zero
-    first. The round's connection notes: without a connection `activeProvider()` falls back to `window.ethereum`; EIP-6963
+100. **V7 — a WalletConnect Protect's approval receipt (the eighth review round; stated; narrowed in the eleventh, F11-10).** A
+    WalletConnect provider sends the reads outside its session's namespace to WalletConnect's RPC host, which the policy blocks: an
+    ERC-20 Protect's approval receipts are then read from the wallet's first endpoint, which so holds this IP beside the public address
+    (without them no ERC-20 could be protected through such a wallet), and an allowance it cannot read is cleared to zero first. Since the
+    eleventh round the exception is WalletConnect's provider alone, and only while it has answered no read: any other wallet whose reads
+    fail stops at its approval (`approval_unconfirmed`), one that answered before is read on to the time. The deposit's receipt is never
+    read there: the Protect ends "sent — your wallet did not report the result" (`deposit_unconfirmed`; no "needs your attention"
+    notification for it); the record awaits its note, which a scan half a minute later — planned past the scheduler's backoff — and then
+    each minute for a quarter of an hour (a failed read retried in a minute meanwhile) records from the endpoints' agreed view at once:
+    never held for finality, half an hour on mainnet. That is the trust the receipt's fallback to the endpoints had, for that case alone —
+    a page closed after its send, or a lock, leaves its note to the proof as before —, at one leaf only and with no note of its counter
+    stored; a copy of a note at a second leaf goes once the other stands at a proven leaf, and the proven pool still drops a note it
+    contradicts. The record completes from it — without its network cost, which no receipt gave. A second Protect is held back while the
+    record reads so, a day at most; with no note and no word from the wallet that sent it a day on, it reads never landed, nothing moved
+    (`deposit_never_landed`, the chain's verdict) — and stays so: a deposit that lands after all enters the balance without a line of its
+    own.
+    After the page is gone only the wallet holding the account the Protect came from (`refs.sender`) is asked about its transaction,
+    never the browser's injected wallet in its place. The rescans are pool reads like any scan, started by the deposit: their timing is the
+    one signal left. The round's connection notes: without a connection `activeProvider()` falls back to `window.ethereum`; EIP-6963
     announcements are keyed by rdns, the last one winning; the WalletConnect provider defaults to chain 1; the fresh funding
     provider signs any transaction the SDK asks of it.
 

@@ -43,6 +43,8 @@ const w = vi.hoisted(() => ({
   /** the connected wallet's network, and the one it switches to after `switchAfter` sends (the deployment's is chain 1) */
   chain: "0x1",
   switchTo: null as null | { after: number; chain: string },
+  /** the network the wallet switches to right after it answered an approval's receipt (the eleventh review round's critique of F11-10) */
+  switchOnReceipt: null as null | string,
   /** V7 Stage 16: the session locks right after this many sends (a phone's handoff, or Lock) */
   lockAfter: null as null | number,
   /** the eighth review round (C-L6): the account the wallet names, and the one it switches to after `after` sends */
@@ -98,12 +100,37 @@ vi.mock("../src/chain", async (importOriginal) => ({
   },
 }));
 
-/** The connected wallet over a token that keeps USDT's rule: approve(non-zero) reverts while a non-zero allowance is open. */
+/** A wallet's raw receipt: the status the chain gave the transaction (its gas as the endpoints' fake gives it). */
+const rawReceipt = (hash: string) => ({
+  blockHash: `0x${"aa".repeat(32)}`,
+  blockNumber: "0x10",
+  contractAddress: null,
+  cumulativeGasUsed: "0xc350",
+  effectiveGasPrice: "0x1",
+  from: w.account,
+  gasUsed: "0xc350",
+  logs: [],
+  logsBloom: `0x${"00".repeat(256)}`,
+  status: w.receipts.get(hash) === "reverted" ? "0x0" : "0x1",
+  to: ROUTER,
+  transactionHash: hash,
+  transactionIndex: "0x0",
+  type: "0x2",
+});
+/**
+ * The connected wallet over a token that keeps USDT's rule: approve(non-zero) reverts while a non-zero allowance is open. Its own node gives
+ * the receipts (the eleventh review round, F11-10: a Protect's receipts come from the connected wallet only).
+ */
 const usdtWallet = {
   request: async ({ method, params }: { method: string; params?: unknown[] }) => {
     if (method === "eth_accounts" || method === "eth_requestAccounts") return [w.account];
     if (method === "eth_chainId") return w.chain;
     if (method === "eth_call") return encodeFunctionResult({ abi: erc20Abi, functionName: "allowance", result: w.allowance });
+    if (method === "eth_getTransactionReceipt") {
+      const r = w.receipts.has(String(params![0])) ? rawReceipt(String(params![0])) : null;
+      if (r && w.switchOnReceipt) w.chain = w.switchOnReceipt; // confirmed; then the user switches network
+      return r;
+    }
     if (method === "eth_sendTransaction") {
       const tx = params![0] as { to: string; data: Hex; chainId?: string };
       w.chainIds.push(String(tx.chainId));
@@ -142,6 +169,7 @@ beforeEach(() => {
   w.receipts.clear();
   w.chain = "0x1";
   w.switchTo = null;
+  w.switchOnReceipt = null;
   w.chainIds.length = 0;
   w.lockAfter = null;
 });
@@ -225,7 +253,8 @@ describe("a protect's approvals (a V6 follow-up of 2026-10-16)", () => {
     w.chain = "0x1";
     w.switchTo = { after: 1, chain: "0x89" };
     const switched = await protect(0n).catch((e: unknown) => e);
-    expect(switched).toMatchObject({ code: "chain_mismatch" });
+    // the approval's receipt is not on that network: nothing more is sent, and no endpoint is asked (the eleventh review round, F11-10)
+    expect(switched).toMatchObject({ code: "approval_unconfirmed" });
     expect(
       w.sent.map((x) => x.fn),
       "the approval went out on chain 1; the deposit never left",
@@ -236,6 +265,18 @@ describe("a protect's approvals (a V6 follow-up of 2026-10-16)", () => {
     w.chain = "0x1";
     await protect(AMOUNT); // what that approval left: used as it is
     expect(w.chainIds, "every transaction names its chain").toEqual(["0x1"]);
+  });
+
+  it("a wallet switched to another network after its approval was confirmed: the deposit is refused before it is sent (chain_mismatch), nothing deposited", async () => {
+    // the approval's own wait now notices another network first (approval_unconfirmed, above); the deposit's network check is kept for the
+    // window after the approval's receipt was read (the eleventh review round's critique of F11-10)
+    w.switchOnReceipt = "0x89";
+    const err = await protect(0n).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "chain_mismatch", name: "WalletOnOtherChain" });
+    expect(
+      w.sent.map((s) => s.fn),
+      "the approval only",
+    ).toEqual(["approve"]);
   });
 
   it("the session locks between two prompts (V7 Stage 16, spec v3.0 §9): nothing more is asked of the wallet; what was sent stays sent", async () => {

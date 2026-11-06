@@ -138,6 +138,9 @@ export interface OperationRecord {
     quoteId?: string;
     provider?: string;
     noteCounter?: number;
+    /** the account a Protect's prompts came from (the eleventh review round's critique of F11-10): only that account's wallet is asked about
+     *  its transactions once its page is gone (operations/stale.ts) */
+    sender?: string;
     nullifiers?: [string, string];
     relayerUrl?: string;
     /** the digest of its call's public inputs (the sixth review round, 2026-11-03): a lost answer is settled only by that call */

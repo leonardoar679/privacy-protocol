@@ -161,21 +161,45 @@ describe("D-1: notes recorded past the pool", () => {
       request: async ({ method }: { method: string }) => (method === "eth_chainId" ? "0x1" : method === "eth_getTransactionReceipt" ? receipt : null),
     } as never);
     expect((await trackShieldCost(p, HASH)).leafIndex).toBe(FAR);
-    // the real deposit lands at leaf 0; a scan right away keeps the far note (the endpoints may lag the wallet's provider)
+    // the real deposit lands at leaf 0, not proven yet: a scan right away keeps the far note (the endpoints may lag the wallet's
+    // provider), and the real one waits for its proof
+    serve([{ leafIndex: 0, commitment: noteCommitment(noteBody(p.note), 0n), noteData: p.noteData }], 4);
+    lc.proven = 0;
+    await scanNotes({ masterSeed: seed, deployment: d() });
+    expect(noteStore.all().map((n) => n.leafIndex)).toEqual([FAR]);
+    // past the grace the far note is gone
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + PAST_POOL_GRACE_MS + 1000);
+    await scanNotes({ masterSeed: seed, deployment: d() });
+    expect(noteStore.all().map((n) => n.leafIndex)).toEqual([]);
+    // the proof covers leaf 0: the deposit counts once
+    lc.proven = 4;
+    await scanNotes({ masterSeed: seed, deployment: d() });
+    expect(noteStore.all().map((n) => n.leafIndex)).toEqual([0]);
+    expect(noteStore.balance(BigInt(VAULT))).toBe(p.note.amount);
+  });
+
+  it("a far note recorded from a receipt, its counter then proven at the real leaf: the far copy goes at once — a counter is one note's alone (the eleventh review round's critique of F11-10)", async () => {
+    const seed = session.state().seed!;
+    const p = prepareShield({ masterSeed: seed, deployment: d(), amount: 10n ** 17n });
+    // the connected wallet's provider names a far leaf for the deposit
+    noteStore.add({
+      note: p.note,
+      leafIndex: FAR,
+      noteData: p.noteData,
+      counter: p.counter,
+      spent: false,
+      txHash: "0x" + "ab".repeat(32),
+      label: "protected",
+      addedAt: Date.now(),
+    } as never);
     serve([{ leafIndex: 0, commitment: noteCommitment(noteBody(p.note), 0n), noteData: p.noteData }], 4);
     lc.proven = 4;
     await scanNotes({ masterSeed: seed, deployment: d() });
     expect(
-      noteStore
-        .all()
-        .map((n) => n.leafIndex)
-        .sort((a, b) => a - b),
-    ).toEqual([0, FAR]);
-    // past the grace the far note is gone: the deposit counts once
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.now() + PAST_POOL_GRACE_MS + 1000);
-    await scanNotes({ masterSeed: seed, deployment: d() });
-    expect(noteStore.all().map((n) => n.leafIndex)).toEqual([0]);
+      noteStore.all().map((n) => n.leafIndex),
+      "within the grace, but its counter stands at a proven leaf",
+    ).toEqual([0]);
     expect(noteStore.balance(BigInt(VAULT))).toBe(p.note.amount);
   });
 

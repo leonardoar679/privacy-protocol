@@ -5,7 +5,8 @@
 // - submitted, its transaction known: the receipt completes it, a revert fails it (nothing moved), and a transaction the
 //   node no longer knows STALE_DROP_MS after the record last moved fails it too (the relayer drops such a transaction
 //   after the same time) — both only while the record's notes are unspent, and every one of these reads is every
-//   configured endpoint's (audit round 2, r23: one endpoint's word had failed a Send on its way as "nothing moved");
+//   configured endpoint's (audit round 2, r23: one endpoint's word had failed a Send on its way as "nothing moved"). A
+//   Protect's are never asked of the endpoints (the eleventh review round, F11-10): its note, or the wallet that sent it;
 // - stopped before "submitting" (in the proof, say): nothing was sent, so it fails, nothing moved;
 // - "submitting" with no answer yet: what it kept at that step decides. A Protect's note, once the scan found it, completes
 //   it. A Send's relayer, asked by the spend's nullifiers, supplies the transaction the page never got. Nullifiers still
@@ -21,7 +22,7 @@
 // a lost answer, a retry refused — was failed as "nothing moved: start it again" at the next reload while the relayer had
 // sent it.
 import { decodeFunctionData, parseEventLogs, TransactionNotFoundError, TransactionReceiptNotFoundError, type Hex } from "viem";
-import { clientFor, clientsFor, outcomeReads, type Deployment } from "../chain";
+import { clientFor, clientsFor, outcomeReads, walletTxStatus, type Deployment } from "../chain";
 import { coreAbi, transactInputsDigest } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
 import { noteStore } from "../wallet/notes";
@@ -71,6 +72,31 @@ export interface StaleReads {
   txInputs?(hash: Hex): Promise<Hex | null>;
   /** the address the transaction's transact call pays (its withdrawal recipient), on the same terms (the ninth review round, C-10) */
   txRecipient?(hash: Hex): Promise<Hex | null>;
+  /**
+   * a Protect's transaction through the connected wallet's own provider (chain.ts walletTxStatus; the eleventh review round, F11-10): its
+   * `from` is the user's public address, never asked of the privacy endpoints. Absent, or null: not known here
+   */
+  walletTx?(hash: Hex, sender: string | undefined): Promise<"success" | "reverted" | "pending" | "unknown" | null>;
+}
+
+/** While a deposit its wallet reported nothing for is this young, the scan runs each minute (../wallet/discovery.ts; the critique of F11-10). */
+export const DEPOSIT_RESCAN_WINDOW_MS = 15 * 60_000;
+/**
+ * The note counters of this wallet's Protects whose wallet reported nothing for their deposit (`deposit_unconfirmed`): the scan records
+ * such a note from the endpoints' agreed view at once (privateTx.ts scanNotes `awaited`; the eleventh review round's critique of F11-10) —
+ * the case the receipt's fallback to the endpoints had covered, never wider: a page closed after its send, or a lock, leaves its note to
+ * the proof, as before (its record completes from the wallet that sent it, or from the note once proven).
+ */
+export function awaitedDeposits(s: WalletSession = defaultSession): number[] {
+  return allOperations(s)
+    .filter((r) => r.kind === "protect" && r.state === "RECOVERY_REQUIRED" && r.reason?.code === "deposit_unconfirmed" && r.refs.noteCounter !== undefined)
+    .map((r) => r.refs.noteCounter!);
+}
+/** A deposit its wallet reported nothing for (`deposit_unconfirmed`), younger than DEPOSIT_RESCAN_WINDOW_MS. */
+export function depositAwaited(s: WalletSession = defaultSession, now = Date.now()): boolean {
+  return allOperations(s).some(
+    (r) => r.kind === "protect" && r.state === "RECOVERY_REQUIRED" && r.reason?.code === "deposit_unconfirmed" && now - r.createdAt < DEPOSIT_RESCAN_WINDOW_MS,
+  );
 }
 
 /**
@@ -107,6 +133,7 @@ export function staleReads(d: Deployment, index: SpendIndex | null = spendIndexO
   return {
     receipt: outcome.receipt,
     txKnown: outcome.txKnown,
+    walletTx: (hash, sender) => walletTxStatus(hash, d.chainId, sender),
     // never a per-nullifier read naming the record's notes (the ninth review round, 2026-11-04, D-3): without an index (no scan yet) the
     // reads throw, and the record is read again after the next scan
     spent: async (n) => {
@@ -200,6 +227,18 @@ const SPENT_ELSEWHERE: OperationEvent = {
 };
 /** Sent as far as the chain can tell (its notes spent), the transaction not known here: read again at every scan (the review round of 2026-11-02). */
 const OUTCOME_UNKNOWN: OperationEvent = { type: "recovery-required", code: "outcome_unknown", detail: "sent; its transaction is not known here yet" };
+/** A Protect past the drop limit with neither its note nor its wallet's word: its own words, never a Send's "your notes were spent" (the critique of F11-10). */
+const DEPOSIT_UNCONFIRMED: OperationEvent = {
+  type: "recovery-required",
+  code: "deposit_unconfirmed",
+  detail: "sent; neither its note nor its wallet's word has come",
+};
+/** ... and a day after it last moved: it never reached the chain — nothing moved. The record stays so; a note found later enters the balance alone (the critique of F11-10). */
+const depositNeverLanded = (hash: string): OperationEvent => ({
+  type: "submission-failed",
+  code: "deposit_never_landed",
+  detail: `transaction ${hash}: no note of it in the pool a day on, and no word from the wallet that sent it`,
+});
 /** Past the drop limit, its notes unspent, the transaction the record holds never landed for it: nothing moved (the tenth review round, A10-1). */
 const droppedEvent = (hash: string): OperationEvent => ({
   type: "submission-failed",
@@ -305,7 +344,22 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
           hash = found;
         }
       }
-      if (hash) {
+      // a Protect is settled without asking the privacy endpoints about its hash (the eleventh review round, F11-10): its transaction's `from` is
+      // the user's public address, and the endpoints that serve every later private spend must never hold it beside this client (threat model
+      // A2; gaps 80, 100). The scan's note at its counter says it landed; the wallet that sent it, connected with its account, may say it was
+      // mined, reverted, pending (waited for) or unknown (past the drop limit: dropped). With no word at all, past the drop limit it waits as a
+      // deposit not reported, and a day after it last moved it never reached the chain — nothing moved: the record stays so, and a note
+      // found later enters the balance alone
+      if (hash && r.kind === "protect") {
+        const note = r.refs.noteCounter !== undefined ? noteStore.all().find((n) => n.counter === r.refs.noteCounter) : undefined;
+        const seen = note ? null : reads.walletTx ? await reads.walletTx(hash, r.refs.sender) : null;
+        if (note) apply({ type: "completed", ref: { leafIndex: note.leafIndex, txHash: (note.txHash as Hex | undefined) ?? hash } });
+        else if (seen === "success") apply({ type: "completed", ref: { txHash: hash } });
+        else if (seen === "reverted") apply({ type: "submission-failed", code: "receipt_reverted", detail: `transaction ${hash} reverted` });
+        else if (old && seen === "unknown") apply(droppedEvent(hash));
+        else if (gone && seen === null) apply(depositNeverLanded(hash));
+        else if (old && seen === null && r.state !== "RECOVERY_REQUIRED") apply(DEPOSIT_UNCONFIRMED);
+      } else if (hash) {
         let status = await reads.receipt(hash);
         // a transaction the wallet replaced (C-02): its hash unknown everywhere while its call landed under another — it had stayed
         // "Confirming", or "We are checking where your funds are", for good

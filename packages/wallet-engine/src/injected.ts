@@ -18,3 +18,8 @@ export function injectedProvider(): Eip1193Provider | null {
 
 /** The provider every engine call signs or reads through; null when the browser has none. */
 export function activeProvider(): Eip1193Provider | null { return active ?? injectedProvider(); }
+/**
+ * The provider the connection holds, or null when no wallet is connected — never the browser's injected wallet in its place (the eleventh
+ * review round's critique of F11-10): a transaction another wallet sent is never asked of it.
+ */
+export function connectedProvider(): Eip1193Provider | null { return active; }

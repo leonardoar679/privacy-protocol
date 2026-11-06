@@ -94,7 +94,9 @@ const hasRefs = (ev: OperationEvent): boolean => REFS.some((k) => k in ev);
  * the notes stayed unspent, one that spends other notes (operations/stale.ts) — as opposed to a flow's own error after its
  * submission, which says nothing about the chain (the sixth review round, 2026-11-03).
  */
-const CHAIN_VERDICTS: ReadonlySet<string> = new Set(["receipt_reverted", "transaction_dropped", "not_this_spend", "spent_elsewhere"]);
+// `deposit_never_landed` (the eleventh review round's critique of F11-10): a Protect with no note in the pool a day on is the chain's verdict
+// too — rewritten as "outcome unknown", it had read a Send's words and waited a second day
+const CHAIN_VERDICTS: ReadonlySet<string> = new Set(["receipt_reverted", "transaction_dropped", "not_this_spend", "spent_elsewhere", "deposit_never_landed"]);
 
 /** The catalog reason of a code (I-O3): an unknown code becomes `unknown` with the original kept in the detail. */
 export function reasonOf(code: string | undefined, fallback: string, detail?: string): OperationReason {
@@ -141,6 +143,7 @@ function fieldEvent(rec: OperationRecord, ev: OperationEvent, at: number): Trans
       // what a submission leaves for its settlement from the chain (operations/stale.ts): the deposit's note, the spend's nullifiers
       const kept = {
         ...(ev.noteCounter !== undefined ? { noteCounter: ev.noteCounter } : {}),
+        ...(ev.sender ? { sender: ev.sender } : {}),
         ...(ev.nullifiers ? { nullifiers: ev.nullifiers } : {}),
         ...(ev.relayerUrl ? { relayerUrl: ev.relayerUrl } : {}),
         ...(ev.inputsDigest ? { inputsDigest: ev.inputsDigest } : {}),

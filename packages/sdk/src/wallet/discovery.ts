@@ -15,7 +15,7 @@
 import type { Deployment } from "../chain";
 import { assetByVault } from "../assets";
 import { PAST_POOL_GRACE_MS, scanNotes } from "../privateTx";
-import { reconcileStaleOperations, staleReads } from "../operations/stale";
+import { awaitedDeposits, depositAwaited, reconcileStaleOperations, staleReads } from "../operations/stale";
 import { activityId, recordActivity, updateActivity } from "./activity";
 import { noteStore } from "./notes";
 import type { ScheduledAction } from "./journal";
@@ -30,6 +30,13 @@ export const NOT_IN_POOL =
   "not received: the pool proven at the latest finalized block does not hold this transfer — an RPC endpoint showed a note the chain does not have";
 /** Activity's opening asks for a scan at most this often. */
 export const DISCOVERY_MIN_GAP_MS = 60_000;
+/**
+ * A deposit the connected wallet reported nothing for (`deposit_unconfirmed`; the eleventh review round, F11-10) is looked for in the pool
+ * this soon — time for it to be mined — rather than at the next interval, and then each minute while it is young (operations/stale.ts
+ * DEPOSIT_RESCAN_WINDOW_MS): the scan records its note from the endpoints' agreed view, the record awaiting it (privateTx.ts scanNotes
+ * `awaited`: never held for finality, which takes half an hour on mainnet), and its stale pass completes the Protect.
+ */
+export const DEPOSIT_SCAN_DELAY_MS = 30_000;
 /**
  * A scan that failed while the counters are held (after a restore) is tried again this soon (audit round 2, r06): every new
  * note waits for one complete scan, and the scheduler's backoff — 10 minutes doubling to 6 hours — had refused every Protect,
@@ -50,6 +57,27 @@ export function scheduleDiscovery(dueAt = Date.now(), s: WalletSession = default
   if (cur && cur.dueAt <= dueAt) return false;
   scheduleAction({ kind: "discovery", orderId: "pool", dueAt }, s);
   if (dueAt <= Date.now()) kickScheduler();
+  return true;
+}
+
+/**
+ * The scan a deposit its wallet reported nothing for needs, DEPOSIT_SCAN_DELAY_MS on (the eleventh review round, F11-10): planned past the
+ * scheduler's backoff — a scan whose last read failed waits up to hours there, and the deposit's had been silently not planned (the
+ * critique of F11-10). False while locked.
+ */
+export function scanForDeposit(now = Date.now(), s: WalletSession = defaultSession): boolean {
+  if (!s.isUnlocked()) return false;
+  const dueAt = now + DEPOSIT_SCAN_DELAY_MS;
+  if (!s.journal().schedule.some((a) => a.id === DISCOVERY_ID && !a.done)) {
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt }, s);
+    return true;
+  }
+  s.update((j) => {
+    const a = j.schedule.find((x) => x.id === DISCOVERY_ID && !x.done);
+    if (!a) return;
+    a.nextAttemptAt = undefined;
+    a.dueAt = Math.min(a.dueAt, dueAt);
+  });
   return true;
 }
 
@@ -82,9 +110,16 @@ export async function runDiscovery(
   try {
     let r: Awaited<ReturnType<typeof scanNotes>>;
     try {
-      r = await scanNotes({ masterSeed: o.masterSeed, deployment: o.deployment, onStatus: (line) => schedulerStatus.progress(line) });
+      r = await scanNotes({
+        masterSeed: o.masterSeed,
+        deployment: o.deployment,
+        awaited: awaitedDeposits(s),
+        onStatus: (line) => schedulerStatus.progress(line),
+      });
     } catch (e) {
-      if (!noteStore.countersHeld() || !s.isUnlocked()) throw e; // the scheduler's backoff
+      // the scheduler's backoff — but not while the counters are held, nor while a deposit its wallet reported nothing for waits on this
+      // scan (the critique of F11-10): read again in a minute
+      if ((!noteStore.countersHeld() && !depositAwaited(s, now())) || !s.isUnlocked()) throw e;
       schedulerStatus.progress(`The pool could not be read (${(e as Error)?.message ?? String(e)}); looking again in a minute…`);
       scheduleAction({ kind: "discovery", orderId: "pool", dueAt: now() + HELD_SCAN_RETRY_MS }, s); // the same id: kept pending
       return;
@@ -143,6 +178,7 @@ export async function runDiscovery(
   } finally {
     schedulerStatus.finish();
   }
-  // the next pass, under the same id: the scheduler keeps it pending instead of marking this one done
-  scheduleAction({ kind: "discovery", orderId: "pool", dueAt: now() + DISCOVERY_INTERVAL_MS }, s);
+  // the next pass, under the same id: the scheduler keeps it pending instead of marking this one done — in a minute while a deposit its
+  // wallet reported nothing for is young (the critique of F11-10), else at the interval
+  scheduleAction({ kind: "discovery", orderId: "pool", dueAt: now() + (depositAwaited(s, now()) ? DISCOVERY_MIN_GAP_MS : DISCOVERY_INTERVAL_MS) }, s);
 }

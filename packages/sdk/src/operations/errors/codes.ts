@@ -163,9 +163,20 @@ export const CATALOG: Record<string, CatalogRow> = {
   // page's closing, whose words say so)
   locked_mid_flow: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // the wallet locked after the send reached the chain, while its receipt was awaited (the sixth review round, 2026-11-03): the
-  // transaction stands; the record waits for the chain's word — the stale mover completes it from the receipt at the next scan.
+  // transaction stands; the record waits for the chain's word — the stale mover completes it at the next scan (a Protect from its note or
+  // the connected wallet's own provider, never the endpoints: the eleventh review round, F11-10).
   // Before, it carried locked_mid_flow, "nothing moved", and the record failed as "start again": a second send paid twice
   locked_after_send: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // the connected wallet gave no receipt for a sent deposit — another network, reads that fail (WalletConnect's under the policy), ten
+  // minutes without one (the eleventh review round, F11-10): the privacy endpoints are never asked about a transaction whose `from` is the
+  // public address; the scan records its note as soon as the pool shows it (the record awaits it), and the record completes from it
+  deposit_unconfirmed: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // ... nor for an approval before the deposit (another network, no provider, ten minutes): nothing was deposited — WalletConnect's
+  // approvals excepted, whose receipt is read from the first endpoint (audit gap 100)
+  approval_unconfirmed: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // a Protect with no note in the pool a day after it last moved and no word from the wallet that sent it: it never reached the chain
+  // (the critique of F11-10: it had read "We are checking where your funds are" for good); a note found later still enters the balance
+  deposit_never_landed: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // a Send whose answer was lost and whose notes another operation of this wallet then spent (the sixth review round, 2026-11-03): the
   // pool's spend event names a call with other public inputs — this one can never land, and nothing of it was sent
   spent_elsewhere: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },

@@ -31,11 +31,12 @@ import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { activityOf } from "@privacy-wallet/sdk/wallet/activity";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
+import { DEPOSIT_SCAN_DELAY_MS } from "@privacy-wallet/sdk/wallet/discovery";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const APPROVE = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { native: unknown[]; erc20: unknown[] } = { native: [], erc20: [] };
-let nativeBehaviour: "ok" | "rejected" | "reverted" | "lost" = "ok";
+let nativeBehaviour: "ok" | "rejected" | "reverted" | "lost" | "unconfirmed" = "ok";
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   shieldNative: async (o: { amount: bigint; onEvent?: (e: EngineEvent) => void; onStatus?: (s: string) => void }) => {
@@ -47,6 +48,11 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
     o.onEvent?.({ type: "waiting-receipt", txHash: HASH });
     if (nativeBehaviour === "reverted") throw new Error(`transaction ${HASH} reverted`);
     if (nativeBehaviour === "lost") throw new Error("the commitment was not found in the receipt"); // sent: the outcome not known
+    // the connected wallet gave no receipt (the eleventh review round, F11-10): sent, and the endpoints are not asked
+    if (nativeBehaviour === "unconfirmed")
+      throw Object.assign(new Error("the connected wallet gave no receipt for the deposit (unreadable); it is sent, and the next scan records its note"), {
+        code: "deposit_unconfirmed",
+      });
     o.onEvent?.({ type: "mined", txHash: HASH, leafIndex: 7 });
     return { txHash: HASH, leafIndex: 7 };
   },
@@ -323,6 +329,29 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { fundsClass: "unknown" } });
     expect(screen.queryByTestId("protect-back"), "another protect from the form could deposit twice").toBeNull();
     expect(screen.queryByTestId("review-confirm")).toBeNull();
+  });
+
+  // the scan and its stale pass completing the record from the note: packages/sdk/test/review11-protect-scan.test.ts
+  it("a deposit the connected wallet reports nothing for (the eleventh review round, F11-10): sent, its outcome unknown, and a scan planned half a minute on", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    nativeBehaviour = "unconfirmed";
+    mount();
+    type(screen.getByTestId("amount-input"), "0.5");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    const before = Date.now();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await screen.findByTestId("protect-done-unknown");
+    expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({
+      state: "RECOVERY_REQUIRED",
+      reason: { code: "deposit_unconfirmed", fundsClass: "unknown" },
+    });
+    const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+    expect(scan?.dueAt, "the scan half a minute on").toBeGreaterThanOrEqual(before + DEPOSIT_SCAN_DELAY_MS);
+    expect(scan!.dueAt).toBeLessThanOrEqual(Date.now() + DEPOSIT_SCAN_DELAY_MS);
+    expect(screen.queryByTestId("protect-back"), "never a second deposit from the form").toBeNull();
   });
 
   it("an ERC-20 protect: the approval first (1 of 2), then the deposit, one operation; the common sizes under Advanced; the recovery-information card is shown once per session", async () => {

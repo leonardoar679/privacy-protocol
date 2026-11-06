@@ -78,6 +78,12 @@ export async function deleteWalletConnectDatabase(
     return "failed";
   }
 }
+/**
+ * WalletConnect's provider, by its own `isWalletConnect` (a getter on @walletconnect/ethereum-provider's EthereumProvider): its reads go to a
+ * host the policy blocks (apps/web/scripts/csp.mjs), so it gives no receipt — the one wallet whose approvals a Protect reads at the first
+ * endpoint (audit gap 100; the eleventh review round, F11-10).
+ */
+export const isWalletConnectProvider = (eth: unknown): boolean => !!eth && (eth as { isWalletConnect?: unknown }).isWalletConnect === true;
 export const walletConnectProjectId = (): string | undefined => projectId;
 export const walletConnectAvailable = (): boolean => !!walletConnectProjectId();
 

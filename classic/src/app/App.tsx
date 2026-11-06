@@ -91,12 +91,13 @@ export function App(props: AppProps = {}) {
   const [gasPriceWei, setGasPriceWei] = useState<bigint | null>(null);
   // the relayers are asked when the Withdraw tab or the relayer settings open — never at page load (the review round of
   // 2026-11-03, C2-7): every listed host had received the IP of every visitor, depositors included, before any notice was shown.
-  // On the Withdraw tab only when a withdrawal is switched on (the tenth review round, C10-15): with nothing live every listed host
-  // still received the IP of every visitor who opened it
+  // Only when a withdrawal is switched on (the tenth review round, C10-15; in the relayer settings too since the eleventh, F11-5): with
+  // nothing live every listed host still received the IP of every visitor who opened the Withdraw tab — or the settings, where it had
+  // stayed so
   const anyWithdrawLive = POOL_IDS.some((p) => isLive(c, p, "withdraw"));
   useEffect(() => {
     if (route !== "withdraw" && route !== "settings") return;
-    if (route === "withdraw" && services && !anyWithdrawLive) return;
+    if (services && !anyWithdrawLive) return;
     let on = true;
     void source
       .refreshRelayers()

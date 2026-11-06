@@ -28,7 +28,8 @@ import { settings, type Submission } from "./wallet/settings";
 import { prove, type ProveStatus } from "./config";
 import { buildApprove, buildProtectERC20, buildProtectETH, buildShieldERC20, buildShieldNative, buildTransact, transactInputsDigest, type TxRequest } from "./privacyProtocol";
 import { PRIVACY_FEE_BPS, feeMeetsTerms, protectSplit } from "@privacy-wallet/protocol/wallet/fees";
-import { clientFor, depositedLogsQuorum, minedTx, otherClientsFor, receiptViaInjectedWallet, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, type Deployment, type NoteInsertedLog } from "./chain";
+import { clientFor, depositedLogsQuorum, minedTx, otherClientsFor, sendViaInjectedWallet, syncPoolQuorum, syncTreeQuorum, txDomainOf, walletReceipt, type Deployment, type NoteInsertedLog } from "./chain";
+import { isWalletConnectProvider } from "@privacy-wallet/wallet-engine/walletConnect";
 import { indexSpends, rememberSpendIndex, type SpendIndex } from "./wallet/spends";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
@@ -162,16 +163,20 @@ export async function trackShieldCost(p: PreparedShield, txHash: Hex): Promise<{
   // the opening the deposit was prepared in (the eleventh review round, 2026-11-04, A11-2): read here, after the prompt, a REPLACE made while
   // the wallet asked would have recorded the deposit's note in the other wallet
   const epoch = p.epoch ?? session.epoch();
-  // the receipt through the connected wallet's own provider (the sixth review round, 2026-11-03): its `from` is the user's public
-  // address, which the privacy endpoints must never see beside this client. Without a provider's answer, every endpoint's receipt
-  // (audit round 2, r23) — the scan's proven pool contradicts a note a lying provider would have invented (audit round 2, r24)
-  const own = await receiptViaInjectedWallet(txHash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
+  // the receipt through the connected wallet's own provider only (the sixth review round, 2026-11-03): its `from` is the user's public
+  // address, which the privacy endpoints must never see beside this client — the scan's proven pool contradicts a note a lying provider
+  // would have invented (audit round 2, r24)
+  const got = await walletReceipt(txHash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
   // stopped by a lock (the eighth review round, B-6): the endpoints are never asked for a receipt whose `from` is the public address
-  if (!own && session.epoch() !== epoch)
+  if (!("receipt" in got) && session.epoch() !== epoch)
     throw Object.assign(new Error("the wallet was locked before the deposit was recorded; it is sent, and the next scan records its note"), { code: "locked_after_send" });
-  const { inserted, costWei } = own
-    ? await minedTx(clientFor(p.deployment), txHash, undefined, [], { receipt: own })
-    : await minedTx(clientFor(p.deployment), txHash, undefined, otherClientsFor(p.deployment));
+  // ... nor when the wallet gives none — another network, reads that fail as WalletConnect's do under the policy, ten minutes without one
+  // (the eleventh review round, F11-10: every endpoint had been asked): the deposit is sent, and the scan records its note from the pool
+  if (!("receipt" in got))
+    throw Object.assign(new Error(`the connected wallet gave no receipt for the deposit (${got.none}); it is sent, and the next scan records its note`), {
+      code: "deposit_unconfirmed",
+    });
+  const { inserted, costWei } = await minedTx(clientFor(p.deployment), txHash, undefined, [], { receipt: got.receipt });
   const mine = inserted.find((i) => i.commitment === noteCommitment(noteBody(p.note), BigInt(i.leafIndex)));
   if (!mine) throw new Error("the deposit was mined but its commitment was not found in the receipt");
   // the wallet this flow belongs to (the third review round, 2026-11-03): after a lock — and a REPLACE with another phrase in the same tab —
@@ -257,16 +262,24 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
     const clearing = approvals.length === 2 && k === 0;
     o.onStatus?.(`${k + 1}/${n} ${clearing ? `Clearing the earlier approval of ${whom}` : `Approving ${whom} for exactly this amount`} (connected wallet)…`);
     assertStillUnlocked(p.epoch);
-    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter });
+    // the account it is sent from, kept for the stale mover: only that account's wallet is ever asked about it (the critique of F11-10)
+    o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter, ...(account ? { sender: account } : {}) });
     const epoch = session.epoch();
     const hash = await sendViaInjectedWallet(tx, p.deployment.chainId, account);
     // through the connected wallet's own provider first (the sixth review round, 2026-11-03): the approval's `from` is the user's public
     // address — and never the endpoints after a lock (the ninth review round, B-I3), as the deposit's receipt: the approval stays open for
     // exactly this amount, nothing is deposited
-    const own = await receiptViaInjectedWallet(hash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
-    if (!own && session.epoch() !== epoch)
+    const got = await walletReceipt(hash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
+    if (!("receipt" in got) && session.epoch() !== epoch)
       throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent (the approval sent stays open for exactly this amount)"), { code: "locked_mid_flow" });
-    const approval = own ?? (await clientFor(p.deployment).waitForTransactionReceipt({ hash }));
+    // on another network, without a provider, or ten minutes without a receipt, nothing more is sent (the eleventh review round, F11-10:
+    // the first endpoint had been asked). WalletConnect's provider, which answered no read — its reads go to a host the policy blocks —, has
+    // its approval's receipt read from the first endpoint, the one exception (audit gap 100): that endpoint then holds this IP beside the
+    // public address; without it no ERC-20 could be protected through WalletConnect. Any other wallet stops (one whose reads fail after it
+    // answered is read on, to the time: the critique of F11-10), and the deposit after it is never asked of an endpoint
+    if (!("receipt" in got) && !(got.none === "unreadable" && isWalletConnectProvider(activeProvider())))
+      throw Object.assign(new Error(`the connected wallet gave no receipt for the approval (${got.none}): nothing is deposited`), { code: "approval_unconfirmed" });
+    const approval = "receipt" in got ? got.receipt : await clientFor(p.deployment).waitForTransactionReceipt({ hash });
     if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
     approvalWei += approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
     if (!clearing) {
@@ -278,7 +291,7 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   else if (p.approve) o.onStatus?.(`The approval already open for exactly this amount is used; submitting the shield (a shield is public by design)…`);
   else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
   assertStillUnlocked(p.epoch);
-  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter });
+  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter, ...(account ? { sender: account } : {}) });
   const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId, account);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
@@ -1150,7 +1163,15 @@ export function journalRefunds(refunds: RecoveredRefund[]): void {
  */
 export interface ScanResult { scanned: number; found: number; added: number; spent: number; refunds: number; received: ReceivedNote[]; pending: ReceivedNote[]; proven: number | null; /** the leaves the scan's view holds */ leaves?: number }
 
-export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress): Promise<ScanResult> {
+export async function scanNotes(
+  o: {
+    masterSeed: Uint8Array;
+    deployment: Deployment;
+    refunds?: RefundClaim[];
+    /** the note counters of this wallet's deposits whose records await their note (operations/stale.ts awaitedDeposits) */
+    awaited?: readonly number[];
+  } & Progress,
+): Promise<ScanResult> {
   // a lock during the scan empties the store: nothing found afterwards goes into it, nor raises the next wallet's counter
   let locked = false;
   const off = session.onLock(() => {
@@ -1163,7 +1184,7 @@ export async function scanNotes(o: { masterSeed: Uint8Array; deployment: Deploym
   }
 }
 
-async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[] } & Progress, locked: () => boolean): Promise<ScanResult> {
+async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[]; awaited?: readonly number[] } & Progress, locked: () => boolean): Promise<ScanResult> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const { tree, logs, spends, block } = await syncPoolQuorum(o.deployment);
@@ -1198,9 +1219,13 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // a note past the proven pool waits for the scan whose proof covers its leaf (audit round 2, r24: there an endpoint quorum can
   // invent a note made out to a published privacy address, and it entered the balance as received for good; the third review round,
   // 2026-11-03: every note new to the store, not only a transfer received — a protect's opening is public calldata, so the quorum
-  // could replay this wallet's own note at a leaf in the tail just as well). This wallet's own flows record their notes from a
-  // quorum-agreed receipt, so nothing of theirs waits
-  const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
+  // could replay this wallet's own note at a leaf in the tail just as well). This wallet's own flows record their notes from a receipt, so
+  // nothing of theirs waits — and a deposit its wallet reported nothing for (a Protect through WalletConnect, a page gone before its receipt:
+  // its record awaits the note, `o.awaited`) is recorded from the endpoints' agreed view at once, the trust its receipt had (the eleventh
+  // review round's critique of F11-10: it had waited for finality — about half an hour on mainnet — its record reading "checking"), when
+  // that view holds it at one leaf alone and the store none of its counter; the proven pool still drops it if it contradicts (r24, below)
+  const awaitedAt = (f: FoundNote) => f.counter !== undefined && (o.awaited ?? []).includes(f.counter) && found.filter((g) => g.counter === f.counter).length === 1 && !noteStore.all().some((n) => n.counter === f.counter);
+  const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && !awaitedAt(f) && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
   const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, index, locked);
   // only the refunds and deliveries recorded: one waiting past the proven pool is journaled once a proof covers it, as recoverSwapRefunds
   // does (the tenth review round, B10-2: a lying quorum's replay at a tail leaf had marked an order refunded for good, nothing in the store)
@@ -1223,7 +1248,19 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
     // failing, and a real deposit beside it counted twice
     const now = Date.now();
     const pastPool = noteStore.all().filter((n) => !n.spent && n.leafIndex >= tree.nextLeafIndex && (n.addedAt === undefined || now - n.addedAt > PAST_POOL_GRACE_MS));
-    if (contradicted.length || pastPool.length) noteStore.drop([...contradicted, ...pastPool].map((n) => n.leafIndex));
+    // one note at two leaves — a deposit's public opening replayed into the endpoints' tail beside its real leaf, an awaited note recorded
+    // from the tail before the proof reached the real one (the eleventh review round's critique of F11-10): once a copy stands at a proven
+    // leaf, the unproven copies go; a counter is one note's alone
+    const provenCounters = new Set(
+      proven === null
+        ? []
+        : noteStore
+            .all()
+            .filter((n) => n.counter !== undefined && n.leafIndex < proven && tree.leaves[n.leafIndex] === noteCommitment(noteBody(n.note), BigInt(n.leafIndex)))
+            .map((n) => n.counter),
+    );
+    const replayed = proven === null ? [] : noteStore.all().filter((n) => !n.spent && n.counter !== undefined && n.leafIndex >= proven && provenCounters.has(n.counter));
+    if (contradicted.length || pastPool.length || replayed.length) noteStore.drop([...contradicted, ...pastPool, ...replayed].map((n) => n.leafIndex));
   }
   const asReceived = (f: FoundNote): ReceivedNote => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash });
   const received = addedNotes.filter(isReceived).map(asReceived);

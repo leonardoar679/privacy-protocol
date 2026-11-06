@@ -61,6 +61,13 @@ function build(
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   applyConfig(config);
   const transport = fakeRelayerTransport(status.v4.body, o.jobStates);
+  // every relayer host asked, by URL (the eleventh review round, F11-5)
+  const relayerAsks: string[] = [];
+  const getJson = transport.getJson.bind(transport);
+  transport.getJson = async (url) => {
+    relayerAsks.push(url);
+    return getJson(url);
+  };
   const chain = scriptedChain({
     head: snap.manifest.toBlock + 200,
     logs: o.logs ?? [[]],
@@ -108,7 +115,7 @@ function build(
   window.history.replaceState(null, "", "/classic/");
   resetRoute();
   render(<App services={services} now={NOW} />);
-  return { services, provider, prover, chain };
+  return { services, provider, prover, chain, relayerAsks };
 }
 const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
 const go = (route: "deposit" | "withdraw" | "history" | "settings") =>
@@ -125,7 +132,8 @@ afterEach(() => window.localStorage.clear());
 
 describe("the wired app", () => {
   it("connects a wallet from the header, shows its account, and lists the relayers and the availability facts from the services", async () => {
-    build({});
+    // a withdrawal switched on: the relayers are asked when the settings open (with nothing live they never are: the next test)
+    const { relayerAsks } = build({ "eth-100": ["withdraw"] });
     expect(screen.getByTestId("classic-wallet")).toHaveTextContent("Connect");
     expect(screen.getByTestId("classic-wallet")).toBeEnabled();
     await connectWallet();
@@ -137,6 +145,22 @@ describe("the wired app", () => {
     await waitFor(() => expect(screen.getByTestId("classic-availability-relayers")).toHaveTextContent("1 online"));
     await waitFor(() => expect(screen.getByTestId("classic-availability-history")).toHaveTextContent(/synced to block/));
     expect(screen.getByTestId("classic-settings-relayers")).toHaveTextContent("to-relayer.eth");
+    expect(relayerAsks).toContain("https://eth.to-relayer.com/v1/status");
+  });
+
+  it("with no withdrawal switched on, neither the Withdraw tab nor the settings ask a relayer (the eleventh review round, F11-5): the row says so, the list is named", async () => {
+    const { relayerAsks } = build({});
+    go("withdraw");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    go("settings");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(screen.getByTestId("classic-availability-relayers")).toHaveTextContent("not asked yet");
+    expect(screen.getByTestId("classic-settings-relayers")).toHaveTextContent("to-relayer.eth");
+    expect(relayerAsks, "no relayer host received this visitor's IP").toEqual([]);
   });
 
   it("with the switch off, every sending button reads Not connected and the wallet is never asked to send", async () => {

@@ -141,6 +141,12 @@ function provider() {
           mock!.mine(txHash, [{ leafIndex, commitment, noteData }], await rootOf());
           return txHash;
         }
+        // the receipts its own node gives (the eleventh review round, F11-10: a Protect's come from the connected wallet only) — read from
+        // the mock chain outside the page's fetch, as a wallet's own network is
+        case "eth_getTransactionReceipt": {
+          const r = await nodeFetch(mock!.url, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+          return ((await r.json()) as { result: unknown }).result;
+        }
         default: throw new Error(`unsupported ${method}`);
       }
     },
@@ -205,6 +211,11 @@ describe("the privacy leakage gate (spec §20–§21)", () => {
     expect(noteStore.all()).toHaveLength(1);
     const deposit = providerCalls.find((c) => c.method === "eth_sendTransaction");
     expect(deposit, "the deposit went through the connected wallet").toBeTruthy();
+    // its `from` is the public address: no request of the page names the deposit's transaction (the eleventh review round, F11-10)
+    expect(
+      requests.filter((r) => `${r.url} ${r.body ?? ""}`.toLowerCase().includes("ab".repeat(31) + "01")),
+      "the deposit's hash never reaches an endpoint",
+    ).toEqual([]);
     const relayerSoFar = requests.filter((r) => r.url.startsWith(RELAYER));
     expect(relayerSoFar.map((r) => `${r.method} ${new URL(r.url).pathname}`), "protecting asks the relayer nothing: its fee is ProtectRouter's (V6, spec v2.0 §3)").toEqual([]);
 

@@ -72,6 +72,9 @@ function chain(
     index?: Record<string, number>;
     /** the digest of each transaction's call inputs (the sixth review round): absent, unreadable */
     inputs?: Record<number, string>;
+    /** what the connected wallet's own provider holds pending (the eleventh review round, F11-10: a Protect is asked of it, never of the
+     *  endpoints); any other hash it answers nothing for */
+    walletPending?: number[];
   } = {},
 ): StaleReads {
   const has = (list: number[] | undefined, h: Hex) => (list ?? []).some((n) => hash(n) === h);
@@ -110,6 +113,7 @@ function chain(
       const d = o.inputs?.[Number(BigInt(h))];
       return d === undefined ? null : (d as Hex);
     },
+    walletTx: async (h) => (has(o.walletPending, h) ? "pending" : null),
   };
 }
 
@@ -120,11 +124,11 @@ describe("operations whose flow is gone", () => {
     const pending = record("protect", "confirming", 3);
     const forgotten = record("withdraw", "confirming", 4, T0, { relayerUrl: "http://relayer.test" });
     resetOperationsMemory(); // the page reloaded
-    const reads = chain({ mined: [1], reverted: [2], known: [3] });
+    const reads = chain({ mined: [1], reverted: [2], known: [3], walletPending: [3] });
     expect(await reconcileStaleOperations(reads, T0 + 60_000)).toBe(2);
     expect(getOperation(mined)).toMatchObject({ state: "COMPLETED", refs: { txHashes: [hash(1)] } });
     expect(getOperation(reverted)).toMatchObject({ state: "FAILED", reason: { code: "receipt_reverted", fundsClass: "not-moved" } });
-    expect(getOperation(pending)!.state, "the node still knows it: waited for").toBe("SOURCE_CONFIRMING");
+    expect(getOperation(pending)!.state, "the connected wallet still holds it pending: waited for (never asked of the endpoints)").toBe("SOURCE_CONFIRMING");
     expect(getOperation(forgotten)!.state, "forgotten for less than the limit: waited for").toBe("SOURCE_CONFIRMING");
     expect(await reconcileStaleOperations(reads, T0 + STALE_DROP_MS + 1)).toBe(1);
     expect(getOperation(forgotten)).toMatchObject({ state: "FAILED", reason: { code: "transaction_dropped", fundsClass: "not-moved" } });

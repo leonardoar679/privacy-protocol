@@ -391,7 +391,7 @@ export const en = {
   "screen.review.blocker.routeNotQualified": "This route's measured liquidity is below your amount. Try a smaller amount.",
   "swap.unplanned": "At this amount the swap runs as protected steps, and the service could not plan them on this route right now. Try again shortly, or a smaller amount.",
   "screen.review.blocker.oneAtATime":
-    "Another operation of this kind is still waiting for your wallet's answer, being sent, or not yet known to have reached the chain. Answer it where it is open; if that page is gone, the wallet settles it from the chain — within an hour, or a day when its relayer cannot be reached — and Activity lists it. Then this one can go.",
+    "Another operation of this kind is still waiting for your wallet's answer, being sent, or not yet known to have reached the chain. Answer it where it is open; if that page is gone, the wallet settles it from the chain — within an hour, or a day when its relayer cannot be reached or your wallet cannot report it — and Activity lists it. Then this one can go.",
   "screen.progress.title": "In progress",
   "screen.progress.preparing": "Preparing your protected transaction…",
   "screen.progress.balance": "Checking balance",
@@ -770,6 +770,15 @@ export const en = {
   "op.error.locked_mid_flow.title": "Stopped: the wallet locked between two steps",
   "op.error.locked_mid_flow.reason":
     "The wallet locked before the next step, so nothing more was sent: at most an approval already confirmed, never the funds. Unlock and start again.",
+  "op.error.deposit_unconfirmed.title": "Sent — your wallet did not report the result",
+  "op.error.deposit_unconfirmed.reason":
+    "The deposit went out. Your wallet did not report its result here, so this wallet looks for it in the pool and adds it to your protected balance once it is on the chain — usually within minutes. Do not protect it again: nothing more is sent. If it never reaches the chain, nothing moved, and a day on this says so.",
+  "op.error.approval_unconfirmed.title": "Stopped: your wallet did not report the approval",
+  "op.error.approval_unconfirmed.reason":
+    "Nothing was deposited. Your wallet did not report the approval's result here (it may be on another network now, or the approval is still waiting). If it goes through, no more than this amount stays approved; until then any approval you had already given stays as it was. Protect again once it has gone through.",
+  "op.error.deposit_never_landed.title": "Not added: the deposit never reached the chain",
+  "op.error.deposit_never_landed.reason":
+    "A day on, the deposit is not in the pool and your wallet gave no result for it, so nothing moved. Protect again if you still want to. If it lands after all, the amount is added to your protected balance; this line stays as it is.",
   "op.error.locked_after_send.title": "Sent — the wallet locked before it was recorded",
   "op.error.locked_after_send.reason":
     "The transaction went out and stands. The wallet locked before its result could be recorded; the next scan records it from the chain. Nothing more is sent.",

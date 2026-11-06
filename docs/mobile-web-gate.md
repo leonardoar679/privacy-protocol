@@ -31,7 +31,7 @@ deployment. Record the outcome in §5.
 
 | # | Scenario | Expected |
 |---|---|---|
-| 1 | Protect through a wallet app over WalletConnect: tap Confirm, the browser hands over to the wallet app (pagehide), sign there, come back. | The site is still unlocked on return (the hold deferred the pagehide lock); the progress continues to "Added to your protected balance"; the wallet app returned to the site on its own (the `redirect`). |
+| 1 | Protect through a wallet app over WalletConnect: tap Confirm, the browser hands over to the wallet app (pagehide), sign there, come back. | The site is still unlocked on return (the hold deferred the pagehide lock); the progress ends "Sent — your wallet did not report the result" (WalletConnect gives no receipt under the policy) and the Protect completes within minutes, the amount added to the protected balance; the wallet app returned to the site on its own (the `redirect`). |
 | 2 | The same, but close the browser tab while the wallet app shows the prompt; reopen the site after a minute. | The lock screen; after the unlock, Activity shows the Protect; within the stale limit it is completed from the chain if the wallet sent it, or marked interrupted (nothing moved) if it did not. |
 | 3 | Reload the page in the middle of a Send's proof (desktop browsers; iOS Safari shows no dialog). | The browser's "leave this page?" dialog; Cancel lets the proof finish; Leave — the record reads interrupted, nothing moved (the proof was never submitted) or the chain's answer once reconciled. |
 | 4 | Put the tab in the background for six minutes with nothing in progress; come back. | Locked on return (the hidden rule). |
@@ -77,7 +77,10 @@ None yet — the owner's to run. One row per device and wallet; a scenario that 
   order (the review round of 2026-11-02): between a failed tick and its retry (ten minutes, doubling) the lock is not held
   off — a wallet idle that long locks, and the retry reconciles before it sends.
 - WalletConnect's RPC host is not in the policy (audit gap 64): the wallet reads the chain through its own endpoints, and a
-  wallet flow that routed a read there would fail under the policy — the real-device run is where it would show.
+  wallet flow that routed a read there would fail under the policy — the real-device run is where it would show. A Protect's
+  receipts are such reads: the Protect ends "Sent — your wallet did not report the result" (`deposit_unconfirmed`) and its deposit is
+  recorded from the pool by a scan half a minute later, or one each minute after it (never held for finality), an ERC-20's approvals
+  are read from the first endpoint (audit gap 100; the eleventh review round, F11-10).
 - One Protect or Send at a time: the Review's blocker says how the earlier one resolves when its page is gone — the wallet
   settles it from the chain: the pool's own spend event names a transaction whose answer was lost as soon as the next scan
   reads it, and a transaction every endpoint forgot with the notes unspent reads dropped after an hour either way

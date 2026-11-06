@@ -66,7 +66,8 @@ never written by
 carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}` in place of `failure`, optional
 `delayed {since, code}`, `declined {at, code}`, `settlement`, and (a V6 follow-up of 2026-10-14) optional `refs`
 `noteCounter` (the note a Protect deposits or a Send makes as change), `nullifiers` (a Send's two, decimal) and
-`relayerUrl`, kept at "submitting" (and, since the ninth review round, a COMPLETED swap's optional `outcome`: `partial` or
+`relayerUrl`, kept at "submitting" (and, since the eleventh review round, a Protect's `sender`: the account its prompts came from —
+only that account's wallet is asked about its transactions once its page is gone; and, since the ninth review round, a COMPLETED swap's optional `outcome`: `partial` or
 `refunded-at-destination`; since the tenth, `partial-unreturned` and `other-token`, the token in the optional `outcomeAsset` — an
 outcome a build does not know is dropped as the journal is read); a V5 record is upgraded when the journal is decrypted
 (`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. A swap record's `track`
