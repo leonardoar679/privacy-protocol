@@ -34,7 +34,8 @@ Tornado Classic has its own fee lines and none of this (§6).
 - A Send, a withdrawal and a swap's funding go through a relayer, which pays the gas. The wallet pays it `F`: the
   relayer's live minimum plus the wallet's 10 % margin, read from the relayer right before the Review.
 - **The fee shown is a bound.** The wallet reads the relayer's terms again when it is about to prove and submit; if the
-  fee is above the one the Review showed, nothing is proved or sent — the Review is shown again (`fee_moved`). A swap
+  fee is above the one the Review showed, the Review's own fee is paid while the relayer's live terms still accept it
+  (`feeWithinReview`), and otherwise nothing is proved or sent — the Review is shown again (`fee_moved`). A swap
   journals the fee it reviewed (`reviewedFee`) and its funding, now or after a delay for privacy, never pays more.
 - **A protected execution's pieces are bound too** (V7): each piece carries the `F` the Review showed; the Review shows
   `Relayer/network (n steps)` as `F × n`; a piece whose relayer asks more waits rather than pays (the operation pauses and says so; Resume once the fee fits, or return the rest).
@@ -54,7 +55,7 @@ Tornado Classic has its own fee lines and none of this (§6).
 - An operation that never leaves the Review costs nothing.
 - An operation stopped before anything is sent — a fee that moved above the reviewed bound (`fee_moved`), a tip the
   wallet could not check (`cost_unknown`), a stale tip (`tip_stale`), an order whose execution window closed
-  (`order_window_closed`), a relayer that is not ready — costs nothing: no note left the protected balance.
+  (`order_expired`), a relayer that is not ready — costs nothing: no note left the protected balance.
 - A funding is never sent twice: a submission whose answer was lost is found again by its nullifier before anything
   else is sent (spec v2.0 §12.5).
 

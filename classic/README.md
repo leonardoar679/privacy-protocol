@@ -18,18 +18,16 @@ without eval, proving in Node and in Chrome, its proofs accepted by the deployed
 `relayers.json`, the call data held to real transactions — §13), and the flows wired (`src/app/services/`: each pool's
 history kept in the app's IndexedDB, the relayer directory, the wallet session, the operation adapter's records, a
 deposit through the router and a withdrawal through the prover worker and a relayer or the wallet), and the whole run end
-to end on the local stack and on a mainnet fork (`../scripts/local-stack`: the mainnet contracts at their addresses on the
-devnet, a relayer stand-in, e2e section 11; `npm run test:fork` against a Hardhat fork — §14 below), and the release gate
+to end on the local stack (`../scripts/local-stack`: the mainnet contracts at their addresses on the devnet, a relayer
+stand-in, e2e section 11) — the mainnet-fork run (`npm run test:fork` against a Hardhat fork) is written and not run yet, the
+owner's rung (`docs/release-gate.md`, audit gap 53) —, and the release gate
 (`docs/release-gate.md` with its rungs and rows, `docs/legal-review.md` the owner's empty record, `docs/security-review.md`,
 `docs/threat-model.md`; the V6 in-app module removed from the wallet). **No build sends a
 transaction** until a pool function is switched live (`VITE_CLASSIC_LIVE`) after its release-gate row and the owner's
 legal review (`classic/docs/release-gate.md`, `classic/docs/legal-review.md` — Stage 11): every sending button reads
-"Not connected", the banner says so on every screen, and the flows refuse as well. The data behind the screens is still `src/model/mock.ts` until the history, the
-relayers and the flows arrive with Stages 7–9; the end-to-end runs and the release gate with Stages 10–11
-(`../docs/roadmap.md`, the V7 table). **No build sends a transaction** until a pool function is switched live
-(`VITE_CLASSIC_LIVE`) after its release-gate row and the owner's legal review (`classic/docs/release-gate.md`,
-`classic/docs/legal-review.md` — Stage 11): every sending button reads "Not connected" and the banner says so on every
-screen.
+"Not connected", the banner says so on every screen, and the flows refuse as well. The mock source (`src/model/mock.ts`) serves the visual harness's
+fixtures and the tests; a build without endpoints runs the real services, which say no RPC endpoint is configured and its history is
+not synced (the eleventh review round, F11-12).
 
 ## Layout
 

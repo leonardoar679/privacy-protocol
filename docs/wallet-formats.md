@@ -70,7 +70,16 @@ carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}
 only that account's wallet is asked about its transactions once its page is gone; and, since the ninth review round, a COMPLETED swap's optional `outcome`: `partial` or
 `refunded-at-destination`; since the tenth, `partial-unreturned` and `other-token`, the token in the optional `outcomeAsset` — an
 outcome a build does not know is dropped as the journal is read); a V5 record is upgraded when the journal is decrypted
-(`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. A swap record's `track`
+(`packages/sdk/src/operations/upgrade.ts`, idempotent) and written as V6 by the next write. V7 (spec v3.0 §6, Stage 15): a record
+carries `v: 3` and the fifteen states — REVIEW → READY_TO_REVIEW, AWAITING_SIGNATURE → AWAITING_AUTHORIZATION (PREPARING_PROOF at the
+witness, proof or local-verify step, SUBMITTING at a relayer's submitting step — a Protect, and a submission through the connected
+wallet, stay AWAITING_AUTHORIZATION; the step is read on the record's current line only), SIGNED → SUBMITTING, SUBMITTED and CONFIRMING →
+SOURCE_CONFIRMING, EXECUTING → PROVIDER_EXECUTING, SETTLING → DESTINATION_CONFIRMING, QUOTE_EXPIRED → RECOVERY_REQUIRED once
+submitted (its own reason kept; `minimum_moved` when it carried none) and READY_TO_REVIEW (`quote_expired` likewise) before; the same
+module's second step upgrades a V6 record, a V5
+record goes through both, and the next write stores `v: 3` (the eleventh review round, F11-13); a record the step leaves in
+READY_TO_REVIEW (a REVIEW, a QUOTE_EXPIRED before its funding) leaves the journal instead: a draft is never journaled (spec v3.0 §6;
+`upgradeOperations`, the review round of 2026-11-02; `packages/sdk/test/upgrade.test.ts` pins the expired quote's). A swap record's `track`
 may carry `settlement` (where the money is, spec v2.0 §12.4), and the record itself `operationId` (V6 Stage 9: the API's
 `op_` id of the order, from its commit or its first resume; spec v2.0 §15). V6 Stage 10 (spec v2.0 §10): the optional
 `deploymentFingerprints` maps a chain id (a decimal string) to the deployment fingerprint the wallet saw before its
@@ -210,5 +219,5 @@ preimage), and its owner commitment `H(OWNER_COMMITMENT, ownerKey)`, for the exa
 1, 7, 255, 1024, 2^32 − 1 and 2^32 and for the secrets 0, 1 and p − 1; counter 1's preimage; a sample spend (body,
 commitment, nullifier, phantom). Frozen: `packages/protocol/test/ownerKeys.test.ts` pins the file's SHA-256, the
 generator refuses to write a different one, and `reference/python/test_vectors.py` and
-`privacy-core/privacy-core/tests/wallet.rs` (`derive_owner_key`) reproduce it. No deposit is made
-out to such a key yet; the wallet switches its deposits in a later follow-up.
+`privacy-core/privacy-core/tests/wallet.rs` (`derive_owner_key`) reproduce it. Every deposit is made
+out to such a key since the audit round of 2026-10-16 (§1; `depositOwnerCommitment`, checked by `assertOwnOwnerCommitment`).

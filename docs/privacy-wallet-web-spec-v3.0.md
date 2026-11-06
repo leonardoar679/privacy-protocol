@@ -14,7 +14,10 @@ marked *V7*. **`PrivacyCore`, the vaults, the circuits, the `SwapOrderEscrow` / 
 line-by-line read of the contracts changed `ShieldReceiver` (wrapped ETH and ETH at a receiver are never swept to the
 fallback; at a token receipt they shield as ETH) and `SwapOrderEscrow` (`_payTip` leaves a balance of the tip or less whole),
 so the creation code of both factories changed with them — before any public deployment; the pins, the vectors and the
-real-proof fixture are of the new build (v2.0 §11.2; `docs/audit-package.md` §1.3).* The Classic app never calls `PrivacyCore`; the Privacy
+real-proof fixture are of the new build (v2.0 §11.2; `docs/audit-package.md` §1.3). The fifth review round (2026-11-03) changed
+`PrivacyCore`, `CoreTypes` and both vaults, and the eleventh (2026-11-04..06) both vaults' payouts again (a claim forwards its caller's
+gas, an ERC-20 payout is judged by the vault's own balance, the token call bounded) — each before any public deployment, with the
+fixture, the vectors and the pins regenerated (`docs/audit-package.md` §1.3's rows; the eleventh review round, F11-15).* The Classic app never calls `PrivacyCore`; the Privacy
 Wallet never calls a Classic pool; nothing moves a Classic note into the Privacy Wallet or a protected note into a
 Classic pool.
 
@@ -52,7 +55,7 @@ v2.0 shape `Logo · Home Swap Activity · Wallet` with the Wallet menu holding t
 button (or the account chip `0x7A…91F2` once connected) and the More entries; on the phone the **Connect wallet** /
 account chip sits in Home's header (doc §3: "Connect wallet" in the header; the one-bar rule of v2.0 §6 stays).
 Connecting offers a connector picker (the EIP-6963 wallets found, the injected wallet, WalletConnect when configured)
-and the last connector is reconnected after a reload (`prefs.lastConnector`). Connecting never creates, unlocks or
+and the last connector is reconnected after a reload (`prefs.lastConnector`; WalletConnect not: audit gap 112). Connecting never creates, unlocks or
 exposes the protected wallet (v2.0 §1).
 
 | Route | Screen | Was |
@@ -169,7 +172,7 @@ could deliver about half a per cent under it without a pause.
 | under $1K | `standard` | the ordinary flow |
 | $1K–$20K | `standard` | standard protected execution (the one-confirmation flow of v2.0 §7.5) |
 | $20K–$50K | `large` | enhanced validation: the Review's privacy lint, the strict quote, a typed destination re-confirmed (v2.0 §2, §12.6) |
-| $50K–$100K | `large-protected` | **Protected Large Swap: ONE order by default** — Hold to Confirm, the exposure limit (one protected operation of this band in flight per wallet, `MAX_IN_FLIGHT = 1`, enforced), the destination re-verified (a typed destination is re-confirmed group by group, an address-book destination named), the route's measured liquidity checked (`servedUpToUsd` of the risk database ≥ the order), recovery monitoring (the tracker, the stall rule and the recovery card of v2.0 §12). **The order is split only when justified**: the service's plan says `staged` (a thin route — impact above 50 bps per piece, reliability below 60, the provider's instant limit below the order) or the user asks under Advanced ("Protected steps"); the pieces then follow the V3 planner's varied sizes within the band's cap — **never identical pieces** |
+| $50K–$100K | `large-protected` | **Protected Large Swap: ONE order by default** — Hold to Confirm, the exposure limit (one protected operation of this band in flight per wallet, `MAX_IN_FLIGHT = 1`, enforced), the destination re-verified (a typed destination is re-confirmed group by group, an address-book destination named), the route's measured liquidity checked (`servedUpToUsd` of the risk database ≥ the order), recovery monitoring (the tracker, the stall rule and the recovery card of v2.0 §12). **The order is split only when justified**: the service's plan says `staged` (a thin route: one venue only, and the whole order's impact above 50 bps or its reliability below 60 — the provider's instant limit then caps each piece; the eleventh review round, F11-6) or the user asks under Advanced ("Protected steps"); the pieces then follow the V3 planner's varied sizes within the band's cap — **never identical pieces** |
 | over $100K | `enhanced` and above | **the Advanced experience only**: Simple shows `Over $100,000 needs the Advanced experience` with the switch; Advanced gets the V3/V4 layer (the V2–V4 Review, campaigns where staged or opted in) after a **liquidity qualification**: a route whose measured limit is below the order is refused (`route_not_qualified`, not moved, "try a smaller amount") |
 
 The 2–3 % simultaneous-exposure table (`EXPOSURE_POLICY`, `TIER_RANGES`, `MODE_CAP_BPS`) is **an engineering
@@ -285,7 +288,7 @@ reason `quote_expired` ("Get new quote"). I-O1–I-O6 stand with the new names.
 | SUBMITTED, CONFIRMING | SOURCE_CONFIRMING |
 | EXECUTING | PROVIDER_EXECUTING |
 | SETTLING | DESTINATION_CONFIRMING |
-| QUOTE_EXPIRED | before funding: READY_TO_REVIEW + `quote_expired`; after funding: RECOVERY_REQUIRED + `minimum_moved` |
+| QUOTE_EXPIRED | before funding: READY_TO_REVIEW (its own reason kept, `quote_expired` when it carried none) — a draft, which leaves the journal; after funding: RECOVERY_REQUIRED (its own reason kept, `minimum_moved` when it carried none) |
 | every other name | unchanged |
 
 The scheduler's last failure for an operation — a runner tick that threw, retried with a growing backoff — is named on
@@ -542,7 +545,8 @@ zero their scratch before resetting their allocation pointer: the witness carrie
 the pool's history is held from syncing from the Withdraw click to the flow's end; a wallet-mode send still asks it the spent bit
 right before the send. The reads that name the note or the proof's root go to the first endpoint alone — a silent one refuses, nothing
 is sent — and a relayed withdrawal whose root aged out (checked before the proof and after it) is refused rather than proved again on one
-endpoint's word; its retry starts on a history synced once more, both endpoints asked, and a flow that ended before its relayer's
+endpoint's word; its retry starts on a history synced once more once the pool's hold ends (within it the retry is refused again
+— audit gap 120), both endpoints asked, and a flow that ended before its relayer's
 outcome keeps the pool held 15 minutes more — on every page of the device, from its records read at each sync, as does one running in
 another tab or whose page closed during it — and Check on chain then asks the first endpoint alone. A disagreement or a silence of the
 second endpoint leaves the history
@@ -659,9 +663,11 @@ code elsewhere is MIT — the owner's decision 10) and third-party notices. It s
 hash check (one visual identity, doc §1), the note parser is a twin of `packages/protocol/src/classic/note.ts` pinned
 to the same vectors. Served under `/classic/` on the same origin by its own server location (the stricter hosting
 option, a `classic.` subdomain, is documented). **It needs no Privacy Wallet**: no seed, no unlock, no journal; its
-IndexedDB `tornado-classic` holds the public history caches, the relayer and RPC preferences and the job records (job
-id, relayer URL, status, transaction hash) — **never a note, a nullifier, a secret, a commitment list or a deposit
-record**; `localStorage` stays empty; nothing is logged; no analytics, no error reporter, no support channel collects
+IndexedDB `tornado-classic` holds the public history caches and the job records (job id, relayer URL and reward account, status,
+transaction hash, the history's block at the submission, and — while a relayed record is open — a keyed digest of its note's
+nullifier hash, dropped once the record ends: C11-1, `classic/docs/threat-model.md`) — **never a note, a nullifier, a secret, a
+commitment list or a deposit record**; `localStorage` holds
+the language choice alone (`tornado-classic:locale`; the eleventh review round, F11-14); nothing is logged; no analytics, no error reporter, no support channel collects
 anything (doc §4.3 E). The old in-app module (`apps/web/src/features/classic-privacy/`, the journal's `classic` field
 and `packages/sdk/src/wallet/classicRecord.ts`) is removed in Stage 11 and rule 8 of `scripts/check-boundaries.mjs`
 becomes rule 9: nothing under `apps/` or `packages/` imports `classic/` and nothing under `classic/` imports them.
@@ -775,7 +781,7 @@ proposed names map onto the existing workspaces; nothing is renamed:
 Small screens, refresh, background tab and wallet handoff are a gate of their own. *V7*: a `pagehide` while a hold is
 active (a signature prompt, a proof, a submission, a hand-over) defers the lock to the safe point instead of locking
 at once, and `pageshow` resumes; a Protect stops prompting the external wallet once the session is locked; the last
-connector is reconnected after a reload; WalletConnect declares `redirect` and icons and its hosts are in the policy; a
+connector is reconnected after a reload (WalletConnect not: audit gap 112); WalletConnect declares `redirect` and icons, its relay and verify hosts are in the policy, and its pairing shows in the wallet's own sheet; a
 `beforeunload` warning while proving or submitting; a catch-up kick when the tab becomes visible; `navigator.storage.
 persist()` is asked for; a second Protect or Send cannot start while one of the kind is unresolved. A real-device
 checklist (`docs/mobile-web-gate.md`: iOS Safari, Android Chrome, the wallets' in-app browsers) is the owner's to run.
@@ -788,9 +794,11 @@ before every prompt of a Protect: locked, the error reads `locked_mid_flow` — 
 `packages/wallet-engine/src/walletConnect.ts` (`metadata.icons` = this origin's `/icon.svg`, `metadata.redirect.universal` =
 this origin), `packages/wallet-engine/src/connection.ts` (`reconnect` takes a WalletConnect session its provider restored,
 by `eth_accounts`, never a pairing — and only when WalletConnect's own store holds a session, `hasWalletConnectSession`, the
-review round of 2026-11-02; a remembered connector that was present and answered nothing is forgotten by `Providers`,
-`connectorAnsweredNothing`), `apps/web/scripts/csp.mjs` (with a project id: the modal's hosts in `connect-src` and
-`img-src`, the verify iframe's in `frame-src`; `frame-src 'none'` otherwise; WalletConnect's telemetry host never),
+review round of 2026-11-02, which reads localStorage, where the installed WalletConnect keeps nothing: in practice no session is
+taken up after a reload, audit gap 112; a remembered connector that was present and answered nothing is forgotten by `Providers`,
+`connectorAnsweredNothing`), `apps/web/scripts/csp.mjs` (with a project id: the relay's hosts in `connect-src` and the verify
+iframe's in `frame-src` — the modal's hosts left with the modal in the eleventh review round, slice 6c —; `frame-src 'none'`
+otherwise; WalletConnect's telemetry host never),
 `apps/web/src/platform/unloadGuard.ts` (`beforeunload` while a hold is live), `apps/web/src/hooks/index.ts` (the
 scheduler's catch-up on `visibilitychange` and `online`), `apps/web/src/storage/persist.ts` + `apps/web/src/app/Background.tsx`
 (`navigator.storage.persist()` once per page after an unlock, the answer remembered), `packages/sdk/src/operations/store.ts`
@@ -802,9 +810,35 @@ owner's runs: `docs/mobile-web-gate.md`.
 dead tick had kept the lock off for the cap's thirty minutes) and the next tick of an open order before its hand-over takes
 the critical section again. The policy names WalletConnect's hosts exactly — never a wildcard: `*.walletconnect.org` had let
 the telemetry host and the provider's RPC host through — and `apps/web/test/csp.test.ts` matches `pulse`, `echo`, `rpc` and
-`secure` against every source as a browser would. WalletConnect is initialized at a reload only with a session its own store
-holds; a remembered connector that answered nothing is forgotten. The one-at-a-time words say how the earlier operation
+`secure` against every source as a browser would. WalletConnect is initialized at a reload only with a session in localStorage,
+which the installed WalletConnect never writes (it keeps its sessions in IndexedDB): the user connects again (audit gap 112); a remembered connector that answered nothing is forgotten. The one-at-a-time words say how the earlier operation
 resolves when its page is gone (from the chain: within minutes through a relayer, up to an hour through the wallet).
+
+**As landed (the eleventh review round, slice 6c, 35c2130).** A first WalletConnect connection pairs: `connect` goes through the
+provider's own `enable()` — its pairing when it holds no session, then the accounts — where `eth_requestAccounts` alone had thrown
+"Please call connect() before request()", so no first connection had ever paired; a session WalletConnect still holds after a reload
+is taken up by that tap, with no pairing (the reload itself stays audit gap 112). The library's QR modal is off (`showQrModal:
+false`): its `<style>` elements are refused by `style-src 'self'`, and under the policy it took no tap; its hosts left the policy.
+The provider's `display_uri` gives the pairing's link to the connection's state (memory only), and the wallet's own sheet shows it —
+the QR code, "Open the wallet app" (the `wc:` link; which app opens it is the system's choice), a waiting line, Cancel — in the
+connector picker while it is open, else in a sheet of its own from the app's root (Welcome's and Protect's Connect, WalletConnect the
+only connector); one sheet at a time, and the root's stays through what follows — a failure in the wallet's words with Try again (a
+new pairing in the same sheet), the retry's wait — until it connects or is closed. A connection runs one at a time, shared by the
+connector it resolves to (Protect's Connect and the picker's row for the same wallet are one prompt); another connector replaces it,
+and only the latest writes the state — a cancelled or replaced run never resolves with another connection's state, so no caller takes
+another wallet's connection as its own (`apps/web/test/review11-connect-sheet.test.tsx`, its late-settling cases). Cancel, the sheet closed over a pairing and Disconnect
+drop it, and a pairing approved after it is ended at its relay unless a WalletConnect connection is being made again or the page holds a
+connection through that provider (audit gap 122); a session the wallet app ended lets its provider's listeners go (none connects the
+page later) and keeps that provider the active one, which refuses: the next send reads `wallet_disconnected`, never the browser's
+wallet. With the modal off, a request opens no wallet app by itself — the library deep-links a request only to a wallet its own modal
+recorded —: the user switches to the wallet app to sign (`docs/mobile-web-gate.md` §6). A failure
+reads in the wallet's words — declined; already asking, to be answered in the wallet first; could not start on this device (no
+network, the library not loaded); not answered in time; did not connect —,
+the wallet's own text after them under Advanced only; a declined network switch is the switch's, never a connection failure
+(`packages/wallet-engine/src/{connection,walletConnect}.ts`,
+`apps/web/src/features/wallet/{ConnectSheet,PairingPanel,PairingSheet,RootPairing,pairingHost,connectWords}.ts*`;
+`packages/wallet-engine/test/review11-wc-connect.test.ts` over the real provider, `apps/web/test/review11-connect-sheet.test.tsx`,
+`apps/web/test/connection.test.ts`).
 
 **As landed (the second review round, 2026-11-03), the screens.** The trading preference rows and the Privacy Center say
 what the runner does: a swap is funded as soon as it is confirmed, and only "Delay for more privacy" on a swap adds a random
@@ -940,5 +974,5 @@ bytecode cannot hold it (§3); a user-entered Classic relayer URL, a persisted "
 beyond English and Korean, and a `classic.` subdomain are follow-ups. Out of scope and the owner's: the legal and
 sanctions review (the switches stay off until it is recorded), external audits, the production ceremony, the testnet
 and mainnet broadcasts, a real-funds route rehearsal, the real-device run, and any further change to `PrivacyCore`, the vaults,
-the circuits, the swap escrow, `ProtectRouter` or `ShieldReceiver` (the third review round's two periphery fixes, noted in the
-preamble, excepted).
+the circuits, the swap escrow, `ProtectRouter` or `ShieldReceiver` (the review rounds' fixes noted in the preamble
+excepted).

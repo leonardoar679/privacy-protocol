@@ -15,11 +15,11 @@ application under `../../classic/`.
 - **What leaves the page.** Only a `transact` calldata or a relayed submission. The seed, the keys and the notes never
   do; the leakage gates read every request to prove it.
 
-> **Status (2026-10-14): builds ✅.**
-> - 523 vitest, plus 9 in the leakage gate and 6 live.
-> - The screenshot harness: 189 screenshots against the reviewed baselines, the layout at ten sizes, the acceptance and
+> **Status (2026-11-06, the eleventh review round): builds ✅.**
+> - 1023 vitest, plus 9 in the leakage gate and 6 live.
+> - The screenshot harness: 193 screenshots against the reviewed baselines, the layout at ten sizes, the acceptance and
 >   accessibility checks.
-> - The performance budget: the first route 185.6 KB gzipped of 250, Home 33.1 KB more of 80.
+> - The performance budget: the first route 229.7 KB gzipped of 250, Home 47.4 KB more of 80.
 > - All of it through `node scripts/verify-all.mjs` at the repository root. The browser run over the local stack:
 >   `docs/local-run.md`.
 
@@ -52,15 +52,15 @@ src/
 scripts/           csp.mjs (the policy and the headers) · pin-artifacts.mjs / check-artifact-pins.mjs · check-dist.mjs ·
                    copy-core-assets.mjs · build-zkapi-assets.mjs / check-zkapi-pins.mjs
 public/            artifacts.json (the pins) · core/ (the Rust core's WASM, gitignored) · zkapi/ (gitignored)
-test/              523 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
+test/              1023 vitest tests (node; the screens under happy-dom or jsdom) · a11y/ · operations/ · live/ (6)
 ```
 
-## What the wallet does (spec v2.0 §7)
+## What the wallet does (spec v2.0 §7; V7, spec v3.0)
 - **First launch** — Welcome (Connect Wallet, or continue without one), the experience (Simple by default; Advanced
   shows the technical detail), Create (a password; the seed never leaves the device), the 24-word phrase, Home.
 - **Home** — the protected balance, the assets, an open operation's card (executing, or action needed — an old failure
   never blocks Home), "Protect your assets" as the one primary action with Send and Swap beside it, the recent
-  activity, the privacy badge (→ the Privacy Center) and the gear (→ Security). From 1024 px: the tiles Protect | Send |
+  activity, the privacy badge (→ the Privacy Center) and the gear (→ Settings). From 1024 px: the tiles Protect | Send |
   Swap above two columns, Protected assets | Recent activity.
 - **Protect** — the 1 % privacy fee through ProtectRouter; "You receive", the fee and the relayer / network cost in
   dollars from the wallet's own estimate.
@@ -70,9 +70,10 @@ test/              523 vitest tests (node; the screens under happy-dom or jsdom)
   least"), the protection, the fees and the time. One confirmation: the order runner funds, checks, signs and hands
   over, and asks again only if the price got worse; an accepted minimum is signed on the very call it was read from.
   Right after a Protect, "Delay for more privacy" funds from notes protected earlier when they cover the swap, and
-  otherwise at a random time in 1–24 h. Same-chain swaps land in the protected balance; from $50,000 the steps are
-  protected automatically (the four checks, Hold to Confirm or its dialog), and a step already funded finishes on its
-  own route when the route changes.
+  otherwise at a random time in 1–24 h. Same-chain swaps land in the protected balance; from $50,000 one order by
+  default (the Protected Large Swap's checks, Hold to Confirm or its dialog; V7 Stage 13), protected steps when the plan
+  says staged or under Advanced (a swap into the protected balance stays one order), and a step already funded finishes on
+  its own route when the route changes.
 - **Activity** — by day, a page at a time, the detail with its timeline and, when needed, its recovery, read from
   where the money is. The wallet finds its notes in the pool by itself: after an unlock, every ten minutes, and when
   Activity or Receive opens. A private transfer received shows as `Private Receive`; a first launch stays request-free.
@@ -84,11 +85,13 @@ test/              523 vitest tests (node; the screens under happy-dom or jsdom)
   path, the protected execution's controls); Private AI in the Advanced experience. The old `/more/*` paths redirect.
 - **Connect wallet** — in Home's header and in the desktop's Wallet menu: the connector picker lists the wallets this
   browser announces (EIP-6963), the injected wallet and WalletConnect when configured; the last connector reconnects
-  after a reload without a prompt. Connecting never creates, unlocks or exposes the protected wallet.
+  after a reload without a prompt — WalletConnect not: the user connects it again, which takes up its stored session with no
+  new pairing (audit gap 112). A WalletConnect pairing shows in the wallet's own sheet: its QR code, a link that opens the wallet
+  app, Cancel. Connecting never creates, unlocks or exposes the protected wallet.
 - **Offline** — a banner. Nothing that moves money runs until the network is back, and an answer lost mid-submission
   is found by its nullifier, never sent twice.
 - **One tab at a time** — the wallet is unlocked in one tab: another tab waits ("The wallet is open in another tab")
-  while the first locks as soon as nothing is in progress there, so two tabs never overwrite each other's records.
+  while the first locks as soon as nothing is in progress there, so two tabs never overwrite each other's records — without Web Locks (an old browser) they still can (audit gap 114).
 
 ## The gates (spec v2.0 §17–§19)
 - **Lint.** `npm run lint` runs ESLint over all of `src`: typescript-eslint, the rules of hooks, jsx-a11y strict, and the
@@ -124,7 +127,7 @@ npm ci                       # at the repository root (one lockfile for every wo
 cd apps/web
 npm run dev                  # http://localhost:5173 (the circuit artifacts and the Rust core served from ../../circuits and ../../privacy-core)
 npm run build                # dist/ with the policy in index.html; npm run preview sends the headers
-npm test                     # 523 tests; npm run lint
+npm test                     # 1023 tests; npm run lint
 (cd ../api && npm start)     # the API the Swap screen talks to: http://127.0.0.1:8787/v1
 (cd ../relayer && npm run serve)   # private submission and the executors: http://127.0.0.1:8790
 ```

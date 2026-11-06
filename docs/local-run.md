@@ -82,8 +82,8 @@ npm install && npm run dev                          # http://localhost:5173  (VI
 (cd ../privacy-core && node scripts/build-wasm.mjs)   # optional: the Rust core as WASM; dev serves it at /core/, a build needs `npm run core:assets` (docs/mobile.md); without it the wallet runs the TypeScript reference
 ```
 Then, in the browser, in this order — each step is one of the flows the node tests and the forge
-suites already cover, so what is being checked is the glue in a real browser on a real chain. V6 (spec v2.0 §7), as a
-first-time user would:
+suites already cover, so what is being checked is the glue in a real browser on a real chain. V6 (spec v2.0 §7) with V7's
+changes (spec v3.0), as a first-time user would:
 - **Welcome → the experience → Create** (password, the 24 words, Continue); Home reads $0 with "Protect your assets".
 - **Protect 5,000 USDC** (a test USDC in `VITE_ERC20_VAULTS`, through `VITE_PROTECT_ROUTER`): "You receive 4,950 USDC",
   "Privacy fee 50 USDC", the relayer / network in dollars → Review (a tap below $50K) → "Added 4,950 USDC to your protected
@@ -94,14 +94,15 @@ first-time user would:
   second tap. On a devnet the order executes against the pinned THORChain router and never delivers.
 - **Swap USDC → ETH** (`SHIELD_FACTORY` at the relayer): "Your protected balance" as the destination; THORChain pays the
   one-time ShieldReceiver, the relayer shields it, and the note appears ("Added to your protected balance: … ETH").
-- **$80,000**: no mode to choose — "Protected execution" with its four checks, Hold to Confirm (or "Confirm without
-  holding", a dialog), then the steps in amounts only (Completed / Executing / Remaining).
+- **$80,000**: one order by default (V7 Stage 13, spec v3.0 §4) — the Protected Large Swap's Review with its checks, Hold to
+  Confirm (or "Confirm without holding", a dialog); protected steps, pieces of varied size one at a time, only when the service's
+  plan says staged or under Advanced ("Protected steps").
 - **Reload, close the tab, go offline, lock** in the middle of any of them: the wallet comes back to the operation and
   sends nothing twice. Then Activity, the detail, the Privacy Center, Settings → Language (한국어), and the desktop at 1440 px.
 
 The V1.1–V5 walk-through, on the V6 screens (the engines underneath are the same):
-0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **More →
-   Security** downloads the backup (the keystore and the journal); on a second browser, **Restore** from the phrase: the
+0. **Create a wallet** (password → write the 24 words down → Continue), then **Lock** and **Unlock** it; **Settings →
+   Backup & security** downloads the backup (the keystore and the journal); on a second browser, **Restore** from the phrase: the
    notes are found again from their encrypted payloads by themselves (a restore scans the pool at once; there is no
    rescan button since V6).
 1. **Protect** 1 ETH with the injected wallet (the 1 % through ProtectRouter) → "Added … ETH to your protected balance".
