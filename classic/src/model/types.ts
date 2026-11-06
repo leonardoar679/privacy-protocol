@@ -53,6 +53,8 @@ export interface PoolStats {
   deposits: number;
   /** the newest deposits, newest first: their leaf index and timestamp */
   latest: readonly { leafIndex: number; timestamp: number }[];
+  /** the history they come from is verified against the chain (the eleventh review round, C11-13: an unverified one is marked) */
+  verified?: boolean;
 }
 
 /** What the proof pays, restated at the confirmation from its own public signals (the tenth review round, C10-1). */
@@ -77,7 +79,7 @@ export interface HistoryRow {
   timestamp: number;
   txHash?: string;
   /** "reported": the relayer answered CONFIRMED and the pool does not show the withdrawal yet (the tenth review round, C10-3) */
-  status: "waiting" | "deposited" | "withdrawn" | "failed" | "reported" | JobStatus;
+  status: "waiting" | "deposited" | "withdrawn" | "failed" | "reported" | "unknown" | JobStatus;
   depositsSince?: number;
   spent?: boolean;
 }

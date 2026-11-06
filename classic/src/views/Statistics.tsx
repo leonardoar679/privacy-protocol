@@ -22,7 +22,15 @@ export function Statistics(props: { pool: PoolId; stats: PoolStats | null; now: 
           {n === null ? (
             <span className="tc-skeleton tc-skeleton-wide" aria-label={t("stats.loading")} />
           ) : (
-            t("stats.equal", { n: new Intl.NumberFormat(intlLocale()).format(n) })
+            <>
+              {t("stats.equal", { n: new Intl.NumberFormat(intlLocale()).format(n) })}
+              {props.stats?.verified === false ? (
+                <span className="tc-muted" data-testid="classic-stats-unverified">
+                  {" "}
+                  · {t("stats.unverified")}
+                </span>
+              ) : null}
+            </>
           )}
         </p>
       </Field>

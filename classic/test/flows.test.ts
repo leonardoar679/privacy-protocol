@@ -12,8 +12,8 @@ import { sourceOf as sourceOfServices } from "../src/app/services/source";
 import { DEPLOYMENT } from "../src/model/pools";
 import { feeLines } from "../src/model/fees";
 import { poolOf } from "../src/model/pools";
-import type { JobRecord } from "../src/app/services/operations";
-import { createServices, sourceOf, type ClassicServices } from "../src/app/services/source";
+import { noteDigestOf, type JobRecord } from "../src/app/services/operations";
+import { createServices, sourceOf, SUBMISSION_LOST_MS, type ClassicServices } from "../src/app/services/source";
 import { WalletSession } from "../src/app/services/wallet";
 import { configFromEnv } from "../src/config";
 import type { DepositEvent } from "../src/history/events";
@@ -74,6 +74,12 @@ interface SetupOptions {
   logsFail?: boolean;
   /** a wallet that answers no receipts (the app's endpoint then does; C10-12) */
   walletReceipts?: "none";
+  /** the prover the services hand out (the fake one otherwise) */
+  prover?: ReturnType<typeof fakeProver>["prover"];
+  /** wraps the app's endpoint (a wallet that switches accounts while the oracle is read: the eleventh review round's critique of C11-7) */
+  rpcWrap?: (rpc: Rpc) => Rpc;
+  /** the first endpoint alone, beside a second opinion (the critique of C11-12) */
+  firstOpinion?: Rpc | null;
 }
 /** The fee the screen offers at the scripted 12 gwei: the original's 550,000 gas plus the relayer's 0.4 % — above the relayer's own 390,000-gas minimum. */
 const FEE = feeLines(poolOf("eth-100"), { feePercentE4: 4000 }, 12_000_000_000n).totalFeeWei;
@@ -103,6 +109,9 @@ async function setup({
   oracle,
   logsFail = false,
   walletReceipts,
+  prover: proverOverride,
+  rpcWrap,
+  firstOpinion,
 }: SetupOptions = {}) {
   const config = configFromEnv({
     VITE_CLASSIC_LIVE: JSON.stringify(live),
@@ -131,7 +140,9 @@ async function setup({
         return chain.rpc(method, params);
       }
     : chain.rpc;
-  const { prover } = fakeProver({ ...(realCommitments ? {} : { commitmentFor: () => deposits[5].commitment }), verified: verifiedProof });
+  const { prover } = proverOverride
+    ? { prover: proverOverride }
+    : fakeProver({ ...(realCommitments ? {} : { commitmentFor: () => deposits[5].commitment }), verified: verifiedProof });
   const provider = fakeWalletProvider(ACCOUNT, 1, walletReceipts ? { receipts: walletReceipts } : {});
   const wallet = new WalletSession({ router: ROUTER, discover: async () => [{ info: { id: "fake", name: "Fake Wallet" }, provider }] });
   await wallet.discover();
@@ -151,7 +162,7 @@ async function setup({
   const jobs = memoryJobsStore();
   const services = createServices({
     config,
-    rpc,
+    rpc: rpcWrap ? rpcWrap(rpc) : rpc,
     prover: async () => prover,
     historyStore: memoryHistoryStore(),
     jobs,
@@ -160,6 +171,7 @@ async function setup({
     curated,
     wallet,
     ...(secondOpinion !== undefined ? { secondOpinion } : {}),
+    ...(firstOpinion !== undefined ? { firstOpinion } : {}),
     now: () => 1_700_000_000_000,
     followOptions: { intervalMs: 1, sleep: async () => undefined },
     receiptOptions: { pollMs: 1, maxMs: 20, sleep: async () => undefined }, // a receipt that never comes ends the wait after 20 ms of wall clock
@@ -411,6 +423,8 @@ describe("the withdrawal flow", () => {
       via: "relayer",
       relayerUrl: "https://eth.to-relayer.com",
       relayerJobId: "job-1",
+      // the record's keyed digest of the note's nullifier hash (the eleventh review round, C11-1)
+      noteDigest: noteDigestOf("j1", hex32(4242n)),
     });
     const rows = await sourceOfServices(services).history();
     expect(rows[0]).toMatchObject({ id: "j1", status: "reported", txHash: hex32(777n) });
@@ -422,12 +436,114 @@ describe("the withdrawal flow", () => {
     const again = await sourceOfServices(services).history();
     expect(again[0]).toMatchObject({ id: "j1", status: "CONFIRMED" });
     expect((await services.jobs.list())[0]).toMatchObject({ state: "COMPLETED", relayerState: "CONFIRMED" });
+    expect((await services.jobs.list())[0].noteDigest, "an ended record keeps no digest of its note").toBeUndefined();
     expect(transport.posted, "read, never sent").toEqual([]);
   });
 
-  it("relayer mode asks a second endpoint about the proof's root before the submission too (the tenth review round, C10-14), and nothing about the note", async () => {
-    const other = scriptedChain({ head: snap.manifest.toBlock + 200, logs: [[]], nextIndex: 1024, knownRoot: false, lastRoot: hex32(5n), calls: PIN_CALLS });
-    const { services, transport, facts } = await ready({ secondOpinion: other.rpc });
+  it("a relayer's CONFIRMED naming another note's withdrawal of the pool completes nothing; a record from before the digest waits for a look on chain (the eleventh review round, C11-1)", async () => {
+    const { services, chain } = await setup({ jobStates: ["CONFIRMED"] });
+    const now = services.now();
+    const relayed = {
+      kind: "withdrawal" as const,
+      pool: "eth-100" as const,
+      state: "SUBMITTING" as const,
+      createdAt: now,
+      updatedAt: now,
+      via: "relayer" as const,
+      relayerUrl: "https://eth.to-relayer.com",
+    };
+    await services.jobs.put({ ...relayed, id: "j1", relayerJobId: "job-1", noteDigest: noteDigestOf("j1", hex32(4242n)) });
+    await services.jobs.put({ ...relayed, id: "j2", relayerJobId: "job-2" });
+    await sourceOfServices(services).history();
+    // the transaction the relayer names is a withdrawal of the pool — of another note (4243), not this record's (4242)
+    chain.options.head = snap.manifest.toBlock + 400;
+    chain.options.logs = [[withdrawalLog(POOL_100, hex32(4243n), snap.manifest.toBlock + 300, { txHash: hex32(777n) })]];
+    await services.histories.get("eth-100")!.refresh();
+    const rows = await sourceOfServices(services).history();
+    expect(rows.find((r) => r.id === "j1")).toMatchObject({ status: "reported" });
+    expect(
+      rows.find((r) => r.id === "j2"),
+      "no digest: never completed on a transaction alone",
+    ).toMatchObject({ status: "reported" });
+    expect((await services.jobs.list()).map((j) => j.state)).toEqual(["SOURCE_CONFIRMING", "SOURCE_CONFIRMING"]);
+    expect(noteDigestOf("j1", hex32(4242n)), "keyed by the record: another record's digest of the same note differs").not.toBe(
+      noteDigestOf("j2", hex32(4242n)),
+    );
+  });
+
+  it("a relayed submission whose answer was lost says its outcome is unknown, and is settled once the pool's Withdrawal events name its note (the eleventh review round, VC-N1)", async () => {
+    const { services, chain, transport } = await setup();
+    const now = services.now();
+    await services.jobs.put({
+      id: "j3",
+      kind: "withdrawal",
+      pool: "eth-100",
+      state: "RECOVERY_REQUIRED",
+      createdAt: now,
+      updatedAt: now,
+      via: "relayer",
+      relayerUrl: "https://eth.to-relayer.com",
+      failedReason: "the relayer's answer did not arrive: check on chain",
+      noteDigest: noteDigestOf("j3", hex32(4242n)),
+    });
+    expect((await sourceOfServices(services).history())[0]).toMatchObject({ id: "j3", status: "unknown" });
+    chain.options.head = snap.manifest.toBlock + 400;
+    chain.options.logs = [[withdrawalLog(POOL_100, hex32(4242n), snap.manifest.toBlock + 300, { txHash: hex32(778n) })]];
+    await services.histories.get("eth-100")!.refresh();
+    expect((await sourceOfServices(services).history())[0]).toMatchObject({ id: "j3", status: "withdrawn", txHash: hex32(778n) });
+    const [record] = await services.jobs.list();
+    expect(record).toMatchObject({ state: "COMPLETED", txHash: hex32(778n) });
+    expect(record.noteDigest).toBeUndefined();
+    expect(transport.posted, "read, never sent").toEqual([]);
+  });
+
+  it("the second endpoint is asked at the history's own sync, never at the withdrawal's moment (the tenth review round, C10-14; the eleventh, C11-9, C11-12): one that disagrees leaves the history unverified and nothing is proved or sent; one that agrees is asked nothing of a relayed withdrawal", async () => {
+    const other = (knownRoot: boolean) =>
+      scriptedChain({
+        head: snap.manifest.toBlock + 200,
+        logs: [[]],
+        nextIndex: 1024,
+        knownRoot,
+        calls: PIN_CALLS,
+        blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+      });
+    const relayed = (facts: Parameters<typeof withdrawalFlow>[1]["facts"]) => ({
+      pool: "eth-100" as const,
+      note: NOTE,
+      facts,
+      recipient: RECIPIENT,
+      via: "relayer" as const,
+      relayerId: "to-relayer.eth",
+      feeWei: FEE,
+      confirm: async () => true,
+    });
+    const lying = other(false);
+    const a = await ready({ secondOpinion: lying.rpc });
+    expect(a.services.histories.get("eth-100")!.status).toMatchObject({
+      kind: "ready",
+      verified: false,
+      reason: expect.stringMatching(/second RPC endpoint does not agree with this history/),
+    });
+    const refused = await withdrawalFlow(a.services, relayed(a.facts));
+    expect(refused).toMatchObject({ state: "FAILED", failedReason: expect.stringMatching(/not verified/) });
+    expect(a.prover.proofs, "nothing proved").toHaveLength(0);
+    expect(a.transport.posted, "nothing sent").toEqual([]);
+    const honest = other(true);
+    const b = await ready({ secondOpinion: honest.rpc });
+    expect(b.services.histories.get("eth-100")!.status).toMatchObject({ kind: "ready", verified: true });
+    const asked = honest.seen.length;
+    const done = await withdrawalFlow(b.services, relayed(b.facts));
+    expect(done.state, done.failedReason ?? "").toBe("COMPLETED");
+    expect(honest.seen.length, "the second endpoint hears nothing at the withdrawal's moment").toBe(asked);
+    for (const c of [...lying.seen, ...honest.seen].filter((c) => c.method === "eth_call")) {
+      expect((c.params[0] as { data: string }).data.startsWith(VIEW.isSpent), "never told the nullifier hash in relayer mode").toBe(false);
+      expect(c.params[1], "every read names the history's block, never the latest").not.toBe("latest");
+    }
+  });
+
+  it("the proof submitted is the one confirmed (the eleventh review round, C11-3): a proof made again after the confirmation that pays another relayer account sends nothing", async () => {
+    const { services, transport, facts, chain } = await ready();
+    let asked = 0;
     const job = await withdrawalFlow(services, {
       pool: "eth-100",
       note: NOTE,
@@ -436,14 +552,18 @@ describe("the withdrawal flow", () => {
       via: "relayer",
       relayerId: "to-relayer.eth",
       feeWei: FEE,
-      confirm: async () => true,
+      confirm: async () => {
+        // the root ages out while the user reads the confirmation, and the directory's entry is refreshed with another account meanwhile
+        chain.options.knownRoots = () => [false, true][asked++] ?? true;
+        const entry = services.relayers.entry("to-relayer.eth")!;
+        entry.facts = { ...entry.facts!, rewardAccount: "0x2222222222222222222222222222222222222222" }; // what a refresh of its status does
+        return true;
+      },
     });
-    expect(job).toMatchObject({ state: "FAILED", failedReason: expect.stringMatching(/second RPC endpoint does not know the proof's root/) });
-    expect(transport.posted, "nothing sent").toEqual([]);
-    expect(
-      other.seen.some((c) => c.method === "eth_call" && (c.params[0] as { data: string }).data.startsWith(VIEW.isSpent)),
-      "the second endpoint is never told the nullifier hash in relayer mode",
-    ).toBe(false);
+    expect(job.state, job.failedReason ?? "").toBe("COMPLETED");
+    expect(transport.posted, "the proof made again pays the account copied once, before the confirmation").toHaveLength(1);
+    const posted = transport.posted[0] as { body: { args: string[] } };
+    expect(BigInt(posted.body.args[3])).toBe(BigInt(status.v4.body.rewardAccount));
   });
 
   it("a relayer's CONFIRMED while the pool does not show the note spent is the relayer's report: the record waits, History says so (the tenth review round, C10-3)", async () => {
@@ -460,6 +580,7 @@ describe("the withdrawal flow", () => {
       confirm: async () => true,
     });
     expect(job).toMatchObject({ state: "SOURCE_CONFIRMING", relayerState: "CONFIRMED" });
+    expect(job.spentUnread, "the pool was asked and answered (the critique)").toBeUndefined();
     expect((await sourceOfServices(services).history())[0]).toMatchObject({ status: "reported" });
   });
 
@@ -614,7 +735,6 @@ describe("the withdrawal flow", () => {
         logs: [[]],
         nextIndex: 1024,
         knownRoot: o.knownRoot,
-        lastRoot: hex32(5n),
         spent: o.spent ?? false,
         blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
       }).rpc;
@@ -626,10 +746,12 @@ describe("the withdrawal flow", () => {
       via: "wallet" as const,
       confirm: async () => true,
     });
+    // a second endpoint that does not know the root disagrees at the history's sync (the eleventh review round, C11-12): nothing is proved
     const a = await ready({ secondOpinion: other({ knownRoot: false }) });
     const refused = await withdrawalFlow(a.services, input(a.facts));
     expect(refused.state).toBe("FAILED");
-    expect(refused.failedReason).toMatch(/second RPC endpoint does not know the proof's root/);
+    expect(refused.failedReason).toMatch(/not verified/);
+    expect(a.prover.proofs).toHaveLength(0);
     expect(a.provider.sent, "nothing sent").toEqual([]);
     const b = await ready({ secondOpinion: other({ knownRoot: true, spent: true }) });
     const spent = await withdrawalFlow(b.services, input(b.facts));
@@ -724,5 +846,497 @@ describe("the source over the services", () => {
     expect((await source.history()).map((r) => r.status)).toEqual(["deposited"]);
     const s2 = services as ClassicServices;
     expect(s2.config.live["eth-100"]).toEqual(["deposit", "withdraw"]);
+  });
+});
+
+describe("the eleventh review round's critique of the Classic flows (2026-11-05)", () => {
+  const OTHER = "0x8589427373d6d84e98730d7795d8f6f8731fda16" as const;
+  /** the account the proof pays its relayer: the pool's Withdrawal event names it */
+  const PAID = status.v4.body.rewardAccount.toLowerCase() as `0x${string}`;
+  async function found(over: Parameters<typeof setup>[0] = {}) {
+    const s = await setup(over);
+    await s.services.relayers.refresh();
+    await s.services.histories.get("eth-100")!.ensure();
+    const lookup = await sourceOf(s.services).lookup(NOTE);
+    if (lookup.kind !== "found") throw new Error(`the note was not found: ${lookup.kind}`);
+    return { ...s, facts: lookup.facts };
+  }
+  type Facts = Parameters<typeof withdrawalFlow>[1]["facts"];
+  const relayed = (facts: Facts, confirm: () => Promise<boolean> = async () => true) => ({
+    pool: "eth-100" as const,
+    note: NOTE,
+    facts,
+    recipient: RECIPIENT,
+    via: "relayer" as const,
+    relayerId: "to-relayer.eth",
+    feeWei: FEE,
+    confirm,
+  });
+  const walletMode = (facts: Facts) => ({
+    pool: "eth-100" as const,
+    note: NOTE,
+    facts,
+    recipient: RECIPIENT,
+    via: "wallet" as const,
+    confirm: async () => true,
+  });
+  const nullifierHashOf = async (prover: ReturnType<typeof fakeProver>["prover"]) => {
+    const derived = await prover.note(formatNote(NOTE));
+    if (!derived.ok) throw new Error("the note is not readable");
+    return derived.nullifierHash;
+  };
+  const spentReads = (seen: { method: string; params: unknown[] }[]) =>
+    seen.filter((c) => c.method === "eth_call" && (c.params[0] as { data: string }).data.startsWith(VIEW.isSpent));
+
+  it("the note's keyed digest is kept from the submission on, never before: a flow cancelled at its confirmation never kept one; a lost answer keeps it, and History settles that record only on its own note's Withdrawal event (C11-1, VC-N1)", async () => {
+    const cancelled = await found();
+    const seen: JobRecord[] = [];
+    expect((await withdrawalFlow(cancelled.services, { ...relayed(cancelled.facts, async () => false), onJob: (j) => seen.push(j) })).state).toBe("CANCELLED");
+    expect(seen.length).toBeGreaterThan(2);
+    expect(
+      seen.filter((j) => j.noteDigest !== undefined),
+      "no record before the submission keeps the note's digest",
+    ).toEqual([]);
+    const lost = await found();
+    lost.transport.postJson = async () => {
+      throw new Error("The operation was aborted");
+    };
+    const kept: JobRecord[] = [];
+    const job = await withdrawalFlow(lost.services, { ...relayed(lost.facts), onJob: (j) => kept.push(j) });
+    expect(job.state).toBe("RECOVERY_REQUIRED");
+    expect(kept.find((j) => j.noteDigest !== undefined)?.state, "first kept at the submission").toBe("SUBMITTING");
+    const nh = await nullifierHashOf(lost.prover);
+    const [open] = await lost.services.jobs.list();
+    expect(open.noteDigest).toBe(noteDigestOf(open.id, nh));
+    expect(open.fromBlock, "the history's block at the submission: the note's event comes after it").toBe(
+      lost.services.histories.get("eth-100")!.state!.toBlock,
+    );
+    expect(open.relayerAccount, "the account the proof pays: only its withdrawal of the note completes the record").toBe(PAID);
+    // another note's withdrawal of the pool settles nothing, nor this note's through another relayer (the critique); this note's through its own does
+    lost.chain.options.head = snap.manifest.toBlock + 400;
+    lost.chain.options.logs = [
+      [
+        withdrawalLog(POOL_100, hex32(4243n), snap.manifest.toBlock + 300, { txHash: hex32(779n), relayer: PAID }),
+        withdrawalLog(POOL_100, nh, snap.manifest.toBlock + 310, { txHash: hex32(784n), relayer: OTHER }),
+      ],
+    ];
+    await lost.services.histories.get("eth-100")!.refresh();
+    expect((await sourceOf(lost.services).history())[0]).toMatchObject({ status: "unknown" });
+    lost.chain.options.head = snap.manifest.toBlock + 600;
+    lost.chain.options.logs = [[withdrawalLog(POOL_100, nh, snap.manifest.toBlock + 500, { txHash: hex32(780n), relayer: PAID })]];
+    await lost.services.histories.get("eth-100")!.refresh();
+    expect((await sourceOf(lost.services).history())[0]).toMatchObject({ status: "withdrawn", txHash: hex32(780n) });
+    expect((await lost.services.jobs.list())[0].noteDigest).toBeUndefined();
+  });
+
+  it("a relayed flow that ends — completed, or refused by the relayer — keeps no digest (C11-1)", async () => {
+    const done = await found();
+    expect((await withdrawalFlow(done.services, relayed(done.facts))).state).toBe("COMPLETED");
+    expect((await done.services.jobs.list())[0].noteDigest).toBeUndefined();
+    const refused = await found();
+    refused.transport.postJson = async () => ({ status: 400, body: { error: "the fee is too low" } });
+    expect(await withdrawalFlow(refused.services, relayed(refused.facts))).toMatchObject({
+      state: "FAILED",
+      failedReason: expect.stringMatching(/fee is too low/),
+    });
+    expect((await refused.services.jobs.list())[0].noteDigest).toBeUndefined();
+  });
+
+  it("a relayer's FAILED for a note the pool reports spent waits for a look on chain — in the flow, in History, and after History asked the relayer again; the note's Withdrawal event completes it (C11-13)", async () => {
+    const s = await found({ jobStates: ["QUEUED", "FAILED"] });
+    expect(await withdrawalFlow(s.services, relayed(s.facts))).toMatchObject({ state: "RECOVERY_REQUIRED", relayerState: "FAILED" });
+    expect((await sourceOf(s.services).history())[0].status, "never Failed").toBe("unknown");
+    const nh = await nullifierHashOf(s.prover);
+    const [kept] = await s.services.jobs.list();
+    expect(kept.state, "History asked the relayer again: the record stays open").toBe("RECOVERY_REQUIRED");
+    expect(kept.noteDigest).toBe(noteDigestOf(kept.id, nh));
+    // the relayer restarted and forgot the job: the note's own Withdrawal event completes the record all the same (the critique)
+    const get = s.transport.getJson.bind(s.transport);
+    s.transport.getJson = async (url: string) => (url.includes("/v1/jobs/") ? { status: 400, body: { error: "no such job" } } : get(url));
+    s.chain.options.head = snap.manifest.toBlock + 400;
+    s.chain.options.logs = [[withdrawalLog(POOL_100, nh, snap.manifest.toBlock + 300, { txHash: hex32(781n), relayer: PAID })]];
+    await s.services.histories.get("eth-100")!.refresh();
+    expect((await sourceOf(s.services).history())[0]).toMatchObject({ status: "withdrawn", txHash: hex32(781n) });
+    const [settled] = await s.services.jobs.list();
+    expect(settled).toMatchObject({ state: "COMPLETED", relayerState: "FAILED" });
+    expect(settled.noteDigest).toBeUndefined();
+  });
+
+  it("the note's Withdrawal event completes a FAILED-but-spent record while the relayer still answers FAILED, and the relayer is not asked once the event is found (the critique of C11-13)", async () => {
+    const s = await found({ jobStates: ["QUEUED", "FAILED"] });
+    expect(await withdrawalFlow(s.services, relayed(s.facts))).toMatchObject({ state: "RECOVERY_REQUIRED", relayerState: "FAILED" });
+    await sourceOf(s.services).history(); // the relayer asked again: FAILED, the record kept open
+    const nh = await nullifierHashOf(s.prover);
+    const jobReads: string[] = [];
+    const get = s.transport.getJson.bind(s.transport);
+    s.transport.getJson = async (url: string) => {
+      if (url.includes("/v1/jobs/")) jobReads.push(url);
+      return get(url);
+    };
+    s.chain.options.head = snap.manifest.toBlock + 400;
+    s.chain.options.logs = [[withdrawalLog(POOL_100, nh, snap.manifest.toBlock + 300, { txHash: hex32(783n), relayer: PAID })]];
+    await s.services.histories.get("eth-100")!.refresh();
+    expect((await sourceOf(s.services).history())[0]).toMatchObject({ status: "withdrawn", txHash: hex32(783n) });
+    const [settled] = await s.services.jobs.list();
+    expect(settled).toMatchObject({ state: "COMPLETED" });
+    expect(settled.noteDigest).toBeUndefined();
+    expect(jobReads, "the relayer is not asked once the note's event is found").toEqual([]);
+  });
+
+  it("History reads a record's note event from the record's own block on, paid to its own relayer (the critique: the bound had been tested at its ends only)", async () => {
+    const s = await setup();
+    await s.services.histories.get("eth-100")!.ensure();
+    const h = s.services.histories.get("eth-100")!;
+    const fromBlock = h.state!.toBlock;
+    const now = s.services.now();
+    await s.services.jobs.put({
+      id: "jb",
+      kind: "withdrawal",
+      pool: "eth-100",
+      state: "RECOVERY_REQUIRED",
+      createdAt: now,
+      updatedAt: now,
+      via: "relayer",
+      relayerUrl: "https://eth.to-relayer.com",
+      noteDigest: noteDigestOf("jb", hex32(4246n)),
+      fromBlock,
+      relayerAccount: PAID,
+    });
+    const calls: unknown[][] = [];
+    const find = h.findWithdrawal.bind(h);
+    h.findWithdrawal = (...a: Parameters<typeof find>) => {
+      calls.push(a.slice(1));
+      return find(...a);
+    };
+    await sourceOfServices(s.services).history();
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) expect(c.slice(1), "the record's block and relayer").toEqual([fromBlock, PAID]);
+    // records with a relayer job: the settling before the relayer is asked, then — the relayer answering CONFIRMED — its transaction's match
+    calls.length = 0;
+    await s.services.jobs.clear();
+    const get = s.transport.getJson.bind(s.transport);
+    s.transport.getJson = async (url: string) =>
+      url.includes("/v1/jobs/")
+        ? {
+            status: 200,
+            body: { id: "job-1", type: "TORNADO_WITHDRAW", status: "CONFIRMED", txHash: hex32(790n), confirmations: 4, failedReason: null },
+          }
+        : get(url);
+    for (const [id, state] of [
+      ["jc", "SOURCE_CONFIRMING"],
+      ["jd", "RECOVERY_REQUIRED"],
+    ] as const)
+      await s.services.jobs.put({
+        id,
+        kind: "withdrawal",
+        pool: "eth-100",
+        state,
+        createdAt: now,
+        updatedAt: now,
+        via: "relayer",
+        relayerUrl: "https://eth.to-relayer.com",
+        relayerJobId: "job-1",
+        relayerState: "SENT",
+        noteDigest: noteDigestOf(id, hex32(4247n)),
+        fromBlock,
+        relayerAccount: PAID,
+      });
+    await sourceOfServices(s.services).history();
+    expect(calls.length, "both sites, for both records").toBe(4);
+    for (const c of calls) expect(c.slice(1), "the record's block and relayer at every site").toEqual([fromBlock, PAID]);
+  });
+
+  it("a FAILED-but-spent record with its relayer job is completed only by its note's withdrawal through its own relayer (the critique)", async () => {
+    const s = await found({ jobStates: ["QUEUED", "FAILED"] });
+    expect(await withdrawalFlow(s.services, relayed(s.facts))).toMatchObject({ state: "RECOVERY_REQUIRED", relayerJobId: "job-1" });
+    const nh = await nullifierHashOf(s.prover);
+    s.chain.options.head = snap.manifest.toBlock + 400;
+    s.chain.options.logs = [[withdrawalLog(POOL_100, nh, snap.manifest.toBlock + 300, { txHash: hex32(785n), relayer: OTHER })]];
+    await s.services.histories.get("eth-100")!.refresh();
+    expect((await sourceOf(s.services).history())[0].status, "another relayer's withdrawal of the note completes nothing").toBe("unknown");
+    s.chain.options.head = snap.manifest.toBlock + 600;
+    s.chain.options.logs = [[withdrawalLog(POOL_100, nh, snap.manifest.toBlock + 500, { txHash: hex32(786n), relayer: PAID })]];
+    await s.services.histories.get("eth-100")!.refresh();
+    expect((await sourceOf(s.services).history())[0]).toMatchObject({ status: "withdrawn", txHash: hex32(786n) });
+  });
+
+  it("with one endpoint, a history whose root aged out before the click is synced before the proof: one proof, on the new root (the critique)", async () => {
+    const s = await found();
+    const oldRoot = s.services.histories.get("eth-100")!.currentRoot()!.toLowerCase();
+    s.chain.options.head = snap.manifest.toBlock + 300;
+    s.chain.options.logs = [[depositLog(POOL_100, 1024, 777_777n, snap.manifest.toBlock + 250)]];
+    s.chain.options.nextIndex = 1025;
+    s.chain.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+    const job = await withdrawalFlow(s.services, relayed(s.facts));
+    expect(job.state, job.failedReason ?? "").toBe("COMPLETED");
+    expect(s.prover.proofs, "one proof").toHaveLength(1);
+    expect(BigInt(s.prover.proofs[0].root), "on the new root").not.toBe(BigInt(oldRoot));
+    expect(s.services.histories.get("eth-100")!.state!.leaves).toBe(1025);
+  });
+
+  it("a refusal keeps its catalog words beside its English reason (the critique: the new ones had reached a Korean reader in English)", async () => {
+    const second = scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+    const mute: Rpc = async (method, params) => {
+      if (method === "eth_call" && (params[0] as { data: string }).data.startsWith(VIEW.isSpent)) throw new Error("HTTP 429");
+      return second.rpc(method, params);
+    };
+    const s = await found({ secondOpinion: mute });
+    expect(await withdrawalFlow(s.services, walletMode(s.facts))).toMatchObject({ state: "FAILED", failedKey: "refusal.secondSilentSpent" });
+    const u = await found({
+      secondOpinion: scriptedChain({
+        head: snap.manifest.toBlock + 200,
+        logs: [[]],
+        nextIndex: 1024,
+        knownRoot: true,
+        spent: true,
+        calls: PIN_CALLS,
+        blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+      }).rpc,
+    });
+    expect(await withdrawalFlow(u.services, walletMode(u.facts))).toMatchObject({ state: "FAILED", failedKey: "refusal.secondSaysSpent" });
+  });
+
+  it("a prover that fails at the note's hashes leaves no record: they come before the draft (C11-8)", async () => {
+    const { prover } = fakeProver({ commitmentFor: () => deposits[5].commitment });
+    const s = await found({ prover });
+    prover.note = async () => {
+      throw new Error("the prover was closed");
+    };
+    await expect(withdrawalFlow(s.services, relayed(s.facts))).rejects.toThrow(/prover was closed/);
+    expect(await s.services.jobs.list(), "no record left at PREPARING_PROOF").toEqual([]);
+  });
+
+  it("wallet mode screens the sending account before any read names the note's nullifier hash (C11-13)", async () => {
+    const s = await found({ oracle: "listed" });
+    expect(await withdrawalFlow(s.services, walletMode(s.facts))).toMatchObject({
+      state: "FAILED",
+      failedReason: expect.stringMatching(/cannot use the interface/),
+    });
+    expect(spentReads(s.chain.seen), "the endpoint was never told the nullifier hash").toEqual([]);
+    expect(s.provider.sent).toEqual([]);
+  });
+
+  it("an account the wallet switched to while the oracle was read sends nothing — a deposit, or a wallet-mode withdrawal (C11-7)", async () => {
+    type Listeners = { listeners: Record<string, ((...a: unknown[]) => void)[]> };
+    const switching =
+      (provider: () => Listeners) =>
+      (rpc: Rpc): Rpc =>
+      async (method, params) => {
+        if (method === "eth_call" && (params[0] as { data: string }).data.startsWith(sel("isSanctioned(address)")))
+          for (const l of provider().listeners.accountsChanged ?? []) l([OTHER]);
+        return rpc(method, params);
+      };
+    let depositWallet: Listeners | null = null;
+    const d = await setup({ oracle: "clear", rpcWrap: switching(() => depositWallet!) });
+    depositWallet = d.provider;
+    expect((await depositFlow(d.services, { pool: "eth-100", note: NOTE })).state).toBe("FAILED");
+    expect(d.provider.sent, "nothing sent from the account nobody screened").toEqual([]);
+    let withdrawWallet: Listeners | null = null;
+    const w = await found({ oracle: "clear", rpcWrap: switching(() => withdrawWallet!) });
+    withdrawWallet = w.provider;
+    expect((await withdrawalFlow(w.services, walletMode(w.facts))).state).toBe("FAILED");
+    expect(w.provider.sent, "nothing sent from the account nobody screened").toEqual([]);
+  });
+
+  it("a relayer the directory turned offline during the confirmation — its status names another account — is sent nothing (C11-3)", async () => {
+    const s = await found();
+    const get = s.transport.getJson.bind(s.transport);
+    const job = await withdrawalFlow(
+      s.services,
+      relayed(s.facts, async () => {
+        s.transport.getJson = async (url: string) =>
+          url.endsWith("/v1/status") ? { status: 200, body: { ...status.v4.body, rewardAccount: "0x2222222222222222222222222222222222222222" } } : get(url);
+        await s.services.relayers.refreshOne("to-relayer.eth");
+        return true;
+      }),
+    );
+    expect(s.services.relayers.entry("to-relayer.eth")!.status).toBe("offline");
+    expect(job).toMatchObject({ state: "FAILED", failedReason: expect.stringMatching(/no longer online/) });
+    expect(s.transport.posted).toEqual([]);
+  });
+
+  it("with a second endpoint, a relayed withdrawal whose root aged out during its confirmation is refused — never proved again on a refresh it made itself — and the second endpoint hears nothing meanwhile; the next attempt, on a history synced again with both, completes (C11-9 and its critique)", async () => {
+    const oldRoot = snap.manifest.root.toLowerCase();
+    const second = scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+    const s = await found({ secondOpinion: second.rpc });
+    expect(s.services.histories.get("eth-100")!.status).toMatchObject({ kind: "ready", verified: true });
+    let atConfirmation = -1;
+    const job = await withdrawalFlow(
+      s.services,
+      relayed(s.facts, async () => {
+        // the root ages out of the pool's hundred during the confirmation (Stage 10's scenario), both endpoints honest
+        s.chain.options.head = snap.manifest.toBlock + 300;
+        s.chain.options.logs = [[depositLog(POOL_100, 1024, 777_777n, snap.manifest.toBlock + 250)]];
+        s.chain.options.nextIndex = 1025;
+        s.chain.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+        second.options.nextIndex = 1025;
+        second.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+        atConfirmation = second.seen.length;
+        return true;
+      }),
+    );
+    expect(job).toMatchObject({
+      state: "FAILED",
+      failedReason: "the pool's last hundred roots moved on during the withdrawal: nothing is sent; start the withdrawal again",
+      failedKey: "refusal.rootsMovedDuring",
+    });
+    expect(second.seen.slice(atConfirmation), "nothing asked of the second endpoint after the confirmation").toEqual([]);
+    expect(s.transport.posted, "nothing sent").toEqual([]);
+    // the next attempt syncs first — the history was marked stale —, both endpoints asked, before any record of it; nothing while it runs
+    const asked = second.seen.length;
+    let atFirstRecord = -1;
+    const again = await withdrawalFlow(s.services, {
+      ...relayed(s.facts),
+      onJob: () => {
+        if (atFirstRecord < 0) atFirstRecord = second.seen.length;
+      },
+    });
+    expect(atFirstRecord, "the sync before the attempt asked the second endpoint").toBeGreaterThan(asked);
+    expect(second.seen.length, "and the attempt asked it nothing").toBe(atFirstRecord);
+    expect(s.services.histories.get("eth-100")!.status).toMatchObject({ kind: "ready", verified: true, leaves: 1025 });
+    expect(again.state, again.failedReason ?? "").toBe("COMPLETED");
+    const posted = s.transport.posted[0] as { body: { args: string[] } };
+    expect(posted.body.args[0].toLowerCase(), "proved on the new root").not.toBe(oldRoot);
+  });
+
+  it("in wallet mode with a second endpoint, a root aged out during the confirmation is proved again on a refresh that asks both endpoints, then sent (the critique of C11-9)", async () => {
+    const oldRoot = snap.manifest.root.toLowerCase();
+    const second = scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+    const s = await found({ secondOpinion: second.rpc });
+    let atConfirmation = -1;
+    const job = await withdrawalFlow(s.services, {
+      ...walletMode(s.facts),
+      confirm: async () => {
+        s.chain.options.head = snap.manifest.toBlock + 300;
+        s.chain.options.logs = [[depositLog(POOL_100, 1024, 777_777n, snap.manifest.toBlock + 250)]];
+        s.chain.options.nextIndex = 1025;
+        s.chain.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+        second.options.nextIndex = 1025;
+        second.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+        atConfirmation = second.seen.length;
+        return true;
+      },
+    });
+    expect(job.state, job.failedReason ?? "").toBe("COMPLETED");
+    expect(s.provider.sent).toHaveLength(1);
+    const after = second.seen.slice(atConfirmation);
+    expect(
+      after.filter((c) => c.method === "eth_call" && (c.params[0] as { data: string }).data.startsWith(VIEW.isKnownRoot)).length,
+      "the refresh held the new root to the second endpoint too",
+    ).toBeGreaterThan(0);
+    expect(spentReads(after), "and its spent bit, right before the send").toHaveLength(1);
+  });
+
+  it("in wallet mode, a lying first endpoint that calls the proof's root unknown and vouches for a deposit of its own cannot have the wallet send: the refresh asks the second, which does not agree (the critique of C11-9)", async () => {
+    const oldRoot = snap.manifest.root.toLowerCase();
+    const second = scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+    const s = await found({ secondOpinion: second.rpc });
+    const job = await withdrawalFlow(s.services, {
+      ...walletMode(s.facts),
+      confirm: async () => {
+        s.chain.options.head = snap.manifest.toBlock + 300;
+        s.chain.options.logs = [[depositLog(POOL_100, 1024, 666_666n, snap.manifest.toBlock + 250)]];
+        s.chain.options.nextIndex = 1025;
+        s.chain.options.knownRoots = (root) => root.toLowerCase() !== oldRoot;
+        return true;
+      },
+    });
+    expect(job).toMatchObject({ state: "FAILED", failedReason: "the history is not verified" });
+    expect(s.provider.sent, "the wallet asked to send nothing").toEqual([]);
+    const h = s.services.histories.get("eth-100")!;
+    expect(h.status).toMatchObject({ kind: "ready", verified: false, reason: "the second RPC endpoint does not agree with this history at its block" });
+    expect(h.state?.verified, "never stored as verified").toBeUndefined();
+  });
+
+  it("wallet mode: a second endpoint that does not answer the spent read stops the send, saying it did not answer — never that the endpoints disagree (the critique of C11-12)", async () => {
+    const honest = scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+    const mute: Rpc = async (method, params) => {
+      if (method === "eth_call" && (params[0] as { data: string }).data.startsWith(VIEW.isSpent)) throw new Error("HTTP 429");
+      return honest.rpc(method, params);
+    };
+    const first = scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+    const s = await found({ secondOpinion: mute, firstOpinion: first.rpc });
+    expect(await withdrawalFlow(s.services, walletMode(s.facts))).toMatchObject({
+      state: "FAILED",
+      failedReason: "the second RPC endpoint did not answer whether this note is spent: nothing is sent; try again later",
+    });
+    expect(s.provider.sent).toEqual([]);
+    // the spent bit asked of the first endpoint alone, never of the endpoints that fail over (the critique of C11-12)
+    expect(spentReads(first.seen)).toHaveLength(1);
+    expect(spentReads(s.chain.seen)).toEqual([]);
+  });
+
+  it("a relayed record still submitting with no job past SUBMISSION_LOST_MS — its page closed during the submission — reads Outcome unknown, and is settled once the pool's Withdrawal events name its note (the critique of VC-N1)", async () => {
+    const s = await setup();
+    const now = s.services.now();
+    const record = (id: string, updatedAt: number, nh: bigint): JobRecord => ({
+      id,
+      kind: "withdrawal",
+      pool: "eth-100",
+      state: "SUBMITTING",
+      createdAt: updatedAt,
+      updatedAt,
+      via: "relayer",
+      relayerUrl: "https://eth.to-relayer.com",
+      noteDigest: noteDigestOf(id, hex32(nh)),
+    });
+    await s.services.jobs.put(record("fresh", now - 5_000, 4245n));
+    await s.services.jobs.put(record("gone", now - SUBMISSION_LOST_MS - 1, 4244n));
+    const rows = await sourceOfServices(s.services).history();
+    expect(rows.find((r) => r.id === "fresh")!.status, "a submission may still be under way").toBe("waiting");
+    expect(rows.find((r) => r.id === "gone")!.status).toBe("unknown");
+    expect((await s.services.jobs.list()).find((j) => j.id === "gone")).toMatchObject({
+      state: "RECOVERY_REQUIRED",
+      failedReason: expect.stringMatching(/page closed before the relayer's answer arrived/),
+    });
+    s.chain.options.head = snap.manifest.toBlock + 400;
+    s.chain.options.logs = [[withdrawalLog(POOL_100, hex32(4244n), snap.manifest.toBlock + 300, { txHash: hex32(782n) })]];
+    await s.services.histories.get("eth-100")!.refresh();
+    const after = await sourceOfServices(s.services).history();
+    expect(after.find((r) => r.id === "gone")).toMatchObject({ status: "withdrawn", txHash: hex32(782n) });
+    expect(after.find((r) => r.id === "fresh")!.status, "another note's event settles nothing").toBe("waiting");
+    expect(s.transport.posted, "read, never sent").toEqual([]);
   });
 });

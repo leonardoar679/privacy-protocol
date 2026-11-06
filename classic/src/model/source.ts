@@ -18,6 +18,8 @@ export interface ClassicSource {
   gasPriceWei(): Promise<bigint>;
   availability(pool: PoolId): Promise<Availability>;
   history(): Promise<HistoryRow[]>;
+  /** whether this device's records live in the page's memory only: the browser refused its storage (the eleventh review round's critique of C11-5) */
+  recordsPageOnly?(): boolean;
   /** every record of this device's history gone (the fourth review round, 2026-11-03) */
   clearHistory(): Promise<void>;
 }

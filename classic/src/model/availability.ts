@@ -52,7 +52,9 @@ export function availabilityOf(pool: PoolId, f: AvailabilityFacts): Availability
     f.history.kind === "ready"
       ? f.history.verified
         ? check("ok", "availability.historySynced", { block: f.history.toBlock })
-        : check("warn", "availability.historyUnverified")
+        : f.rpcConfigured
+          ? check("warn", "availability.historyNotVerified") // synced, and the chain or the endpoints did not vouch for it (the critique of C11-12)
+          : check("warn", "availability.historyUnverified") // no endpoint: the snapshot or the device's copy, nothing synced
       : f.history.kind === "loading"
         ? check("unknown", "availability.historySyncing")
         : f.history.kind === "failed"

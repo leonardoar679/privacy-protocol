@@ -76,6 +76,9 @@ export const en = {
     "Every relayer this build lists is asked for its status when this tab or the relayer settings open (each sees your IP address then); the one you choose receives the withdrawal.",
   "withdraw.answerLost":
     "The relayer's answer did not arrive. It may have taken the job: check on chain whether the note is spent before trying again — a second withdrawal of a spent note reverts.",
+  "withdraw.failedButSpent": "The relayer reports the withdrawal failed, but the pool shows this note spent. Check on chain before trying again.",
+  "withdraw.failedUnchecked":
+    "The relayer reports the withdrawal failed, and the pool could not be asked whether this note is spent. Check on chain before trying again.",
   "withdraw.total": "Total",
   "withdraw.noteBalance": "Note balance",
   "withdraw.gasPrice": "Gas Price",
@@ -113,6 +116,7 @@ export const en = {
   "stats.setTooltip": "Number of deposits from which your withdrawal will potentially originate",
   "stats.setInfo": "About the anonymity set",
   "stats.equal": "{n} equal user deposits",
+  "stats.unverified": "not verified against the chain",
   "stats.latest": "Latest deposits",
   "stats.loading": "Loading",
   "history.title": "History",
@@ -129,6 +133,7 @@ export const en = {
   "history.pending": "pending",
   "history.deviceNote":
     "These records are this device's: a withdrawal's relayer, job and transaction, kept until you clear them. Deposits are listed for this page only.",
+  "history.pageOnlyNote": "These records are kept for this page only: this browser refused the device's storage.",
   "history.clear": "Clear history",
   "status.waiting": "Waiting for receipt",
   "status.failed": "Failed",
@@ -141,6 +146,7 @@ export const en = {
   "status.RESUBMITTED": "Resubmitted",
   "status.CONFIRMED": "Confirmed",
   "status.reported": "Reported by the relayer",
+  "status.unknown": "Outcome unknown: check on chain",
   "status.FAILED": "Failed",
   "settings.title": "Settings",
   "settings.rpc": "RPC endpoint",
@@ -167,6 +173,7 @@ export const en = {
   "availability.routerUnknown": "not read in this build",
   "availability.relayersMock": "scripted — no relayer is called in this build",
   "availability.historyUnverified": "not synced in this build",
+  "availability.historyNotVerified": "synced, not verified",
   "availability.proverAbsent": "not in this build",
   "availability.walletNotConnected": "not connected",
   "availability.deposit": "Deposit",
@@ -207,15 +214,37 @@ export const en = {
   "wallet.sanctioned": "This address cannot use the interface.",
   "wallet.complianceUnavailable": "The compliance check could not be completed, so the wallet was disconnected. Try again later.",
   "withdraw.checkOnChain": "Check on chain",
-  "withdraw.checkOnChainNotice": "This read tells the RPC endpoint the note's nullifier hash.",
+  "withdraw.checkOnChainNotice": "This read tells each RPC endpoint it asks the note's nullifier hash.",
   "withdraw.spentReadNotice":
-    "Right before anything is sent, Withdraw asks the RPC endpoint whether this note is spent: the endpoint learns the note's nullifier hash then.",
+    "Right before anything is sent, Withdraw asks an RPC endpoint whether this note is spent — in wallet mode with two or more configured, a second one too: each learns the note's nullifier hash then.",
   "withdraw.reported": "The relayer reports the withdrawal confirmed, but the pool does not show this note spent yet. Check on chain before relying on it.",
   "withdraw.receiptLost":
     "The transaction's receipt did not arrive in time. Check History later, or check on chain whether the note is spent, before trying again.",
   "withdraw.spentOnChain": "The pool reports this note as spent.",
   "withdraw.unspentOnChain": "The pool reports this note as unspent.",
-  "withdraw.historyNotVerified": "The history is not verified yet; a withdrawal waits for it.",
+  "withdraw.spentDisagree": "The RPC endpoints disagree on whether this note is spent: keep the note, and check again later.",
+  "withdraw.spentSilent": "The second RPC endpoint did not answer: check again later.",
+  "withdraw.reportedUnchecked":
+    "The relayer reports the withdrawal confirmed, and the pool could not be asked whether this note is spent. Check on chain before relying on it.",
+  "withdraw.historyNoRpc": "No RPC endpoint is configured in this build: the pool's history cannot be verified, so no withdrawal can be made here.",
+  "refusal.firstSilentSpent": "the first RPC endpoint did not answer whether this note is spent: nothing is sent; try again later",
+  "refusal.firstSilentRoot": "the first RPC endpoint did not answer whether the proof's root is known: nothing is sent; try again later",
+  "refusal.rpcSilentSpent": "the RPC endpoint did not answer whether this note is spent: nothing is sent; try again later",
+  "refusal.rpcSilentRoot": "the RPC endpoint did not answer whether the proof's root is known: nothing is sent; try again later",
+  "refusal.firstSilentHistoryRoot":
+    "the first RPC endpoint did not answer whether the history's root is still known: nothing is proved or sent; try again later",
+  "refusal.rpcSilentHistoryRoot": "the RPC endpoint did not answer whether the history's root is still known: nothing is proved or sent; try again later",
+  "refusal.historyHeld":
+    "the pool's history is not synced again for a few minutes after a relayed withdrawal whose outcome is not known yet: nothing is sent; try again in a few minutes",
+  "withdraw.secondDeferred": "Only the first RPC endpoint was asked: the second is asked once the relayer's outcome is known, within 15 minutes.",
+  "refusal.rootsMovedSince": "the pool's last hundred roots moved on since the history was last synced: nothing is sent; start the withdrawal again",
+  "refusal.rootsMovedDuring": "the pool's last hundred roots moved on during the withdrawal: nothing is sent; start the withdrawal again",
+  "refusal.secondSilentSpent": "the second RPC endpoint did not answer whether this note is spent: nothing is sent; try again later",
+  "refusal.secondSaysSpent": "the second RPC endpoint reports this note as spent: the endpoints disagree, so nothing is sent",
+  "withdraw.spentFirstSilent": "The first RPC endpoint did not answer: check again later.",
+  "withdraw.spentRpcSilent": "The RPC endpoint did not answer: check again later.",
+  "withdraw.historyNotVerified":
+    "The history is not verified yet: it is checked again every minute while this note is on screen, and a withdrawal waits for it.",
   "withdraw.proofFailed": "The proof could not be generated.",
   "withdraw.relayerRefused": "The relayer refused: {reason}",
   "withdraw.sentToWallet": "The transaction was handed to your wallet. Follow it in History.",
@@ -226,7 +255,8 @@ export const en = {
     "The router has disabled this pool. A direct deposit to the pool is a visible pattern, and relayers withdraw through the router: while it disables the pool, such a deposit can only be withdrawn in wallet mode.",
   "deposit.sent": "The deposit was handed to your wallet. Follow it in History.",
   "deposit.failed": "The deposit did not go through: {reason}",
-  "deposit.pending": "Your deposit was sent but is not confirmed yet. Keep your note: the deposit may still be mined. History shows it once it is.",
+  "deposit.pending":
+    "Your deposit was sent but is not confirmed yet. Keep your note: the deposit may still be mined. History shows it once it is mined, while this page stays open.",
   "deposit.reverted": "The deposit transaction reverted, so nothing was deposited with this note.",
   "notice.geofenced": "This interface is not available in your region.",
 } as const;

@@ -10,9 +10,19 @@ import type { ConfirmTerms, FeeLines, NoteLookup, RelayerInfo, WithdrawMode } fr
 import { Button, Card, Field, Input, Modal, Notice, Row } from "./ui";
 
 export type NoteError = "invalid" | "spent" | "no-deposit" | "history-unavailable" | "history-unverified" | "other-network" | "unknown-pool";
+/** What Check on chain found: the pool's answer, the endpoints' disagreement, or an endpoint that did not answer (the second, the first, the one). */
+export type SpentOnChain = "spent" | "unspent" | "checking" | "disagree" | "silent" | "first-silent" | "rpc-silent";
+const SPENT_WORDS = {
+  spent: "withdraw.spentOnChain",
+  unspent: "withdraw.unspentOnChain",
+  disagree: "withdraw.spentDisagree",
+  silent: "withdraw.spentSilent",
+  "first-silent": "withdraw.spentFirstSilent",
+  "rpc-silent": "withdraw.spentRpcSilent",
+} as const;
 
 /** The note field's error, or null. A note the history's events call spent and the pool, asked, does not is no error (the tenth review round, C10-7). */
-export function noteError(lookup: NoteLookup | null, malformed: boolean, spentOnChain?: "spent" | "unspent" | "checking" | null): NoteError | null {
+export function noteError(lookup: NoteLookup | null, malformed: boolean, spentOnChain?: SpentOnChain | null): NoteError | null {
   if (malformed) return "invalid";
   if (!lookup) return null;
   if (lookup.kind === "found") return lookup.facts.spent && spentOnChain !== "unspent" ? "spent" : null;
@@ -74,7 +84,9 @@ export interface WithdrawProps {
   submitted: boolean;
   /** the explicit on-chain read of isSpent (spec §7.4): offered when the chain can be asked; its answer; the disclosure stands beside it */
   onCheckSpent?: () => void;
-  spentOnChain?: "spent" | "unspent" | "checking" | null;
+  spentOnChain?: SpentOnChain | null;
+  /** the first endpoint alone was asked: the pool is held for an unsettled relayed withdrawal (the critique) */
+  spentAlone?: boolean;
   /** the history's state when a withdrawal has to wait for it */
   historyNotice?: string | null;
   /** what the flow last said: a refusal, a failure, the relayer's state */
@@ -277,9 +289,10 @@ export function WithdrawTab(p: WithdrawProps) {
             {t("withdraw.checkOnChain")}
           </Button>
           <p className="tc-text tc-muted">{t("withdraw.checkOnChainNotice")}</p>
-          {p.spentOnChain === "spent" || p.spentOnChain === "unspent" ? (
-            <Notice tone={p.spentOnChain === "spent" ? "danger" : "info"} role="status" testId="classic-spent-on-chain">
-              {t(p.spentOnChain === "spent" ? "withdraw.spentOnChain" : "withdraw.unspentOnChain")}
+          {p.spentOnChain && p.spentOnChain !== "checking" ? (
+            <Notice tone={p.spentOnChain === "unspent" ? "info" : p.spentOnChain === "spent" ? "danger" : "warn"} role="status" testId="classic-spent-on-chain">
+              {t(SPENT_WORDS[p.spentOnChain])}
+              {p.spentAlone ? ` ${t("withdraw.secondDeferred")}` : null}
             </Notice>
           ) : null}
         </div>

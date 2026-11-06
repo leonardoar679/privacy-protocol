@@ -14,6 +14,7 @@ import { refusedRecipient } from "../../model/recipient";
 import { canDeposit } from "../../model/availability";
 import { isSpentOnChain } from "../../history/spent";
 import type { DepositFacts } from "../../model/types";
+import type { MessageKey } from "../i18n/messages";
 import type { CircuitInput } from "../../prover/input";
 import type { ProofResult, ProverProgress } from "../../prover/protocol";
 import { followJob, submitWithdrawal, RelayerRefusal } from "../../relayer/client";
@@ -21,7 +22,7 @@ import { relayerArgs } from "../../wallet/calldata";
 import { waitForReceipt } from "../../wallet/connection";
 import { isSanctioned } from "./compliance";
 import { gasPriceWei } from "./gas";
-import { fromRelayerState, move, newJob, type JobRecord } from "./operations";
+import { closedRecord, fromRelayerState, IN_FLIGHT_HOLD_MS, inFlight, move, newJob, noteDigestOf, type JobRecord } from "./operations";
 import { factsOf, plainText, receiptRpcOf, type ClassicServices } from "./source";
 
 export type FlowStep =
@@ -39,7 +40,21 @@ export interface DepositInput {
   onJob?: (job: JobRecord) => void;
 }
 
-export class FlowRefused extends Error {}
+/** A refusal; `key` names its words in the catalog when they have their own (the critique: the new ones had reached a Korean reader in English). */
+export class FlowRefused extends Error {
+  constructor(
+    message: string,
+    readonly key?: MessageKey,
+  ) {
+    super(message);
+  }
+}
+
+/** A refusal's reason for the record: the English kept, the catalog key beside it for the screen. */
+const reasonOf = (e: unknown, fallback: string): Partial<JobRecord> => ({
+  failedReason: e instanceof Error ? e.message : fallback,
+  ...(e instanceof FlowRefused && e.key ? { failedKey: e.key } : {}),
+});
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const id = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -60,8 +75,8 @@ export const REVERTED = "the transaction reverted";
  * round, C10-9): it had been asked at Connect only — an account the wallet switched to afterwards sent unscreened — and a read that
  * failed had left the wallet connected. A read that fails refuses, as the original did.
  */
-async function assertScreened(s: ClassicServices): Promise<void> {
-  if (!s.config.complianceOracle) return;
+async function assertScreened(s: ClassicServices): Promise<`0x${string}` | null> {
+  if (!s.config.complianceOracle) return null;
   const account = s.wallet.account;
   if (!s.rpc || !account) throw new FlowRefused("the compliance check could not be made: nothing is sent");
   let listed: boolean;
@@ -71,6 +86,8 @@ async function assertScreened(s: ClassicServices): Promise<void> {
     throw new FlowRefused("the compliance check could not be completed: nothing is sent");
   }
   if (listed) throw new FlowRefused("this address cannot use the interface: nothing is sent");
+  // the account screened is the one the transaction leaves from (the eleventh review round, C11-7): the send refuses another
+  return account;
 }
 
 /** The deposit: commitment → wallet → receipt; the record moved and kept at every step. */
@@ -104,14 +121,15 @@ export async function depositFlow(s: ClassicServices, input: DepositInput): Prom
   if (!derived.ok) throw new FlowRefused("the note is not readable");
   await keep(move(job, "READY_TO_REVIEW", now()));
   await keep(move(job, "AWAITING_AUTHORIZATION", now()));
+  let screened: `0x${string}` | null;
   try {
-    await assertScreened(s);
+    screened = await assertScreened(s);
   } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the compliance check failed" }));
+    return keep(move(job, "FAILED", now(), reasonOf(e, "the compliance check failed")));
   }
   let txHash: Hex;
   try {
-    txHash = await s.wallet.sendDeposit(poolOf(pool), derived.commitment, { direct: input.direct ?? false });
+    txHash = await s.wallet.sendDeposit(poolOf(pool), derived.commitment, { direct: input.direct ?? false, ...(screened ? { account: screened } : {}) });
   } catch (e) {
     return keep(move(job, "FAILED", now(), { failedReason: plainText(e instanceof Error ? e.message : "the wallet refused") }));
   }
@@ -147,14 +165,30 @@ export interface WithdrawalInput {
 }
 
 /**
- * The withdrawal, and the prover closed once the record is terminal (the fifth review round, 2026-11-03): the witness — the note's
+ * The withdrawal, and the prover's worker retired once the flow ends (the fifth review round, 2026-11-03): the witness — the note's
  * nullifier and secret among its 28,300 signals — had stayed in the prover worker's heap and its sub-workers' WebAssembly memory for
- * the page's lifetime. The next proof builds the prover again from the cached artifacts.
+ * the page's lifetime. The retired worker answers what was sent to it, then ends; the next request starts a fresh worker, and the next
+ * proof builds the prover again from the cached artifacts.
  */
 export async function withdrawalFlow(s: ClassicServices, input: WithdrawalInput): Promise<JobRecord> {
+  const history = s.histories.get(input.pool);
+  // a history the last attempt refused for its roots syncs first, both endpoints asked: the retry's own root (stated: whenever the pool's roots
+  // moved on since the page's last sync — a busy pool, a page left open — or during the flow)
+  if (history?.needsSync()) await history.ensure().catch(() => undefined);
+  // with a second endpoint, a relayed withdrawal holds its pool's history from syncing until it ends (the eleventh review round's critique of
+  // C11-9): its own record writes re-run the statistics, whose sync of a stale history had asked the second endpoint the proof's root between
+  // the Withdraw click and the submission. In wallet mode the second endpoint is told the note at the send anyway; with one endpoint, that one
+  // is the user's trust
+  const release = s.secondOpinion && input.via === "relayer" ? history?.hold() : undefined;
+  let ended: JobRecord | undefined;
   try {
-    return await withdrawalFlowInner(s, input);
+    ended = await withdrawalFlowInner(s, input);
+    return ended;
   } finally {
+    // one that ended before its relayer's outcome stays held IN_FLIGHT_HOLD_MS longer (the critique of the critique of C11-9): the relayer may
+    // still publish it, and the statistics' sync right after the flow had asked the second endpoint its root first
+    if (release && ended && inFlight(ended)) history?.holdFor(IN_FLIGHT_HOLD_MS);
+    release?.();
     await s
       .prover()
       .then((p) => p.close?.())
@@ -201,7 +235,16 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
     if (offered < minimum)
       throw new FlowRefused(`the fee offered (${offered} wei) is below the relayer's minimum at the current gas price (${minimum} wei): review the fees again`);
   }
-  let job = newJob(id(), "withdrawal", pool, now(), { via, ...(relayer ? { relayerUrl: relayer.url } : {}) });
+  // the relayer's account copied once, after its status was read again (the eleventh review round, C11-3): the directory's entry is refreshed in
+  // place, and a proof made again after the confirmation had read another account from it
+  const rewardAccount = via === "relayer" ? relayer!.facts!.rewardAccount : null;
+  // the note's hashes before the record (C11-8): a prover that failed at them had left the record at PREPARING_PROOF for good. They come from the
+  // worker (the main thread never loads the vendored arithmetic); the rest is the note's bytes
+  const prover = await s.prover();
+  const derived = await prover.note(formatNote(note));
+  if (!derived.ok) throw new FlowRefused("the note is not readable");
+  const jobId = id();
+  let job = newJob(jobId, "withdrawal", pool, now(), { via, ...(relayer ? { relayerUrl: relayer.url } : {}) });
   const keep = async (next: JobRecord) => {
     job = next;
     await s.jobs.put(job);
@@ -210,27 +253,51 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
   };
   await keep(move(job, "READY_TO_REVIEW", now()));
   await keep(move(job, "PREPARING_PROOF", now()));
-  const prover = await s.prover();
 
   // the proof over the current root; proved again once if the root aged out of the pool's window meanwhile
   const rpc = s.rpc;
-  // the note's hashes come from the worker (the main thread never loads the vendored arithmetic); the rest is the note's bytes
-  const derived = await prover.note(formatNote(note));
-  if (!derived.ok) throw new FlowRefused("the note is not readable");
+  // with a second endpoint configured, the reads that name the note or the proof's root go to the first endpoint alone (the eleventh review
+  // round's critique of C11-9 and C11-12): `rpc` fails over, and a first endpoint's HTTP 429 had the second told the proof's root and the
+  // nullifier hash at the withdrawal's moment, or answer for the first and then agree with itself. One that does not answer refuses: nothing
+  // is sent
+  const named = s.secondOpinion ? (s.firstOpinion ?? rpc) : rpc;
+  const silent = (what: "spent" | "root" | "history") =>
+    new FlowRefused(
+      `${s.secondOpinion ? "the first RPC endpoint" : "the RPC endpoint"} did not answer ${
+        what === "spent"
+          ? "whether this note is spent: nothing is sent"
+          : what === "root"
+            ? "whether the proof's root is known: nothing is sent"
+            : "whether the history's root is still known: nothing is proved or sent"
+      }; try again later`,
+      s.secondOpinion
+        ? what === "spent"
+          ? "refusal.firstSilentSpent"
+          : what === "root"
+            ? "refusal.firstSilentRoot"
+            : "refusal.firstSilentHistoryRoot"
+        : what === "spent"
+          ? "refusal.rpcSilentSpent"
+          : what === "root"
+            ? "refusal.rpcSilentRoot"
+            : "refusal.rpcSilentHistoryRoot",
+    );
   // spent on chain, as the pool says now (C2-10; spec §7.1, §7.4 "right before a withdrawal"): the history's events end twelve
   // blocks back, and a note spent since — another device, a relayer whose answer was lost — had cost, in wallet mode, the gas of a
   // reverting transaction. Read once the user confirmed, right before anything is sent (the tenth review round, C10-13): read before the
   // proof too, it had told the endpoint the nullifier hash of a withdrawal cancelled at its confirmation. Said under the Withdraw button
   // (withdraw.spentReadNotice); the history's Withdrawal events still refuse a note they show spent before any proof
   const assertUnspent = async (): Promise<void> => {
-    if (await isSpentOnChain(rpc, p.address, derived.nullifierHash)) throw new FlowRefused("this note was already spent on chain: nothing is proved or sent");
+    const spent = await isSpentOnChain(named, p.address, derived.nullifierHash).catch(() => null);
+    if (spent === null) throw silent("spent");
+    if (spent) throw new FlowRefused("this note was already spent on chain: nothing is sent");
   };
   const prove = async (): Promise<{ proof: ProofResult; root: Hex }> => {
     await history.settled(); // never read in the middle of a sync
     if (!history.verified) throw new FlowRefused("the history is not verified");
     const path = await history.pathFor(facts.leafIndex);
     const feeWei = via === "relayer" ? (input.feeWei ?? 0n) : 0n;
-    const relayerAddress = via === "relayer" ? relayer!.facts!.rewardAccount : ZERO_ADDRESS;
+    const relayerAddress = rewardAccount ?? ZERO_ADDRESS;
     const circuit: CircuitInput = {
       root: BigInt(path.root).toString(),
       nullifierHash: BigInt(derived.nullifierHash).toString(),
@@ -250,11 +317,44 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
   };
   // the root a proof commits to must be one of the pool's last hundred (count-based, spec §7.4): checked after proving and
   // again right before anything is sent — a confirmation can take a while — proving again once on a fresh history each time
-  const rootKnown = async (root: Hex): Promise<boolean> => {
-    const chain = await verifyAgainstChain(rpc, p.address, { root: BigInt(root), size: history.state!.leaves });
+  const rootKnown = async (root: Hex, whose: "root" | "history" = "root"): Promise<boolean> => {
+    const chain = await verifyAgainstChain(named, p.address, { root: BigInt(root), size: history.state!.leaves }).catch(() => null);
+    if (!chain) throw silent(whose);
     return chain.known || chain.lastRoot === root;
   };
+  // a root the pool no longer knows: a relayed withdrawal with a second endpoint is refused, never proved again on a refresh it made itself
+  // (the critique of C11-9: that refresh asked the second endpoint the new root within one proof's time of the submission, and on the first
+  // endpoint's word alone a lying first endpoint had its forged root submitted) — the history marked stale, the next attempt starting on a
+  // history synced again with both endpoints. In wallet mode the second endpoint is told the note at the send anyway, and one endpoint is the
+  // user's trust: the history is synced again and the proof made on it
+  const renew = async (since: boolean): Promise<void> => {
+    if (s.secondOpinion && via === "relayer") {
+      history.markStale();
+      throw since
+        ? new FlowRefused(
+            "the pool's last hundred roots moved on since the history was last synced: nothing is sent; start the withdrawal again",
+            "refusal.rootsMovedSince",
+          )
+        : new FlowRefused(
+            "the pool's last hundred roots moved on during the withdrawal: nothing is sent; start the withdrawal again",
+            "refusal.rootsMovedDuring",
+          );
+    }
+    // a history held for an unsettled relayed withdrawal is not synced again: the proof would be made twice on the same root (the critique)
+    if (history.isHeld())
+      throw new FlowRefused(
+        "the pool's history is not synced again for a few minutes after a relayed withdrawal whose outcome is not known yet: nothing is sent; try again in a few minutes",
+        "refusal.historyHeld",
+      );
+    await history.refresh();
+  };
   const provedAndKnown = async (current?: { proof: ProofResult; root: Hex }): Promise<{ proof: ProofResult; root: Hex }> => {
+    // the history's own root, before a proof is made on it (the critique: a page left open for hours had proved on a root that had aged out,
+    // the proof wasted and the refusal blaming the flow); the first endpoint is told this root right after the proof anyway
+    if (!current) {
+      await history.settled();
+      if (history.verified && !(await rootKnown(history.currentRoot()!, "history"))) await renew(true);
+    }
     let proved = current ?? (await prove());
     // the re-proof's root is checked too (the fourth review round, 2026-11-03): one synced history and one more proof, then a refusal —
     // never a submission on a root the pool may not know (the relayer's, or in wallet mode the user's, gas on a revert)
@@ -263,7 +363,7 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
         throw new FlowRefused(
           "the proof's root is not among the pool's last hundred even after the history was synced and the proof made again: nothing is sent",
         );
-      await history.refresh();
+      await renew(false);
       proved = await prove();
     }
     return proved;
@@ -272,7 +372,7 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
   try {
     proved = await provedAndKnown();
   } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the proof failed" }));
+    return keep(move(job, "FAILED", now(), reasonOf(e, "the proof failed")));
   }
 
   // the terms the confirmation restates are the proof's own (the tenth review round, C10-1): the page had shown the mode selected since,
@@ -288,32 +388,60 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
   };
   await keep(move(job, "AWAITING_AUTHORIZATION", now()));
   input.onStep?.({ step: "confirm" });
-  if (!(await input.confirm(termsOf(proved)))) return keep(move(job, "CANCELLED", now()));
+  const confirmed = termsOf(proved);
+  if (!(await input.confirm(confirmed))) return keep(move(job, "CANCELLED", now()));
 
   try {
     proved = await provedAndKnown(proved);
   } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the proof failed" }));
+    return keep(move(job, "FAILED", now(), reasonOf(e, "the proof failed")));
   }
+  // the proof sent is the one confirmed (C11-3): one made again after the confirmation pays the same recipient, relayer, fee and refund, or
+  // nothing is sent; the relayer still online
+  const sent = termsOf(proved);
+  if (
+    sent.recipient !== confirmed.recipient ||
+    sent.relayer !== confirmed.relayer ||
+    sent.feeWei !== confirmed.feeWei ||
+    sent.refundWei !== confirmed.refundWei
+  )
+    return keep(move(job, "FAILED", now(), { failedReason: "the proof made again does not pay what was confirmed: nothing is sent" }));
+  if (via === "relayer" && relayer!.status !== "online")
+    return keep(move(job, "FAILED", now(), { failedReason: "the chosen relayer is no longer online: nothing is sent" }));
 
+  // in wallet mode the account is screened before any read names the note's nullifier hash (the eleventh review round, C11-13), and the one
+  // screened is the one that sends (C11-7)
+  let screened: `0x${string}` | null = null;
+  if (via === "wallet") {
+    try {
+      screened = await assertScreened(s);
+    } catch (e) {
+      return keep(move(job, "FAILED", now(), reasonOf(e, "the compliance check failed")));
+    }
+  }
   // once more right before anything is sent (C2-10): the confirmation can take a while
   try {
     await assertUnspent();
   } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the note was spent" }));
+    return keep(move(job, "FAILED", now(), reasonOf(e, "the note was spent")));
   }
-  // a second endpoint's word on the proof's root before anything is sent, relayed or not (the tenth review round, C10-14): tornado-relayer
-  // 4.x checks no root and no proof of its own and sends with a fixed gas limit, so a relayed proof on a root one lying endpoint invented
-  // could be mined as a revert that publishes the nullifier hash beside the recipient — what the fifth round guarded in wallet mode only.
-  // The root is the pool's, shared by everyone proving against it: asking a second endpoint about it tells that endpoint nothing of the note
-  if (s.secondOpinion) {
-    const other = await verifyAgainstChain(s.secondOpinion, p.address, { root: BigInt(proved.root), size: history.state!.leaves }).catch(() => null);
-    if (!other || !(other.known || other.lastRoot === proved.root))
-      return keep(
-        move(job, "FAILED", now(), { failedReason: "the second RPC endpoint does not know the proof's root: the endpoints disagree, so nothing is sent" }),
-      );
-  }
-  await keep(move(job, "SUBMITTING", now()));
+  // the second endpoint's word on the proof's root (the tenth review round, C10-14) is taken at the history's own syncs, where the root and the
+  // count single out no user, never at a relayed withdrawal's own moment (the eleventh review round, 2026-11-04, C11-9): asked here, seconds
+  // before the submission, the root named the withdrawal and its recipient to that endpoint. The history is held while the flow runs and
+  // IN_FLIGHT_HOLD_MS past an unsettled end (withdrawalFlow), save the retry's sync before its hold. A proof's root is its verified history's —
+  // both endpoints agreed on it at its block; a relayed withdrawal whose root aged out is refused above, never proved again on one endpoint's word.
+  // The note's keyed digest from here on (the critique of C11-1): written at the draft, it had stayed on a record whose page closed before
+  // anything was sent; only a submitted withdrawal is settled from the pool's Withdrawal events — those from the history's block on
+  await keep(
+    move(
+      job,
+      "SUBMITTING",
+      now(),
+      relayer
+        ? { noteDigest: noteDigestOf(jobId, derived.nullifierHash), fromBlock: history.state!.toBlock, relayerAccount: rewardAccount!.toLowerCase() }
+        : {},
+    ),
+  );
   input.onStep?.({ step: "submitting" });
   const [root, nullifierHash, recipientArg, relayerArg, feeArg, refundArg] = proved.proof.publicSignals.map((x) => BigInt(x));
   const args = relayerArgs({
@@ -362,15 +490,29 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
       // the relayer's CONFIRMED is believed once the pool says the note is spent (the tenth review round, C10-3): a relayer that answered
       // CONFIRMED and sent nothing had the record read "Confirmed", and a user discards a note withdrawn. The read names the nullifier hash
       // this flow asked the same endpoint about right before the submission; History asks the history's Withdrawal events later
-      if (next === "COMPLETED" && !(await isSpentOnChain(rpc, p.address, derived.nullifierHash).catch(() => false))) next = "SOURCE_CONFIRMING";
-      const done = {
+      // — and one that could not be asked says so (the critique: its silence had read as "not spent yet")
+      let spentUnread = false;
+      if (next === "COMPLETED") {
+        const spent = await isSpentOnChain(named, p.address, derived.nullifierHash).catch(() => null);
+        if (spent !== true) next = "SOURCE_CONFIRMING";
+        spentUnread = spent === null;
+      }
+      // its FAILED too (the eleventh review round, C11-13): a note the pool reports spent did not fail — the outcome waits for a look on chain;
+      // and a pool that could not be asked leaves it open too (the critique: read as unspent, the record had closed FAILED, its digest gone)
+      if (next === "FAILED") {
+        const spent = await isSpentOnChain(named, p.address, derived.nullifierHash).catch(() => null);
+        if (spent !== false) next = "RECOVERY_REQUIRED";
+        spentUnread = spent === null;
+      }
+      const done = closedRecord({
         ...job,
         relayerState: final.status,
         txHash: (final.txHash as Hex | null) ?? job.txHash,
         state: next,
         updatedAt: now(),
         ...(final.failedReason ? { failedReason: plainText(final.failedReason) } : {}),
-      };
+        ...(spentUnread ? { spentUnread: true as const } : {}),
+      });
       await keep(done);
       input.onStep?.({ step: "done", job: done });
       return done;
@@ -388,26 +530,30 @@ async function withdrawalFlowInner(s: ClassicServices, input: WithdrawalInput): 
 
   // a second endpoint's word before the user's own transaction (the fifth review round, 2026-11-03): one lying endpoint — fake deposits
   // in its logs, a root it calls known, a note it calls unspent — had the wallet send a withdraw that reverts (some 300,000 gas) and
-  // publishes the nullifier hash beside the recipient. With two or more endpoints configured the second agreed on the root above and
-  // must agree on the spent bit here; with one, the endpoint is the user's trust, as the screen says
+  // publishes the nullifier hash beside the recipient. With two or more endpoints configured the second agreed on the history's root at its
+  // sync and must agree on the spent bit here; with one, the endpoint is the user's trust, as the screen says
   if (s.secondOpinion) {
-    if (await isSpentOnChain(s.secondOpinion, p.address, derived.nullifierHash).catch(() => true))
+    const second = await isSpentOnChain(s.secondOpinion, p.address, derived.nullifierHash).catch(() => null);
+    if (second !== false)
       return keep(
         move(job, "FAILED", now(), {
-          failedReason: "the second RPC endpoint reports this note as spent, or did not answer: the endpoints disagree, so nothing is sent",
+          ...(second === null
+            ? {
+                failedReason: "the second RPC endpoint did not answer whether this note is spent: nothing is sent; try again later",
+                failedKey: "refusal.secondSilentSpent" as const,
+              }
+            : {
+                failedReason: "the second RPC endpoint reports this note as spent: the endpoints disagree, so nothing is sent",
+                failedKey: "refusal.secondSaysSpent" as const,
+              }),
         }),
       );
   }
-  // the account the transaction leaves from, screened when the switch is on (C10-9)
-  try {
-    await assertScreened(s);
-  } catch (e) {
-    return keep(move(job, "FAILED", now(), { failedReason: e instanceof Error ? e.message : "the compliance check failed" }));
-  }
-  // wallet mode: the pool's own withdraw from the connected account
+  // wallet mode: the pool's own withdraw from the connected account, screened above (C10-9, C11-13)
   let txHash: Hex;
   try {
     txHash = await s.wallet.sendWithdrawal(p, {
+      ...(screened ? { account: screened } : {}),
       proof: proved.proof.proof,
       root: args[0],
       nullifierHash: args[1],

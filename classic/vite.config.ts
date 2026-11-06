@@ -44,13 +44,15 @@ function refuseUpgrades(): Plugin {
 }
 
 export default defineConfig(({ mode, command }) => {
-  // a production build with NODE_ENV=production (the tenth review round, D-8): the production floors key on import.meta.env.PROD
-  if (command === "build" && mode === "production" && process.env.NODE_ENV !== "production")
+  // a build with NODE_ENV=production (the tenth review round, D-8), whatever its mode (the eleventh review round, C11-4, F11-3): the production
+  // floors key on import.meta.env.PROD, which follows NODE_ENV — a `--mode staging` build was a production one without the guard
+  if (command === "build" && process.env.NODE_ENV !== "production")
     throw new Error(`a production build of Classic needs NODE_ENV=production (it is ${process.env.NODE_ENV ?? "unset"})`);
   const root = fileURLToPath(new URL(".", import.meta.url));
   const env = loadEnv(mode, root, "VITE_");
-  // a production build switches a pool function on only when the legal review's record clears it (the tenth review round, C10-15)
-  if (command === "build" && mode === "production") assertLiveCleared(env.VITE_CLASSIC_LIVE ?? process.env.VITE_CLASSIC_LIVE, root);
+  // every build switches a pool function on only when the legal review's record clears it (the tenth review round, C10-15; every mode since the
+  // eleventh, C11-4)
+  if (command === "build") assertLiveCleared(env.VITE_CLASSIC_LIVE ?? process.env.VITE_CLASSIC_LIVE, root);
   // the curated relayers (relayers.json) are allowed by the policy beside the environment's hosts
   const relayers = curatedRelayerOrigins();
   return {

@@ -15,6 +15,8 @@ import { formatNote } from "../src/model/notes";
 import type { HistoryRow } from "../src/model/types";
 import { STORAGE_KEYS } from "../src/storage/prefs";
 import { WithdrawTab, type WithdrawProps } from "../src/views/Withdraw";
+import { Statistics } from "../src/views/Statistics";
+import { History } from "../src/views/History";
 import { FIXTURES, NOW } from "../src/fixtures/registry";
 import { scan } from "../scripts/words.mjs";
 
@@ -314,6 +316,24 @@ describe("History and Settings", () => {
     fireEvent.click(screen.getByTestId("classic-history-clear"));
     await waitFor(() => expect(screen.getByTestId("classic-history-empty")).toBeInTheDocument());
     expect(screen.queryByTestId("classic-tx-d1")).toBeNull();
+  });
+
+  it("History says when its records live in this page only; an unverified history's statistics are marked not verified against the chain (the eleventh review round's critique of C11-5 and C11-13)", () => {
+    applyConfig(configFromEnv({}));
+    render(<History rows={rows} filter="all" onFilter={() => undefined} now={NOW} onClear={() => undefined} pageOnly />);
+    expect(screen.getByTestId("classic-history-note")).toHaveTextContent(
+      "These records are kept for this page only: this browser refused the device's storage.",
+    );
+    expect(screen.getByTestId("classic-history-note")).not.toHaveTextContent("kept until you clear them");
+    const { unmount } = render(<Statistics pool="eth-100" stats={{ deposits: 1024, latest: [], verified: false }} now={NOW} />);
+    expect(screen.getByTestId("classic-stats-unverified")).toHaveTextContent("not verified against the chain");
+    unmount();
+    // no mark for a verified history, nor for statistics that carry no verdict (the mock's, the fixtures')
+    const verified = render(<Statistics pool="eth-100" stats={{ deposits: 1024, latest: [], verified: true }} now={NOW} />);
+    expect(screen.queryByTestId("classic-stats-unverified")).toBeNull();
+    verified.unmount();
+    render(<Statistics pool="eth-100" stats={{ deposits: 1024, latest: [] }} now={NOW} />);
+    expect(screen.queryByTestId("classic-stats-unverified")).toBeNull();
   });
 
   it("Settings: no RPC in this build, the relayers, the honest availability rows; the language is the only thing stored", async () => {

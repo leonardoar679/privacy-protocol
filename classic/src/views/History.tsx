@@ -13,7 +13,15 @@ const toneOf = (s: HistoryRow["status"]): "ok" | "warn" | "off" | "danger" =>
   s === "failed" || s === "FAILED" ? "danger" : s === "deposited" || s === "withdrawn" || s === "CONFIRMED" ? "ok" : "warn";
 const wordOf = (s: HistoryRow["status"]): string => t(`status.${s}` as "status.waiting");
 
-export function History(props: { rows: HistoryRow[]; filter: HistoryFilter; onFilter: (f: HistoryFilter) => void; now: number; onClear?: () => void }) {
+export function History(props: {
+  rows: HistoryRow[];
+  filter: HistoryFilter;
+  onFilter: (f: HistoryFilter) => void;
+  now: number;
+  onClear?: () => void;
+  /** the records live in this page's memory only: the browser refused the device's storage (the critique of C11-5) */
+  pageOnly?: boolean;
+}) {
   const rows = props.rows.filter((r) => (props.filter === "all" ? true : props.filter === "spent" ? r.spent === true : r.spent === false));
   return (
     <Card title={t("history.title")} testId="classic-history">
@@ -34,9 +42,10 @@ export function History(props: { rows: HistoryRow[]; filter: HistoryFilter; onFi
         ))}
       </div>
       {props.rows.length > 0 && props.onClear ? (
-        // the records are this device's (the fourth review round, 2026-11-03): a withdrawal's relayer, job and transaction, kept until cleared here
+        // the records are this device's (the fourth review round, 2026-11-03): a withdrawal's relayer, job and transaction, kept until cleared here —
+        // or this page's only, when the browser refused the device's storage (the eleventh review round's critique of C11-5)
         <p className="tc-text tc-muted" data-testid="classic-history-note">
-          {t("history.deviceNote")}{" "}
+          {t(props.pageOnly ? "history.pageOnlyNote" : "history.deviceNote")}{" "}
           <button type="button" className="tc-link" data-testid="classic-history-clear" onClick={props.onClear}>
             {t("history.clear")}
           </button>

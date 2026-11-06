@@ -23,7 +23,7 @@ import { prover as appProver } from "../prover";
 import { checkPoolContract, routerInstanceState } from "./contract";
 import { gasPriceWei } from "./gas";
 import { PoolHistory, type HistoryStatus, type TreeClient } from "./history";
-import { fromRelayerState, toHistoryRow, type JobRecord } from "./operations";
+import { closedRecord, fromRelayerState, IN_FLIGHT_HOLD_MS, inFlight, noteDigestOf, toHistoryRow, type JobRecord } from "./operations";
 import { RelayerDirectory } from "./relayers";
 import { WalletSession } from "./wallet";
 
@@ -32,9 +32,18 @@ export type ProverLike = Pick<ProverClient, "warm" | "prove" | "verify" | "note"
 
 export interface ClassicServices {
   config: ClassicConfig;
+  /** the configured endpoints, failing over in order */
   rpc: Rpc | null;
-  /** a second endpoint's word, read before a wallet-mode send (the fifth review round, 2026-11-03); null with one endpoint configured */
+  /**
+   * the endpoints after the first (the fifth review round, 2026-11-03; the eleventh, C11-12): their word on a history's root and count at its
+   * sync, on the spent bit at Check on chain and before a wallet-mode send; null with one endpoint configured
+   */
   secondOpinion: Rpc | null;
+  /**
+   * the first configured endpoint alone, for the reads a second opinion checks (the eleventh review round's critique of C11-12): `rpc` fails over,
+   * and the second endpoint had answered for the first, then agreed with itself; `rpc` with one endpoint configured
+   */
+  firstOpinion: Rpc | null;
   prover: () => Promise<ProverLike>;
   histories: Map<PoolId, PoolHistory>;
   relayers: RelayerDirectory;
@@ -67,6 +76,7 @@ export interface ServiceOverrides {
   config?: ClassicConfig;
   rpc?: Rpc | null;
   secondOpinion?: Rpc | null;
+  firstOpinion?: Rpc | null;
   prover?: () => Promise<ProverLike>;
   historyStore?: HistoryStore;
   jobs?: JobsStore;
@@ -109,9 +119,12 @@ export function configuredRelayers(config: ClassicConfig, curated: readonly Cura
 export function createServices(o: ServiceOverrides = {}): ClassicServices {
   const config = o.config ?? readConfig();
   const rpc = o.rpc !== undefined ? o.rpc : config.rpcUrls.length ? makeRpc(config.rpcUrls) : null;
-  // the endpoints after the first, asked once more before a wallet-mode send (the fifth review round, 2026-11-03)
+  // the endpoints after the first: a second word on a history's root and count, and on the spent bit (the fifth review round; the eleventh, C11-12)
   const secondOpinion =
     o.secondOpinion !== undefined ? o.secondOpinion : o.rpc !== undefined ? null : config.rpcUrls.length >= 2 ? makeRpc(config.rpcUrls.slice(1)) : null;
+  // the first endpoint alone beside them (the critique of C11-12): a failover to the second had made it agree with itself
+  const firstOpinion =
+    o.firstOpinion !== undefined ? o.firstOpinion : o.rpc === undefined && config.rpcUrls.length >= 2 ? makeRpc(config.rpcUrls.slice(0, 1)) : rpc;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((l) => l());
   const store = o.historyStore ?? historyStore();
@@ -126,6 +139,14 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
     pathOf: (pool, index) => prover().then((p) => p.pathOf(pool, index)),
     layersOf: (pool) => prover().then((p) => p.layersOf(pool)),
   };
+  const jobs = o.jobs ?? jobsStore();
+  // with a second endpoint, a pool an unsettled relayed withdrawal of the device holds — running in any page, its page closed during it, or
+  // ended before its relayer's outcome — is held on every page, read at each of its syncs (the critique)
+  const heldFrom = (pool: PoolId) => async (): Promise<number> => {
+    let until = 0;
+    for (const job of await jobs.list()) if (job.pool === pool && inFlight(job)) until = Math.max(until, job.updatedAt + IN_FLIGHT_HOLD_MS);
+    return until;
+  };
   const histories = new Map<PoolId, PoolHistory>(
     POOLS.map((p) => [
       p.id,
@@ -135,6 +156,9 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
         address: p.address,
         deployedBlock: config.deployedBlock ?? p.deployedBlock,
         rpc,
+        firstOpinion,
+        secondOpinion,
+        ...(secondOpinion ? { heldFrom: heldFrom(p.id) } : {}),
         tree: treeClient,
         store,
         fetchSnapshot,
@@ -157,16 +181,19 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
   const wallet = o.wallet ?? new WalletSession({ router: DEPLOYMENT.router.address as Hex, expectedChainId: config.chainId, onChange: changed });
   const facts = new Map<PoolId, { contract: ContractFact; router: RouterFact }>(POOL_IDS.map((id) => [id, { contract: "unknown", router: "unknown" }]));
   const checks = new Map<PoolId, Promise<void>>();
+  /** after a read that failed, the next check reads again this long after (C11-10) */
+  const CHECK_RETRY_MS = 5_000;
   const services: ClassicServices = {
     config,
     rpc,
     secondOpinion,
+    firstOpinion,
     prover,
     histories,
     relayers,
     relayerTransport: transport,
     wallet,
-    jobs: o.jobs ?? jobsStore(),
+    jobs,
     depositJobs: o.depositJobs ?? memoryJobsStore(),
     now,
     facts,
@@ -192,6 +219,9 @@ export function createServices(o: ServiceOverrides = {}): ClassicServices {
           ]);
           facts.set(pool, { contract, router });
           changed();
+          // a read that failed is asked again by the next check (the eleventh review round, C11-10): one failed read at the first check had kept
+          // the contract "not verified" for the page
+          if (contract === "unknown" || router === "unknown") setTimeout(() => checks.delete(pool), CHECK_RETRY_MS);
         })();
         checks.set(pool, run);
       }
@@ -274,9 +304,50 @@ async function refreshDepositJobs(s: ClassicServices): Promise<void> {
  * Until then the row reads "reported by the relayer". The relayer's free text is kept short and plain (C10-15).
  */
 const OPEN_RELAYED = new Set(["SUBMITTING", "SOURCE_CONFIRMING", "RECOVERY_REQUIRED"]);
+/**
+ * A relayed submission's answer arrives within the transport's timeout (10 s): a record still submitting with no job this long after is from a page
+ * closed during the submission (the eleventh review round's critique of VC-N1).
+ */
+export const SUBMISSION_LOST_MS = 120_000;
 async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
+  // only a Withdrawal event that names this note completes it (the eleventh review round, 2026-11-04, C11-1): a relayer's CONFIRMED with another
+  // note's withdrawal of the pool had completed the record. Matched through the record's keyed digest, kept while it is open
+  const ours = (job: JobRecord) => (nh: string) => job.noteDigest !== undefined && noteDigestOf(job.id, nh) === job.noteDigest;
   for (const job of await s.jobs.list()) {
+    // a submission whose answer was lost — no job, no transaction (VC-N1) — or whose page closed during it (the critique of VC-N1: such a record
+    // had read "Waiting for receipt" for good): settled from the pool's Withdrawal events once they name this note
+    if (
+      job.kind === "withdrawal" &&
+      job.via === "relayer" &&
+      !job.relayerJobId &&
+      (job.state === "RECOVERY_REQUIRED" || job.state === "SUBMITTING") &&
+      job.noteDigest
+    ) {
+      const h = s.histories.get(job.pool);
+      if (h) await h.ensure().catch(() => undefined);
+      const w = h?.findWithdrawal(ours(job), undefined, job.fromBlock, job.relayerAccount) ?? null;
+      if (w) await s.jobs.put(closedRecord({ ...job, state: "COMPLETED", txHash: w.transactionHash as Hex, updatedAt: s.now() }));
+      else if (job.state === "SUBMITTING" && s.now() - job.updatedAt > SUBMISSION_LOST_MS)
+        await s.jobs.put({
+          ...job,
+          state: "RECOVERY_REQUIRED",
+          updatedAt: s.now(),
+          failedReason: "the page closed before the relayer's answer arrived: check on chain whether the withdrawal went through before trying again",
+        });
+      continue;
+    }
     if (job.kind !== "withdrawal" || !job.relayerUrl || !job.relayerJobId || !OPEN_RELAYED.has(job.state)) continue;
+    // a record with its note's digest is completed by the note's own Withdrawal event whatever the relayer answers now (the critique of
+    // C11-13): a relayer restarted without the job had kept such a record open for good, its digest with it; the relayer is not asked then
+    if (job.noteDigest) {
+      const h = s.histories.get(job.pool);
+      if (h) await h.ensure().catch(() => undefined);
+      const w = h?.findWithdrawal(ours(job), undefined, job.fromBlock, job.relayerAccount) ?? null;
+      if (w) {
+        await s.jobs.put(closedRecord({ ...job, state: "COMPLETED", txHash: w.transactionHash as Hex, updatedAt: s.now() }));
+        continue;
+      }
+    }
     try {
       const j = await jobOf(s.relayerTransport, job.relayerUrl, job.relayerJobId); // never a submission: the job is read, nothing sent
       const txHash = (j.txHash as Hex | null) ?? job.txHash;
@@ -284,16 +355,22 @@ async function refreshRelayedJobs(s: ClassicServices): Promise<void> {
       if (next === "COMPLETED") {
         const h = s.histories.get(job.pool);
         if (h && txHash) await h.ensure().catch(() => undefined);
-        if (!(h && txHash && h.hasWithdrawalTx(txHash))) next = job.state === "SUBMITTING" ? "SOURCE_CONFIRMING" : job.state;
+        if (!(h && txHash && h.findWithdrawal(ours(job), txHash, job.fromBlock, job.relayerAccount)))
+          next = job.state === "SUBMITTING" ? "SOURCE_CONFIRMING" : job.state;
       }
-      await s.jobs.put({
-        ...job,
-        relayerState: j.status,
-        txHash,
-        state: next,
-        updatedAt: s.now(),
-        ...(j.failedReason ? { failedReason: plainText(j.failedReason) } : {}),
-      });
+      // a relayer's FAILED is read against the pool too (the critique of C11-13): a record the flow kept open because the pool reported its note
+      // spent stays open — it had been closed FAILED at the first History visit, its digest dropped — until the note's event, read above, closes it
+      if (next === "FAILED" && job.state === "RECOVERY_REQUIRED" && job.relayerState === "FAILED") next = "RECOVERY_REQUIRED";
+      await s.jobs.put(
+        closedRecord({
+          ...job,
+          relayerState: j.status,
+          txHash,
+          state: next,
+          updatedAt: s.now(),
+          ...(j.failedReason ? { failedReason: plainText(j.failedReason) } : {}),
+        }),
+      );
     } catch {
       // the relayer did not answer: the record stays as it is
     }
@@ -343,7 +420,9 @@ async function refreshWalletWithdrawals(s: ClassicServices): Promise<void> {
       const ok = receipt.status === "0x1";
       const { failedReason: _dropped, ...rest } = job;
       void _dropped;
-      await s.jobs.put({ ...rest, state: ok ? "COMPLETED" : "FAILED", updatedAt: s.now(), ...(ok ? {} : { failedReason: "the transaction reverted" }) });
+      await s.jobs.put(
+        closedRecord({ ...rest, state: ok ? "COMPLETED" : "FAILED", updatedAt: s.now(), ...(ok ? {} : { failedReason: "the transaction reverted" }) }),
+      );
     } catch {
       // the wallet did not answer: the record stays as it is
     }
@@ -400,6 +479,7 @@ export function sourceOf(s: ClassicServices): ClassicSource {
       return availabilityOf(pool, factsOf(s, pool));
     },
     history: rows,
+    recordsPageOnly: () => s.jobs.pageOnly === true,
     async clearHistory(): Promise<void> {
       await s.jobs.clear();
       await s.depositJobs.clear();

@@ -22,24 +22,84 @@ describe("the word policy (spec v3.0 §7.9)", () => {
     ]);
     expect(scan("Anonymity set · Subsequent deposits · Time passed · 100 ETH · 0.1 ETH")).toEqual([]);
   });
-  it("a production build switches a pool function on only when the legal review's record clears it (the tenth review round, C10-15)", async () => {
+  it("a build switches a pool function on only when the legal review's record clears it — its block, and the table people read (the tenth review round, C10-15; the eleventh, C11-4, and its critique)", async () => {
     const { liveGateProblems } = await import("../scripts/live-gate.mjs");
-    const empty = "| Outcome | — |\n| Pool functions cleared | — |";
-    expect(liveGateProblems(undefined, empty)).toEqual([]);
-    expect(liveGateProblems("{}", empty)).toEqual([]);
-    expect(liveGateProblems('{"eth-1":["withdraw"]}', empty)).toEqual([
-      "classic/docs/legal-review.md records no outcome: no pool function may be switched on",
-      "VITE_CLASSIC_LIVE switches eth-1:withdraw on, which classic/docs/legal-review.md does not list as cleared",
+    const SIGNED: Record<string, string> = {
+      "Reviewer (name, qualification, jurisdiction)": "A. Reviewer, counsel",
+      "Date concluded": "2026-12-01",
+      Outcome: "Cleared, with the conditions below",
+      "Pool functions cleared": "`eth-1:withdraw` `eth-10:withdraw`",
+      "Owner's sign-off": "the owner, 2026-12-02",
+    };
+    const BLANK = Object.fromEntries(Object.keys(SIGNED).map((k) => [k, "—"]));
+    const table = (cells: Record<string, string>) => ["| Field | Entry |", "|---|---|", ...Object.entries(cells).map(([k, v]) => `| ${k} | ${v} |`)].join("\n");
+    const record = (outcome: string, cleared: string, cells: Record<string, string> = SIGNED) =>
+      `${table(cells)}\n\n<!-- classic-live-gate\noutcome: ${outcome}\ncleared: ${cleared}\n-->\n`;
+    const none = record("none", "", BLANK);
+    expect(liveGateProblems(undefined, none)).toEqual([]);
+    expect(liveGateProblems("{}", none)).toEqual([]);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', none)).toEqual([
+      'the classic-live-gate block in classic/docs/legal-review.md records the outcome "none": no pool function may be switched on',
+      "VITE_CLASSIC_LIVE switches eth-1:withdraw on, which the classic-live-gate block in classic/docs/legal-review.md does not list as cleared",
     ]);
-    const filled = "| Outcome | cleared with conditions |\n| Pool functions cleared | eth-1:withdraw, eth-10:withdraw |";
+    const filled = record("cleared", "eth-1:withdraw eth-10:withdraw");
     expect(liveGateProblems('{"eth-1":["withdraw"],"eth-10":["withdraw"]}', filled)).toEqual([]);
     expect(liveGateProblems('{"eth-1":["deposit","withdraw"]}', filled)).toEqual([
-      "VITE_CLASSIC_LIVE switches eth-1:deposit on, which classic/docs/legal-review.md does not list as cleared",
+      "VITE_CLASSIC_LIVE switches eth-1:deposit on, which the classic-live-gate block in classic/docs/legal-review.md does not list as cleared",
+    ]);
+    // what the table's loose reading had let through (C11-4): any outcome but "—", a token anywhere in the row, the table alone, two records
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("not cleared", "eth-1:withdraw"))).toEqual([
+      "the classic-live-gate record's outcome is not one of none, cleared, refused",
+    ]);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("refused", "eth-1:withdraw"))[0]).toMatch(/outcome "refused"/);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("cleared", "eth-1:withdraw,eth-10:withdraw"))).toEqual([
+      "the classic-live-gate record clears eth-1:withdraw,eth-10:withdraw, which is no pool:function pair",
+    ]);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("cleared", "eth-1:withdraw:x"))[0]).toMatch(/no pool:function pair/);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', table(SIGNED))).toEqual([
+      "classic/docs/legal-review.md must hold exactly one classic-live-gate record (it holds 0)",
+    ]);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', filled + filled)[0]).toMatch(/it holds 2/);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("cleared", "eth-1:withdraw").replace("cleared: eth-1:withdraw", ""))[0]).toMatch(
+      /names no cleared line/,
+    );
+    // the block sits in an HTML comment the rendered page does not show (the critique of C11-4): a block that clears what the table does not say
+    // is refused — a table of "—", another outcome, other pool functions
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("cleared", "eth-1:withdraw", BLANK))).toEqual(
+      Object.keys(SIGNED).map((f) => `the record's table leaves "${f}" unfilled, while the classic-live-gate block clears pool functions`),
+    );
+    expect(
+      liveGateProblems(
+        '{"eth-1":["withdraw"]}',
+        record("cleared", "eth-1:withdraw", { ...SIGNED, Outcome: "Refused", "Pool functions cleared": "eth-1:withdraw" }),
+      ),
+    ).toEqual(['the record\'s table gives the outcome "Refused", while the classic-live-gate block gives "cleared"']);
+    expect(liveGateProblems('{"eth-1":["withdraw"]}', record("cleared", "eth-1:withdraw"))).toEqual([
+      "the record's table and the classic-live-gate block do not list the same pool functions as cleared",
     ]);
     // the committed record clears nothing today
     const { readFileSync } = await import("node:fs");
-    const record = readFileSync(new URL("../docs/legal-review.md", import.meta.url), "utf8");
-    expect(liveGateProblems('{"eth-100":["withdraw"]}', record).length).toBeGreaterThan(0);
+    const committed = readFileSync(new URL("../docs/legal-review.md", import.meta.url), "utf8");
+    expect(liveGateProblems('{"eth-100":["withdraw"]}', committed).length).toBeGreaterThan(0);
+  });
+
+  it("every build is held to NODE_ENV=production and to the legal record, whatever its mode (the eleventh review round, C11-4, F11-3, and its critique)", async () => {
+    // through a specifier tsc does not follow: the build config stays outside the typed program, as before
+    const configModule = "../vite.config";
+    const { default: config } = (await import(/* @vite-ignore */ configModule)) as { default: unknown };
+    const make = config as (e: { mode: string; command: string }) => unknown;
+    const saved = { NODE_ENV: process.env.NODE_ENV, VITE_CLASSIC_LIVE: process.env.VITE_CLASSIC_LIVE };
+    try {
+      delete process.env.NODE_ENV;
+      expect(() => make({ mode: "staging", command: "build" })).toThrow(/needs NODE_ENV=production/);
+      process.env.NODE_ENV = "production";
+      process.env.VITE_CLASSIC_LIVE = '{"eth-1":["withdraw"]}';
+      expect(() => make({ mode: "staging", command: "build" })).toThrow(/not cleared by the legal review/);
+    } finally {
+      for (const [k, v] of Object.entries(saved))
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+    }
   });
 
   it("the app's sources say no promise word", () => {

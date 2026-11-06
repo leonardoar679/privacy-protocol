@@ -27,6 +27,8 @@ export interface SyncState {
   /** when the root was last held to the chain (ms since the epoch), and the result */
   verifiedAt?: number;
   verified?: boolean;
+  /** this device built the tree from its leaves (the eleventh review round, C11-2): a copy without it is hashed once before it is trusted */
+  hashed?: true;
 }
 
 export interface StoredHistory {
@@ -45,6 +47,8 @@ export interface HistoryStore {
 }
 
 export interface JobsStore {
+  /** the records live in this page's memory only — the fallback, or no IndexedDB (the eleventh review round's critique of C11-5): History says so */
+  readonly pageOnly?: boolean;
   list(): Promise<JobRecord[]>;
   put(job: JobRecord): Promise<void>;
   remove(id: string): Promise<void>;
@@ -66,17 +70,52 @@ const done = (tx: IDBTransaction): Promise<void> =>
     tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"));
   });
 
+/** The platform refused the database (a private window, blocked site data, a quota): the stores fall back to memory (C11-5). */
+export class DatabaseRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DatabaseRefused";
+  }
+}
+
+/** How long an opening blocked by another tab's connection is waited for before the stores fall back to memory (C11-5). */
+export const BLOCKED_WAIT_MS = 5_000;
+
 export function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const open = factory.open(HISTORY_DB, DB_VERSION);
+    let gaveUp = false;
+    let blocked: ReturnType<typeof setTimeout> | null = null;
+    let open: IDBOpenDBRequest;
+    // a refusal thrown at once is a refusal too (the critique of C11-5): with the site's data blocked, open() itself throws a SecurityError
+    try {
+      open = factory.open(HISTORY_DB, DB_VERSION);
+    } catch (e) {
+      reject(new DatabaseRefused(e instanceof Error ? e.message : "IndexedDB could not be opened"));
+      return;
+    }
     open.onupgradeneeded = () => {
       const db = open.result;
       if (!db.objectStoreNames.contains(HISTORY_STORE)) db.createObjectStore(HISTORY_STORE);
       if (!db.objectStoreNames.contains(JOBS_STORE)) db.createObjectStore(JOBS_STORE, { keyPath: "id" });
     };
-    open.onsuccess = () => resolve(open.result);
-    open.onerror = () => reject(open.error ?? new Error("IndexedDB could not be opened"));
-    open.onblocked = () => reject(new Error("IndexedDB is blocked by another tab"));
+    open.onsuccess = () => {
+      if (blocked) clearTimeout(blocked);
+      // opened after the wait gave up: the page already uses memory, and this connection would block the next upgrade
+      if (gaveUp) return open.result.close();
+      resolve(open.result);
+    };
+    open.onerror = () => {
+      if (blocked) clearTimeout(blocked);
+      reject(new DatabaseRefused(open.error?.message ?? "IndexedDB could not be opened"));
+    };
+    // blocked waits, for a while (the eleventh review round, C11-5): another tab's connection closes on the versionchange and the open then
+    // succeeds; one that never closes (an older build's tab) is waited for BLOCKED_WAIT_MS, then the stores fall back to memory
+    open.onblocked = () => {
+      blocked ??= setTimeout(() => {
+        gaveUp = true;
+        reject(new DatabaseRefused("IndexedDB is blocked by another tab"));
+      }, BLOCKED_WAIT_MS);
+    };
   });
 }
 
@@ -87,13 +126,20 @@ const databaseOf = (factory: IDBFactory): Promise<IDBDatabase> => {
   if (!db) {
     // closed when another tab deletes or upgrades the database (the tenth review round, D-9): the Privacy Wallet's Forget deletes this one,
     // and an open Classic tab had blocked it; the next use opens it again
-    const opening = openDatabase(factory).then((open) => {
-      open.onversionchange = () => {
-        open.close();
+    const opening = openDatabase(factory).then(
+      (open) => {
+        open.onversionchange = () => {
+          open.close();
+          if (databases.get(factory) === opening) databases.delete(factory);
+        };
+        return open;
+      },
+      (e: unknown) => {
+        // a refused opening is not kept for the page (C11-5): the next use asks again, or the store falls back to memory
         if (databases.get(factory) === opening) databases.delete(factory);
-      };
-      return open;
-    });
+        throw e;
+      },
+    );
     db = opening;
     databases.set(factory, opening);
   }
@@ -141,6 +187,7 @@ export function indexedDbHistoryStore(factory: IDBFactory | undefined = platform
 export function indexedDbJobsStore(factory: IDBFactory | undefined = platformFactory()): JobsStore {
   if (!factory) throw new Error("IndexedDB is not available here");
   return {
+    pageOnly: false,
     async list() {
       const tx = (await databaseOf(factory)).transaction(JOBS_STORE, "readonly");
       const all = (await request(tx.objectStore(JOBS_STORE).getAll())) as JobRecord[];
@@ -182,6 +229,7 @@ export function memoryHistoryStore(): HistoryStore {
 export function memoryJobsStore(): JobsStore {
   const map = new Map<string, JobRecord>();
   return {
+    pageOnly: true,
     list: async () => [...map.values()].sort((a, b) => a.createdAt - b.createdAt),
     put: async (job) => {
       map.set(job.id, job);
@@ -195,10 +243,34 @@ export function memoryJobsStore(): JobsStore {
   };
 }
 
-/** IndexedDB when the platform has it, memory otherwise. */
+/**
+ * A store over IndexedDB that falls back to its memory twin at the first refused opening, for the page (the eleventh review round, 2026-11-04,
+ * C11-5): a refused database had been kept as refused — no history and no withdrawal, while deposits went through.
+ */
+function withFallback<S extends object>(primary: S, memory: () => S): S {
+  let use: S | null = null;
+  return new Proxy(primary, {
+    get(target, key) {
+      const own = Reflect.get(use ?? target, key);
+      if (typeof own !== "function") return own;
+      return async (...args: unknown[]) => {
+        if (use) return (Reflect.get(use, key) as (...a: unknown[]) => unknown).apply(use, args);
+        try {
+          return await (own as (...a: unknown[]) => unknown).apply(target, args);
+        } catch (e) {
+          if (!(e instanceof DatabaseRefused)) throw e;
+          use = memory();
+          return (Reflect.get(use, key) as (...a: unknown[]) => unknown).apply(use, args);
+        }
+      };
+    },
+  });
+}
+
+/** IndexedDB when the platform has it — memory when it has none or refuses it. */
 export function historyStore(): HistoryStore {
   try {
-    return indexedDbHistoryStore();
+    return withFallback(indexedDbHistoryStore(), memoryHistoryStore);
   } catch {
     return memoryHistoryStore();
   }
@@ -206,7 +278,7 @@ export function historyStore(): HistoryStore {
 
 export function jobsStore(): JobsStore {
   try {
-    return indexedDbJobsStore();
+    return withFallback(indexedDbJobsStore(), memoryJobsStore);
   } catch {
     return memoryJobsStore();
   }

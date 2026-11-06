@@ -527,13 +527,22 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     the wallet's own call check refuses a mismatched call. Short rotation windows are the operational answer; a key id in the vouch
     tag and the normalized request body in the restore text the structural one.
 76. **V7 — Classic with one RPC endpoint trusts it alone (the fifth review round, 2026-11-03; stated on the screen).** With two or
-    more endpoints a wallet-mode send asks the second about the root and the spent bit; with one, a lying endpoint can have the
+    more endpoints the history's root and count are held to both at every sync (the eleventh review round, C11-12) and a wallet-mode
+    send asks the second about the spent bit; with one, a lying endpoint can have a history verified that hides a deposit, and have the
     user's own `withdraw` revert on `isKnownRoot` (some 300,000 gas) and publish the nullifier hash beside the recipient before any
-    withdrawal — the deposit itself is never at risk. Since the tenth review round a relayed submission asks the second endpoint about the proof's root
-    too: tornado-relayer 4.x checks no root and no proof of its own (`classic/docs/compatibility-matrix.md` §4), so with one endpoint
-    a relayed job on an invented root may be mined as a revert at the relayer's cost and publish the same (this gap had said the
-    relayer route refuses such a job for free; C10-14). Configuring two endpoints is
-    the deployment's choice (`VITE_CLASSIC_RPC_URLS`).
+    withdrawal — the deposit itself is never at risk. tornado-relayer 4.x checks no root and no proof of its own
+    (`classic/docs/compatibility-matrix.md` §4), so with one endpoint a relayed job on an invented root may be mined as a revert at the
+    relayer's cost and publish the same (this gap had said the relayer route refuses such a job for free; C10-14). The tenth review round
+    asked the second endpoint about a relayed proof's root before the submission; since the eleventh (C11-9 and its critique) the second
+    is not asked at a relayed withdrawal's moment: the proof's root is its history's, held to both at the history's sync, the pool's
+    history is held from syncing while a relayed withdrawal runs, the reads that name the note or the proof's root go to the first
+    endpoint alone (never through the failover; a silent one refuses), and a relayed withdrawal whose root aged out (the history's root
+    is checked before the proof, the proof's after it) is refused rather than proved again on one endpoint's word. Two moments remain when
+    the second endpoint may learn the root a relayed withdrawal uses before it is on chain: the retry's sync after that refusal (both
+    endpoints asked), and the sync after a flow that ended before its relayer's outcome (its answer lost, its job no longer followed),
+    which keeps the pool held 15 minutes first (every page of the device takes the hold from its records at each sync while a relayed
+    withdrawal of the pool is unsettled — running in another tab, its page closed during it, or ended so; Check on chain asks the first
+    endpoint alone while it lasts). Configuring two endpoints is the deployment's choice (`VITE_CLASSIC_RPC_URLS`).
 77. **V7 — CI runs the gate without the real inputs, and builds a bundle that is not the release's (the sixth review round,
     2026-11-03; the owner's).** The circuit artifacts, the core WASM and the zkAPI clone are not on the CI machine: the pins
     step passed on "skipped" rows, the artifact emitter built the stub, and a pull request could have rewritten a proving key's

@@ -39,8 +39,9 @@ gate here says what may be switched on at all.
 ## Switching a function on
 
 1. Every rung of the row green, the fork rung included, at a block recorded in the matrix.
-2. `legal-review.md` filled in: the reviewer, the date, the scope, the outcome, the conditions; the compliance switches
-   as the review decides.
+2. `legal-review.md` filled in: the reviewer, the date, the scope, the outcome, the conditions, the pool functions cleared and
+   the owner's sign-off; the compliance switches as the review decides; and its `classic-live-gate` block set to the same
+   outcome and pool functions (the build refuses a block the table does not match, and a table without the block).
 3. The build's `VITE_CLASSIC_LIVE` names the pool and the function (`{"eth-1":["withdraw"]}`); nothing else changes.
    `VITE_CLASSIC_DEPLOYED_BLOCK` and `VITE_CLASSIC_RELAYERS_CURATED=0` are development settings a production build refuses.
 4. `npm run build`, `npm run check-build`, `verify-all --live --browser`; the host's headers checked (docs/deployment.md,

@@ -22,6 +22,7 @@ import { SELECTORS } from "../src/history/verify";
 import { availabilityOf, canDeposit, canWithdraw, type AvailabilityFacts } from "../src/model/availability";
 import type { RelayerAnswer, RelayerTransport } from "../src/relayer/client";
 import { memoryHistoryStore } from "../src/storage/historyDb";
+import { pinOf, type TreeFile } from "../src/history/snapshot";
 import { depositLog, fakeTrees, fixtureSnapshot, hex32, POOL_100, scriptedChain, word } from "./helpers/fakes";
 import status from "./fixtures/relayers/status.json";
 
@@ -83,7 +84,8 @@ describe("a pool's history", () => {
     const s = await h.ensure();
     expect(s).toMatchObject({ kind: "ready", verified: true, leaves: 1026, toBlock: head - 12 });
     expect(statuses).toEqual(["loading:stored", "loading:snapshot", "loading:tree", "loading:sync", "loading:sync", "loading:verify", "ready"]);
-    expect(trees.calls).toEqual(["load", "append"]);
+    // built from the snapshot's leaves, never loaded from its layers (the eleventh review round, C11-2)
+    expect(trees.calls).toEqual(["build", "append"]);
     expect(h.stats().deposits).toBe(1026);
     expect(h.stats().latest[0]).toEqual({ leafIndex: 1025, timestamp: 1_700_001_025 });
     expect(h.lookup(deposits[5].commitment, hex32(1n))).toMatchObject({ leafIndex: 5, depositsSince: 1020, spent: false });
@@ -172,6 +174,78 @@ describe("a pool's history", () => {
     expect((await first.store.read("eth-100"))!.layers[3][1], "the stored copy is consistent again").toBe(good.layers[3][1]);
     expect(await second.h.pathFor(5), "the second ask needs no rebuild").toEqual(path);
     expect(second.trees.calls.filter((c) => c === "build")).toHaveLength(1);
+  });
+
+  it("a served snapshot is hashed from its deposits, never loaded from its layers: one commitment swapped under the real inner nodes and root is refused (the eleventh review round, C11-2)", async () => {
+    const forged = deposits.map((d, i) => (i === 5 ? { ...d, commitment: hex32(4_444n) } : d));
+    const file = JSON.parse(snap.texts["tree.json"]) as TreeFile;
+    const layers = file.layers.map((l) => [...l]);
+    layers[0][5] = hex32(4_444n); // the leaves' list agrees with the deposits; every inner node and the root are the real ones
+    const texts = { ...snap.texts, "deposits.json": JSON.stringify(forged), "tree.json": JSON.stringify({ ...file, layers }) };
+    const manifest = {
+      ...snap.manifest,
+      files: {
+        ...snap.manifest.files,
+        "deposits.json": await pinOf(texts["deposits.json"], forged.length),
+        "tree.json": await pinOf(texts["tree.json"]),
+      },
+    };
+    const realRoot = snap.manifest.root.toLowerCase();
+    const chain = scriptedChain({
+      head: TO_BLOCK + 112,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      knownRoots: (r) => r.toLowerCase() === realRoot,
+      blockHashes: realHash,
+    });
+    const { h, trees, store } = history({ rpc: chain.rpc, fetchSnapshot: async () => ({ manifest, texts }) });
+    // before: the layers loaded as served, the root the chain's — verified, and deposit 5's note "no deposit" for good
+    expect(await h.ensure()).toMatchObject({ kind: "failed", reason: expect.stringMatching(/deposits do not hash to its root/) });
+    expect(trees.calls).toEqual(["build"]);
+    expect(await store.read("eth-100"), "nothing kept").toBeNull();
+  });
+
+  it("a stored copy from before the rule is hashed from its deposits once, and one whose deposit was swapped is dropped for what is served (the eleventh review round, C11-2)", async () => {
+    const head = TO_BLOCK + 112;
+    const realRoot = snap.manifest.root.toLowerCase();
+    const chainFor = () =>
+      scriptedChain({ head, logs: [[]], nextIndex: 1024, knownRoot: true, knownRoots: (r) => r.toLowerCase() === realRoot, blockHashes: realHash });
+    const first = history({ rpc: chainFor().rpc });
+    expect(await first.h.ensure()).toMatchObject({ kind: "ready", verified: true });
+    const good = (await first.store.read("eth-100"))!;
+    expect(good.state.hashed, "a copy this device built says so").toBe(true);
+    // (a) an honest copy from before the rule: hashed once at the load, then kept as hashed
+    const unmarked = { ...good.state };
+    delete unmarked.hashed;
+    await first.store.write("eth-100", { ...good, state: unmarked });
+    const second = history({
+      rpc: chainFor().rpc,
+      store: first.store,
+      fetchSnapshot: async () => {
+        throw new Error("the snapshot must not be fetched");
+      },
+    });
+    expect(await second.h.ensure()).toMatchObject({ kind: "ready", verified: true });
+    expect(second.trees.calls[0]).toBe("build");
+    expect((await first.store.read("eth-100"))!.state.hashed).toBe(true);
+    const third = history({ rpc: chainFor().rpc, store: first.store });
+    await third.h.ensure();
+    expect(third.trees.calls[0], "hashed once: loaded since").toBe("load");
+    // (b) a copy from before the rule whose deposit 5 was swapped under the real layers: before, it loaded from its layers, verified, and
+    // deposit 5 was never found; now its deposits hash to a root the chain does not know, and what is served replaces it
+    const layers = good.layers.map((l) => [...l]);
+    layers[0][5] = hex32(4_444n);
+    await first.store.write("eth-100", {
+      ...good,
+      state: unmarked,
+      layers,
+      deposits: good.deposits.map((d, i) => (i === 5 ? { ...d, commitment: hex32(4_444n) } : d)),
+    });
+    const fourth = history({ rpc: chainFor().rpc, store: first.store });
+    expect(await fourth.h.ensure()).toMatchObject({ kind: "ready", verified: true });
+    expect(fourth.statuses).toContain("loading:snapshot");
+    expect(fourth.h.lookup(deposits[5].commitment, hex32(1n))).toMatchObject({ leafIndex: 5 });
   });
 
   it("without an endpoint: ready but unverified, saying why; the path of a leaf still answers", async () => {
@@ -263,10 +337,12 @@ describe("a pool's history", () => {
     expect(await store.read("eth-100"), "the layers are on the device").not.toBeNull();
     const path = await h.pathFor(5);
     expect(path.pathElements).toHaveLength(20);
+    // the served snapshot hashed from its leaves at the start (the eleventh review round, C11-2), and the device's own copy — built here, so
+    // trusted as it is — loaded again after the loss
     expect(
-      trees.calls.filter((c) => c === "load"),
-      "loaded once at the start, once again after the loss",
-    ).toHaveLength(2);
+      trees.calls.filter((c) => c === "load" || c === "build"),
+      "built once at the start, loaded again after the loss",
+    ).toEqual(["build", "load"]);
   });
   it("a checkpoint that fell rolls the history back to the newest that stands, then syncs again", async () => {
     const head = TO_BLOCK + 12 + 100;
@@ -442,9 +518,10 @@ describe("the availability rows and what they allow", () => {
     expect(none.wallet).toEqual({ state: "off", text: "availability.walletNotConnected" });
     expect(availabilityOf("eth-1", { ...all, contract: "differs" }).contract).toEqual({ state: "off", text: "availability.contractDiffers" });
     expect(availabilityOf("eth-1", { ...all, router: "disabled" }).router.state).toBe("warn");
+    // synced, and the chain or the endpoints did not vouch for it: never "not synced" (the eleventh review round's critique of C11-12)
     expect(availabilityOf("eth-1", { ...all, history: { kind: "ready", toBlock: 5, verified: false } }).history).toEqual({
       state: "warn",
-      text: "availability.historyUnverified",
+      text: "availability.historyNotVerified",
     });
     expect(availabilityOf("eth-1", { ...all, wallet: { status: "wrong-network", account: "0x1", chainId: 5 } }).wallet.text).toBe(
       "availability.walletWrongNetwork",

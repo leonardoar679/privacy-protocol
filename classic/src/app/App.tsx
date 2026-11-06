@@ -23,13 +23,14 @@ import { History, type HistoryFilter } from "../views/History";
 import { SettingsPage } from "../views/Settings";
 import { Shell } from "../views/Shell";
 import { Statistics } from "../views/Statistics";
-import { WithdrawTab } from "../views/Withdraw";
+import { WithdrawTab, type SpentOnChain } from "../views/Withdraw";
 import { Notice } from "../views/ui";
 import { en } from "./i18n/en";
 import { detectLocale, locale, onLocale, setLocale, t, type LocaleChoice } from "./i18n/messages";
 import { navigate, useRoute } from "./router";
 import { geofenceAnswer, isSanctioned } from "./services/compliance";
-import { depositFlow, REVERTED, withdrawalFlow, type ProofTerms } from "./services/flows";
+import { depositFlow, FlowRefused, REVERTED, withdrawalFlow, type ProofTerms } from "./services/flows";
+import { STALE_MS } from "./services/history";
 import type { JobRecord } from "./services/operations";
 import { isSpentOnChain } from "../history/spent";
 import { createServices, factsOf, sourceOf, type ClassicServices, anyLive } from "./services/source";
@@ -254,7 +255,8 @@ export function App(props: AppProps = {}) {
   const malformed = parsed !== null && !parsed.ok;
   const [lookup, setLookup] = useState<NoteLookup | null>(null);
   const [checking, setChecking] = useState(false);
-  const [spentOnChain, setSpentOnChain] = useState<"spent" | "unspent" | "checking" | null>(null);
+  const [spentOnChain, setSpentOnChain] = useState<SpentOnChain | null>(null);
+  const [spentAlone, setSpentAlone] = useState(false);
   useEffect(() => {
     setSpentOnChain(null);
     if (!parsed || !parsed.ok) {
@@ -298,6 +300,14 @@ export function App(props: AppProps = {}) {
   const recipientToken = recipientRefused === "token" ? tokenOfRecipient(recipient) : null;
   const withdrawLive = found ? isLive(c, found.pool, "withdraw") : false;
   const historyVerified = found ? (services ? services.histories.get(found.pool)?.verified === true : true) : false;
+  // a history an endpoint left unverified for this page is asked again every minute while its note is on screen (the critique of C11-12: one
+  // silence had left the Withdraw button disabled for good, under words that promised a check nothing scheduled)
+  useEffect(() => {
+    const h = found && services?.rpc ? services.histories.get(found.pool) : undefined;
+    if (!h || historyVerified) return;
+    const timer = setTimeout(() => void h.refresh(), STALE_MS);
+    return () => clearTimeout(timer);
+  }, [services, found, historyVerified, version]);
   // one withdrawal flow at a time (C2-4): the button had come back the moment the confirmation opened, and a second click meant a
   // second proof and a second submission of the same note
   const [flowRunning, setFlowRunning] = useState(false);
@@ -384,19 +394,30 @@ export function App(props: AppProps = {}) {
           }),
         onStep: (s) => {
           if (s.step === "following") setFlowMessage(t("withdraw.following", { state: s.relayerState }));
-          if (s.step === "submitting") setSubmitted(true);
+          if (s.step === "submitting" && via === "relayer") setSubmitted(true); // wallet mode has its own words (the critique)
         },
         onJob: () => setHistoryVersion((v) => v + 1),
       });
-      if (job.state === "FAILED") setFlowMessage(t("withdraw.failed", { reason: job.failedReason ?? "" }));
+      if (job.state === "FAILED") setFlowMessage(t("withdraw.failed", { reason: job.failedKey ? t(job.failedKey) : (job.failedReason ?? "") }));
       else if (job.state === "RECOVERY_REQUIRED")
-        setFlowMessage(t(job.via === "wallet" ? "withdraw.receiptLost" : "withdraw.answerLost")); // the relayer's answer (C2-3), or the receipt, did not arrive
+        // the relayer's answer (C2-3), or the receipt, did not arrive; or the relayer reported FAILED for a note the pool reports spent (C11-13)
+        setFlowMessage(
+          t(
+            job.via === "wallet"
+              ? "withdraw.receiptLost"
+              : job.relayerState === "FAILED"
+                ? job.spentUnread
+                  ? "withdraw.failedUnchecked"
+                  : "withdraw.failedButSpent"
+                : "withdraw.answerLost",
+          ),
+        );
       else if (job.state === "CANCELLED") setFlowMessage(t("withdraw.cancelled"));
       else if (job.relayerState === "CONFIRMED" && job.state !== "COMPLETED")
-        setFlowMessage(t("withdraw.reported")); // C10-3
+        setFlowMessage(t(job.spentUnread ? "withdraw.reportedUnchecked" : "withdraw.reported")); // C10-3; the pool not asked (the critique)
       else if (job.via === "wallet" && job.txHash) setFlowMessage(t("withdraw.sentToWallet"));
     } catch (e) {
-      setFlowMessage(t("withdraw.failed", { reason: e instanceof Error ? e.message : "" }));
+      setFlowMessage(t("withdraw.failed", { reason: e instanceof FlowRefused && e.key ? t(e.key) : e instanceof Error ? e.message : "" }));
     } finally {
       setProving(false);
       setFlowRunning(false);
@@ -419,7 +440,34 @@ export function App(props: AppProps = {}) {
     try {
       const derived = await (await services.prover()).note(formatNote(parsed.note));
       if (!derived.ok) throw new Error("the note is not readable");
-      setSpentOnChain((await isSpentOnChain(services.rpc, poolOf(looked.pool).address, derived.nullifierHash)) ? "spent" : "unspent");
+      // both endpoints, when two are configured (the eleventh review round, C11-12): the first one's word alone had decided "spent". The first is
+      // asked alone — its failover had let the second answer for it — and a second that does not answer is said so, never "disagree" (the critique)
+      const address = poolOf(looked.pool).address;
+      const firstRpc = services.secondOpinion ? (services.firstOpinion ?? services.rpc) : services.rpc;
+      // while the pool is held — a relayed withdrawal may still be published — the first endpoint is asked alone (the critique): the second
+      // asked the nullifier hash now would tie this page to that withdrawal
+      const alone = !!services.secondOpinion && (services.histories.get(looked.pool)?.isHeld() ?? false);
+      setSpentAlone(alone);
+      const [first, second] = await Promise.all([
+        isSpentOnChain(firstRpc, address, derived.nullifierHash).catch(() => null),
+        services.secondOpinion && !alone
+          ? isSpentOnChain(services.secondOpinion, address, derived.nullifierHash).catch(() => null)
+          : Promise.resolve(undefined),
+      ]);
+      // an endpoint that does not answer is said so, the first one too (the critique): the screen had shown nothing at all
+      setSpentOnChain(
+        first === null
+          ? services.secondOpinion
+            ? "first-silent"
+            : "rpc-silent"
+          : second === null
+            ? "silent"
+            : second !== undefined && second !== first
+              ? "disagree"
+              : first
+                ? "spent"
+                : "unspent",
+      );
     } catch {
       setSpentOnChain(null);
     }
@@ -452,13 +500,19 @@ export function App(props: AppProps = {}) {
   }, [source, pool, version]);
 
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  // the records live in this page's memory only when the browser refused its storage (the critique of C11-5): History says so
+  const [historyPageOnly, setHistoryPageOnly] = useState(false);
   const [filter, setFilter] = useState<HistoryFilter>("all");
   useEffect(() => {
     if (route !== "history") return;
     let on = true;
     void source
       .history()
-      .then((h) => on && setHistory(h))
+      .then((h) => {
+        if (!on) return;
+        setHistory(h);
+        setHistoryPageOnly(source.recordsPageOnly?.() ?? false);
+      })
       .catch(() => undefined);
     return () => {
       on = false;
@@ -547,7 +601,8 @@ export function App(props: AppProps = {}) {
           submitted={submitted}
           onCheckSpent={services?.rpc ? () => void checkSpent() : undefined}
           spentOnChain={spentOnChain}
-          historyNotice={found && services && !historyVerified ? t("withdraw.historyNotVerified") : null}
+          spentAlone={spentAlone}
+          historyNotice={found && services && !historyVerified ? t(services.rpc ? "withdraw.historyNotVerified" : "withdraw.historyNoRpc") : null}
           flowMessage={flowMessage}
         />
       ) : null}
@@ -558,6 +613,7 @@ export function App(props: AppProps = {}) {
           onFilter={setFilter}
           now={now}
           onClear={() => void source.clearHistory().then(() => setHistoryVersion((v) => v + 1))}
+          pageOnly={historyPageOnly}
         />
       ) : null}
       {route === "settings" ? (

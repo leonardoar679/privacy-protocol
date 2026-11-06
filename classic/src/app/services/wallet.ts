@@ -9,6 +9,12 @@ import { encodePoolDeposit, encodePoolWithdraw, encodeRouterDeposit, type Withdr
 import { connect, reconnect, sendTransaction, stateOf, watch, MAINNET_CHAIN_ID } from "../../wallet/connection";
 import { discoverWallets, type DiscoveredWallet, type Eip1193Provider } from "../../wallet/injected";
 
+/** The account a send leaves from is the one screened (the eleventh review round, 2026-11-04, C11-7): another, switched to since, sends nothing. */
+function assertSameAccount(from: string, account: string | undefined): void {
+  if (account !== undefined && from.toLowerCase() !== account.toLowerCase())
+    throw new Error("the connected account changed since it was screened: nothing is sent");
+}
+
 export interface WalletSessionDeps {
   discover?: () => Promise<DiscoveredWallet[]>;
   expectedChainId?: number;
@@ -101,16 +107,22 @@ export class WalletSession {
   }
 
   /** The deposit: through the router by default; straight to the pool only when asked (the router disabled the instance). */
-  async sendDeposit(pool: Pool, commitment: `0x${string}`, { direct = false }: { direct?: boolean } = {}): Promise<`0x${string}`> {
+  async sendDeposit(
+    pool: Pool,
+    commitment: `0x${string}`,
+    { direct = false, account }: { direct?: boolean; account?: `0x${string}` } = {},
+  ): Promise<`0x${string}`> {
     const { provider, from } = this.connected();
+    assertSameAccount(from, account);
     const to = direct ? pool.address : this.d.router;
     const data = direct ? encodePoolDeposit(commitment) : encodeRouterDeposit(pool.address, commitment);
     return sendTransaction(provider, { from, to, data, valueWei: pool.denominationWei }, this.d.expectedChainId ?? MAINNET_CHAIN_ID);
   }
 
   /** The wallet-mode withdrawal, straight to the pool: no relayer, no fee, no refund. */
-  async sendWithdrawal(pool: Pool, args: WithdrawArgs): Promise<`0x${string}`> {
+  async sendWithdrawal(pool: Pool, args: WithdrawArgs & { account?: `0x${string}` }): Promise<`0x${string}`> {
     const { provider, from } = this.connected();
+    assertSameAccount(from, args.account);
     return sendTransaction(provider, { from, to: pool.address, data: encodePoolWithdraw(args), valueWei: 0n }, this.d.expectedChainId ?? MAINNET_CHAIN_ID);
   }
 }

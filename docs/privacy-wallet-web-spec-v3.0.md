@@ -537,6 +537,21 @@ user's own `withdraw` revert and publish the nullifier hash beside the recipient
 user's trust (audit gap 76). The prover worker is closed once a withdrawal's record is terminal, and websnark's sub-workers
 zero their scratch before resetting their allocation pointer: the witness carries the note's nullifier and secret.
 
+**As landed (the eleventh review round, 2026-11-05).** With two or more endpoints the second's word is taken at the history's syncs
+(the root and the count at the history's block) and at Check on chain (the spent bit), not at a relayed withdrawal's moment (C11-9):
+the pool's history is held from syncing from the Withdraw click to the flow's end; a wallet-mode send still asks it the spent bit
+right before the send. The reads that name the note or the proof's root go to the first endpoint alone — a silent one refuses, nothing
+is sent — and a relayed withdrawal whose root aged out (checked before the proof and after it) is refused rather than proved again on one
+endpoint's word; its retry starts on a history synced once more, both endpoints asked, and a flow that ended before its relayer's
+outcome keeps the pool held 15 minutes more — on every page of the device, from its records read at each sync, as does one running in
+another tab or whose page closed during it — and Check on chain then asks the first endpoint alone. A disagreement or a silence of the
+second endpoint leaves the history
+unverified for the page, asked again every minute while its note is on screen; only the first endpoint's refusal marks the device's
+copy refused. The prover's worker is retired when a withdrawal ends: it
+answers what was sent to it and ends, and later requests go to a fresh worker whose prover waits for it to be gone. History completes a
+relayed record only on a Withdrawal event naming its own note, paid to its relayer (C11-1); the flow completes it on the relayer's
+CONFIRMED and the pool's spent bit (C10-3).
+
 **As landed (Stage 8, 2026-10-26).** The relayer protocol lives in `classic/src/relayer/`: `schema.ts` parses GET
 `/v1/status`, GET `/v1/jobs/:id` and the POST `/v1/tornadoWithdraw` body with zod — `health.status` is read as the
 string "true" or "false" the relayer software sends (a boolean is read too; the former in-app schema wanted a boolean

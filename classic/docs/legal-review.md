@@ -3,7 +3,8 @@
 **Status:** not started. The owner's item (decision 9 of 2026-10-26: live deposits and withdrawals only after the legal
 review is recorded **and** the per-pool technical gates pass; the original interface's sanctions-oracle check and
 geofence implemented behind switches, off by default). This file is the record the release gate reads
-(`release-gate.md`, the Legal column): until it is filled in, every build keeps every pool function off.
+(`release-gate.md`, the Legal column): until it is filled in — the table and the block under it — every build keeps every
+pool function off.
 
 This document does not assess legality and the engineering pass made no legal determination. It lists what the review
 has to answer and where its answers take effect.
@@ -35,6 +36,17 @@ has to answer and where its answers take effect.
 
 A filled-in record is committed with the build hash it applies to; `release-gate.md` and `docs/roadmap.md` cite it.
 
-The build reads this record (the tenth review round, 2026-11-04: `classic/scripts/live-gate.mjs`, called by `vite.config.ts`): a
-production build whose `VITE_CLASSIC_LIVE` switches any pool function on is refused unless the **Outcome** row holds an entry and the
-**Pool functions cleared** row lists every switched-on function as `pool:function` (for example `eth-1:withdraw eth-10:withdraw`).
+The build reads the block below and holds the table to it (the eleventh review round, 2026-11-04): `outcome` is one of none, cleared,
+refused; `cleared` lists exact `pool:function` pairs (pools eth-0.1, eth-1, eth-10, eth-100; functions deposit, withdraw), separated by
+spaces. A block that clears pool functions needs the table's reviewer, date, outcome (beginning "Cleared"), pool functions cleared (the
+same pairs) and owner's sign-off filled in: the block sits in an HTML comment, which the rendered page does not show.
+
+<!-- classic-live-gate
+outcome: none
+cleared:
+-->
+
+The build reads this record (the tenth review round, 2026-11-04: `classic/scripts/live-gate.mjs`, called by `vite.config.ts`; its block since
+the eleventh): any build whose `VITE_CLASSIC_LIVE` switches a pool function on is refused unless the block's `outcome` is `cleared`, its
+`cleared` line lists every switched-on function as `pool:function` (for example `eth-1:withdraw eth-10:withdraw`), and the table above
+says the same.

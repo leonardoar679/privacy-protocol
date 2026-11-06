@@ -15,6 +15,8 @@ import { createServices, type ClassicServices } from "../src/app/services/source
 import { WalletSession } from "../src/app/services/wallet";
 import { applyConfig, configFromEnv } from "../src/config";
 import type { DepositEvent, RawLog } from "../src/history/events";
+import type { Rpc } from "../src/history/sync";
+import { SELECTORS as VIEW } from "../src/history/verify";
 import { formatNote, generateNote, parseNote, type ClassicNote } from "../src/model/notes";
 import { fromWei } from "../src/model/format";
 import { DEPLOYMENT } from "../src/model/pools";
@@ -52,10 +54,13 @@ const PIN_CALLS: Record<string, string> = {
   [selOf("instances(address)")]: `0x${word(0)}${word(0)}${word(1)}${word(0)}${word(30)}`,
 };
 
-function build(live: Record<string, string[]>, o: { logs?: RawLog[][] } = {}) {
+function build(
+  live: Record<string, string[]>,
+  o: { logs?: RawLog[][]; secondOpinion?: Rpc | null; firstOpinion?: Rpc | null; jobStates?: string[]; rpcWrap?: (rpc: Rpc) => Rpc } = {},
+) {
   const config = configFromEnv({ VITE_CLASSIC_LIVE: JSON.stringify(live), VITE_CLASSIC_RPC_URLS: "https://rpc.example" });
   applyConfig(config);
-  const transport = fakeRelayerTransport(status.v4.body);
+  const transport = fakeRelayerTransport(status.v4.body, o.jobStates);
   const chain = scriptedChain({
     head: snap.manifest.toBlock + 200,
     logs: o.logs ?? [[]],
@@ -85,7 +90,7 @@ function build(live: Record<string, string[]>, o: { logs?: RawLog[][] } = {}) {
   ];
   const services: ClassicServices = createServices({
     config,
-    rpc: chain.rpc,
+    rpc: o.rpcWrap ? o.rpcWrap(chain.rpc) : chain.rpc,
     prover: async () => prover,
     historyStore: memoryHistoryStore(),
     jobs: memoryJobsStore(),
@@ -94,6 +99,8 @@ function build(live: Record<string, string[]>, o: { logs?: RawLog[][] } = {}) {
     relayerTransport: transport,
     curated,
     wallet,
+    ...(o.secondOpinion !== undefined ? { secondOpinion: o.secondOpinion } : {}),
+    ...(o.firstOpinion !== undefined ? { firstOpinion: o.firstOpinion } : {}),
     now: () => NOW * 1000,
     followOptions: { intervalMs: 1, sleep: async () => undefined },
     receiptOptions: { pollMs: 1, sleep: async () => undefined },
@@ -176,7 +183,8 @@ describe("the wired app", () => {
     const { provider, prover } = build({ "eth-100": ["withdraw"] });
     go("withdraw");
     type(screen.getByTestId("classic-note-input"), NOTE);
-    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"));
+    // the served snapshot hashed from its leaves first (the eleventh review round, C11-2): about a second for the fixture's 1,024
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
     await waitFor(() => expect(screen.getByTestId("classic-total-gas")).toHaveTextContent("12.0 Gwei"));
     expect(screen.getByTestId("classic-relayer-name")).toHaveTextContent("to-relayer.eth");
     expect(screen.getByTestId("classic-relayer-fee-percent")).toHaveTextContent("0.4 %");
@@ -218,6 +226,10 @@ describe("the wired app", () => {
     expect(provider.sent).toEqual([]); // the relayer sent it, not the wallet
     go("history");
     await waitFor(() => expect(within(screen.getByTestId("classic-history")).getByText("Confirmed")).toBeInTheDocument());
+    // the services here keep their records in memory: History says they live in this page only (the eleventh review round's critique of C11-5)
+    expect(screen.getByTestId("classic-history-note")).toHaveTextContent(
+      "These records are kept for this page only: this browser refused the device's storage.",
+    );
     expect(document.body.textContent).not.toContain(NOTE.slice(-40));
     expect(document.body.textContent).not.toContain(RECIPIENT);
   });
@@ -231,7 +243,7 @@ describe("the wired app", () => {
     );
     go("withdraw");
     type(screen.getByTestId("classic-note-input"), NOTE);
-    await waitFor(() => expect(screen.getByTestId("classic-note-error")).toHaveTextContent("Note has been spent"));
+    await waitFor(() => expect(screen.getByTestId("classic-note-error")).toHaveTextContent("Note has been spent"), { timeout: 15_000 });
     expect(screen.getByTestId("classic-note-spent-source")).toHaveTextContent("nullifier hash");
     await act(async () => {
       fireEvent.click(screen.getByTestId("classic-check-spent-button"));
@@ -239,5 +251,257 @@ describe("the wired app", () => {
     await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("unspent"));
     expect(screen.queryByTestId("classic-note-error")).toBeNull();
     expect(screen.getByTestId("classic-note-facts")).toBeInTheDocument();
+  });
+
+  const otherEndpoint = (spent: boolean) =>
+    scriptedChain({
+      head: snap.manifest.toBlock + 200,
+      logs: [[]],
+      nextIndex: 1024,
+      knownRoot: true,
+      spent,
+      calls: PIN_CALLS,
+      blockHashes: { [snap.manifest.toBlock]: snap.manifest.blockHash! },
+    });
+  const checkOnChain = async () => {
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-check-spent-button"));
+    });
+  };
+  const isSpentRead = (c: { method: string; params: unknown[] }) => c.method === "eth_call" && (c.params[0] as { data: string }).data.startsWith(VIEW.isSpent);
+
+  it("Check on chain asks both endpoints when two are configured, the first alone: one that disagrees is said to (the eleventh review round, C11-12, and its critique)", async () => {
+    const second = otherEndpoint(true);
+    const first = otherEndpoint(false);
+    const { chain } = build({ "eth-100": ["withdraw"] }, { secondOpinion: second.rpc, firstOpinion: first.rpc });
+    await checkOnChain();
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("The RPC endpoints disagree on whether this note is spent"));
+    expect(first.seen.some(isSpentRead), "the first endpoint, alone, was asked").toBe(true);
+    expect(chain.seen.some(isSpentRead), "never the endpoints that fail over").toBe(false);
+    expect(second.seen.some(isSpentRead), "the second endpoint was asked").toBe(true);
+  });
+
+  it("a relayer's CONFIRMED when the first endpoint cannot be asked whether the note is spent: the Withdraw tab says the pool could not be asked (the critique)", async () => {
+    const first = otherEndpoint(false);
+    let spentReads = 0;
+    // the spent read right before the submission answers; the one after the relayer's CONFIRMED does not
+    const firstOpinion: Rpc = async (method, params) => {
+      if (isSpentRead({ method, params }) && ++spentReads > 1) throw new Error("HTTP 429");
+      return first.rpc(method, params);
+    };
+    build({ "eth-100": ["withdraw"] }, { secondOpinion: otherEndpoint(false).rpc, firstOpinion });
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
+    type(screen.getByTestId("classic-recipient"), RECIPIENT);
+    await waitFor(() => expect(screen.getByTestId("classic-withdraw-button")).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-withdraw-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-confirm-modal")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-confirm"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("classic-flow-message")).toHaveTextContent(
+        "The relayer reports the withdrawal confirmed, and the pool could not be asked whether this note is spent. Check on chain before relying on it.",
+      ),
+    );
+    expect(spentReads).toBe(2);
+  });
+
+  it("a relayer's CONFIRMED the pool answers unspent to says the relayer's report, never that the pool could not be asked (the critique)", async () => {
+    build(
+      { "eth-100": ["withdraw"] },
+      { rpcWrap: (rpc) => async (method, params) => (isSpentRead({ method, params }) ? `0x${word(0)}` : rpc(method, params)) },
+    );
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
+    type(screen.getByTestId("classic-recipient"), RECIPIENT);
+    await waitFor(() => expect(screen.getByTestId("classic-withdraw-button")).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-withdraw-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-confirm-modal")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-confirm"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("classic-flow-message")).toHaveTextContent(
+        "The relayer reports the withdrawal confirmed, but the pool does not show this note spent yet. Check on chain before relying on it.",
+      ),
+    );
+  });
+
+  it("a wallet-mode withdrawal never says it was handed to a relayer (the critique)", async () => {
+    const second = otherEndpoint(false);
+    const mute: Rpc = async (method, params) => {
+      if (isSpentRead({ method, params })) throw new Error("HTTP 429");
+      return second.rpc(method, params);
+    };
+    build({ "eth-100": ["withdraw"] }, { secondOpinion: mute });
+    await connectWallet();
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
+    fireEvent.click(screen.getByTestId("classic-settings-toggle"));
+    fireEvent.click(screen.getByTestId("classic-mode-wallet"));
+    type(screen.getByTestId("classic-recipient"), RECIPIENT);
+    await waitFor(() => expect(screen.getByTestId("classic-withdraw-button")).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-withdraw-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-confirm-modal")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-confirm"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-flow-message")).toHaveTextContent("the second RPC endpoint did not answer"));
+    expect(screen.queryByTestId("classic-withdraw-submitted")).toBeNull();
+    expect(document.body.textContent).not.toContain("handed to the relayer");
+  });
+
+  it("a refusal reaches a Korean reader in Korean: an endpoint that does not answer the spent read (the critique)", async () => {
+    window.localStorage.setItem("tornado-classic:locale", "ko");
+    let failSpent = false;
+    build(
+      { "eth-100": ["withdraw"] },
+      {
+        rpcWrap: (rpc) => async (method, params) =>
+          failSpent && isSpentRead({ method, params }) ? Promise.reject(new Error("HTTP 429")) : rpc(method, params),
+      },
+    );
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-note-facts")).toBeInTheDocument(), { timeout: 15_000 });
+    type(screen.getByTestId("classic-recipient"), RECIPIENT);
+    await waitFor(() => expect(screen.getByTestId("classic-withdraw-button")).toBeEnabled(), { timeout: 15_000 });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-withdraw-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-confirm-modal")).toBeInTheDocument());
+    failSpent = true;
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-confirm"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("classic-flow-message")).toHaveTextContent(
+        "출금이 처리되지 않았습니다: RPC 엔드포인트가 이 노트의 사용 여부에 답하지 않았습니다. 아무것도 보내지 않았으니 나중에 다시 시도하세요",
+      ),
+    );
+  });
+
+  it("a relayer's FAILED when the first endpoint cannot be asked whether the note is spent: the Withdraw tab says so, never 'failed' (the critique of C11-13)", async () => {
+    const first = otherEndpoint(false);
+    let spentReads = 0;
+    // the spent read right before the submission answers; the one after the relayer's FAILED does not
+    const firstOpinion: Rpc = async (method, params) => {
+      if (isSpentRead({ method, params }) && ++spentReads > 1) throw new Error("HTTP 429");
+      return first.rpc(method, params);
+    };
+    build({ "eth-100": ["withdraw"] }, { jobStates: ["QUEUED", "FAILED"], secondOpinion: otherEndpoint(false).rpc, firstOpinion });
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
+    await waitFor(() => expect(screen.getByTestId("classic-total-gas")).toHaveTextContent("12.0 Gwei"));
+    type(screen.getByTestId("classic-recipient"), RECIPIENT);
+    await waitFor(() => expect(screen.getByTestId("classic-withdraw-button")).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-withdraw-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-confirm-modal")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-confirm"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("classic-flow-message")).toHaveTextContent(
+        "The relayer reports the withdrawal failed, and the pool could not be asked whether this note is spent. Check on chain before trying again.",
+      ),
+    );
+    expect(spentReads).toBe(2);
+  });
+
+  it("a relayer's FAILED for a note the pool reports spent: the Withdraw tab says so and points to Check on chain; History reads Outcome unknown (the eleventh review round's critique of C11-13)", async () => {
+    build({ "eth-100": ["withdraw"] }, { jobStates: ["QUEUED", "FAILED"] });
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-fact-deposits")).toHaveTextContent("1,018 deposits"), { timeout: 15_000 });
+    await waitFor(() => expect(screen.getByTestId("classic-total-gas")).toHaveTextContent("12.0 Gwei"));
+    type(screen.getByTestId("classic-recipient"), RECIPIENT);
+    await waitFor(() => expect(screen.getByTestId("classic-withdraw-button")).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-withdraw-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-confirm-modal")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-confirm"));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("classic-flow-message")).toHaveTextContent(
+        "The relayer reports the withdrawal failed, but the pool shows this note spent. Check on chain before trying again.",
+      ),
+    );
+    go("history");
+    await waitFor(() => expect(within(screen.getByTestId("classic-history")).getByText("Outcome unknown: check on chain")).toBeInTheDocument());
+  });
+
+  it("Check on chain: a second endpoint that does not answer is said not to have answered, never to disagree (the critique of C11-12)", async () => {
+    const second = otherEndpoint(false);
+    const mute: Rpc = async (method, params) => {
+      if (isSpentRead({ method, params })) throw new Error("HTTP 429");
+      return second.rpc(method, params);
+    };
+    build({ "eth-100": ["withdraw"] }, { secondOpinion: mute });
+    await checkOnChain();
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("The second RPC endpoint did not answer: check again later."));
+  });
+
+  const muteSpent =
+    (rpc: Rpc): Rpc =>
+    async (method, params) => {
+      if (isSpentRead({ method, params })) throw new Error("HTTP 429");
+      return rpc(method, params);
+    };
+
+  it("Check on chain: a first endpoint that does not answer is said so too, never nothing at all (the critique of C11-12)", async () => {
+    build({ "eth-100": ["withdraw"] }, { secondOpinion: otherEndpoint(false).rpc, firstOpinion: muteSpent(otherEndpoint(false).rpc) });
+    await checkOnChain();
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("The first RPC endpoint did not answer: check again later."));
+  });
+
+  it("Check on chain with one endpoint that does not answer says so (the critique of C11-12)", async () => {
+    build({ "eth-100": ["withdraw"] }, { rpcWrap: muteSpent });
+    await checkOnChain();
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("The RPC endpoint did not answer: check again later."));
+  });
+
+  it("Check on chain with two endpoints that agree: both unspent clears the history's spent mark; both spent says the pool reports it spent (the critique of C11-12)", async () => {
+    const parsed = parseNote(NOTE) as { ok: true; note: ClassicNote };
+    const nullifierHash = toHex32(nullifierHashOf(parsed.note));
+    build(
+      { "eth-100": ["withdraw"] },
+      {
+        logs: [[withdrawalLog(DEPLOYMENT.pools["eth-100"].address as `0x${string}`, nullifierHash, snap.manifest.toBlock + 100)]],
+        secondOpinion: otherEndpoint(false).rpc,
+        firstOpinion: otherEndpoint(false).rpc,
+      },
+    );
+    go("withdraw");
+    type(screen.getByTestId("classic-note-input"), NOTE);
+    await waitFor(() => expect(screen.getByTestId("classic-note-error")).toHaveTextContent("Note has been spent"), { timeout: 15_000 });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("classic-check-spent-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("The pool reports this note as unspent."));
+    expect(screen.queryByTestId("classic-note-error")).toBeNull();
+  });
+
+  it("Check on chain with two endpoints that both report the note spent says so (the critique of C11-12)", async () => {
+    build({ "eth-100": ["withdraw"] }, { secondOpinion: otherEndpoint(true).rpc, firstOpinion: otherEndpoint(true).rpc });
+    await checkOnChain();
+    await waitFor(() => expect(screen.getByTestId("classic-spent-on-chain")).toHaveTextContent("The pool reports this note as spent."));
   });
 });

@@ -2,6 +2,13 @@
 // timeout per attempt, an endpoint's error answer surfaced with its code and message (the sync reads "range" refusals
 // to size its windows). The only place the app reaches a chain endpoint.
 import type { Rpc } from "../history/sync";
+import { AnswerTooLarge, readCapped } from "./capped";
+
+/**
+ * An endpoint's answer is read to this (C11-11): a window of the pools' logs is a few MB at most. Past it, a "too large" error — which the sync
+ * reads as a range refusal and halves its window on.
+ */
+export const RPC_ANSWER_MAX = 32 * 1024 * 1024;
 
 export class RpcError extends Error {
   readonly code: number | null;
@@ -36,7 +43,14 @@ export function makeRpc(urls: readonly string[], { timeoutMs = 20_000, fetchImpl
           credentials: "omit",
         });
         if (!res.ok) throw new RpcError(`HTTP ${res.status}`, null, url);
-        const body = (await res.json()) as { result?: unknown; error?: { code?: number; message?: string } };
+        let text: string;
+        try {
+          text = await readCapped(res, RPC_ANSWER_MAX);
+        } catch (e) {
+          if (e instanceof AnswerTooLarge) throw new RpcError(`the answer is too large (more than ${RPC_ANSWER_MAX} bytes)`, null, url);
+          throw e;
+        }
+        const body = JSON.parse(text) as { result?: unknown; error?: { code?: number; message?: string } };
         if (body.error) throw new RpcError(body.error.message ?? "the endpoint answered an error", body.error.code ?? null, url);
         return body.result;
       } catch (e) {
