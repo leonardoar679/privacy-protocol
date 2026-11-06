@@ -118,4 +118,8 @@ describe("the wallet's own messages (the review round of 2026-11-03)", () => {
   it("a Protect confirmed with no wallet to submit with is wallet_disconnected — not moved — never unknown (W4)", () => {
     expect(classify(new Error("no injected wallet to submit with"))).toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
   });
+  it("a WalletConnect session the wallet app ended asks nothing — its provider's words are wallet_disconnected, not moved, never unknown (the eleventh review round, slice 6c)", () => {
+    // the installed provider's own text (packages/wallet-engine/test/review11-wc-connect.test.ts pins it after a session_delete)
+    expect(classify(new Error("Please call connect() before request()"))).toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+  });
 });

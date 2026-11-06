@@ -432,11 +432,14 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     reconcile before they send, so the user's tap is safe (`packages/sdk/src/wallet/schedule.ts` `failedAttempt` /
     `retryNow`, `apps/web/src/features/operations/AttemptLine.tsx`; `packages/sdk/test/schedule-attempt.test.ts`,
     `apps/web/test/attempt-line.test.tsx`). The browser run's campaign log names the line when it shows.
-60. **V7 — WalletConnect's modal is third-party code under the policy.** With a project id the bundle ships
-    `@walletconnect/ethereum-provider` and its modal, which ask `api.web3modal.org` for the wallet list and logos and load the
-    verify iframe; the policy names those hosts and no telemetry host, and the metadata declares this origin's icon and
-    `redirect`. The project id, the modal's own privacy terms and whether to ship the connector at all are the owner's
-    (spec v2.0 §23's WalletConnect note stands).
+60. **V7 — WalletConnect is third-party code under the policy.** With a project id the bundle ships
+    `@walletconnect/ethereum-provider`, which talks to its relay and loads the verify iframe; the policy names those hosts and
+    no telemetry host, and the metadata declares this origin's icon and `redirect`. Its modal is off since the eleventh review
+    round (slice 6c): the policy refuses the `<style>` elements it writes, and under it the modal took no tap — a phone could
+    neither start a pairing nor cancel one —, so the wallet's own sheet shows the pairing (its QR code, the link that opens the
+    wallet app, Cancel) and the modal's hosts are no longer allowed; its code still ships as chunks the provider never loads.
+    The project id, WalletConnect's own privacy terms and whether to ship the connector at all are the owner's (spec v2.0 §23's
+    WalletConnect note stands).
 61. **V7 — a campaign paused on a moved fee has no "accept today's fee" (the review round of 2026-11-02; the owner's).** A
     protected step whose relayer fee rose above the Review's bound pauses its campaign (`58ac5da`), and "Resume" meets the same
     bound — paused again while the fee stays higher. The user's way out today is Cancel with "Return the rest" and a new Review

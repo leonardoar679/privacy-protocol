@@ -107,14 +107,43 @@ export function hasWalletConnectSession(): boolean {
   return false;
 }
 
-interface WcProvider extends Eip1193Provider { disconnect(): Promise<void> }
+/** WalletConnect's provider, as the connection uses it. */
+export interface WcProvider extends Eip1193Provider {
+  disconnect(): Promise<void>;
+  /** its connect() when it holds no session — the pairing, whose link it gives as a `display_uri` event —, then the accounts */
+  enable(): Promise<string[]>;
+}
 
 let cached: WcProvider | null = null;
+/** The provider's init under way: one at a time (the eleventh review round, slice 6c's critique). */
+let initing: Promise<WcProvider> | null = null;
 
 export async function walletConnectProvider(chainId: number): Promise<WcProvider | null> {
   const projectId = walletConnectProjectId();
   if (!projectId) return null;
   if (cached) return cached;
+  // one init at a time (the eleventh review round, slice 6c's critique): two taps while the library loaded had made two providers and kept
+  // the last — a Disconnect then ended the one never paired, and left the paired one open at its relay
+  return initing ?? startInit(projectId, chainId);
+}
+
+function startInit(projectId: string, chainId: number): Promise<WcProvider> {
+  const init = initProvider(projectId, chainId);
+  initing = init;
+  void init.then(
+    (p) => {
+      if (initing !== init) return; // ended meanwhile (endWalletConnect ends what it makes)
+      cached = p;
+      initing = null;
+    },
+    () => {
+      if (initing === init) initing = null;
+    },
+  );
+  return init;
+}
+
+async function initProvider(projectId: string, chainId: number): Promise<WcProvider> {
   // the page holds WalletConnect from here on (WALLET_CONNECT_LOCK), after any deletion of its database in progress
   await holdWhileLoaded();
   const mod = await import("@walletconnect/ethereum-provider");
@@ -123,7 +152,10 @@ export async function walletConnectProvider(chainId: number): Promise<WcProvider
   const provider = await mod.EthereumProvider.init({
     projectId,
     chains: [chainId],
-    showQrModal: true,
+    // the pairing shows in the wallet's own sheet, from the provider's display_uri (the eleventh review round, slice 6c's critique): the
+    // library's modal writes its styles as <style> elements, which the page's policy refuses (style-src 'self') — under it the modal took
+    // no tap and sat under the sheet, and a phone could neither start a pairing nor cancel one
+    showQrModal: false,
     metadata: {
       name: "Privacy Wallet",
       description: "A private wallet",
@@ -133,8 +165,7 @@ export async function walletConnectProvider(chainId: number): Promise<WcProvider
       redirect: { universal: origin },
     },
   });
-  cached = provider as unknown as WcProvider;
-  return cached;
+  return provider as unknown as WcProvider;
 }
 
 /**
@@ -146,9 +177,13 @@ let ending: Promise<void> | null = null;
 export function endWalletConnect(): Promise<void> {
   // one end at a time: a Disconnect's and a Forget's awaiting the same (the round's second critique: the Forget awaits it)
   if (ending) return ending;
-  const p = cached;
+  const held = cached;
+  const pending = initing;
   cached = null;
+  initing = null;
   ending = (async () => {
+    // an init under way is waited for, and the provider it makes is ended too: never left to pair with nothing here to end it
+    const p = held ?? (pending ? await pending.catch(() => null) : null);
     if (p) await p.disconnect().catch(() => {});
     // its keys through its own storage, on the connection it holds (A11-3, H11-4): a deletion of the database from this page is blocked by
     // that connection; the database itself goes at a later page start
@@ -210,7 +245,15 @@ export function clearWalletConnectStorage(idb: IDBFactory | null | undefined = g
   return deleting;
 }
 
-/** Tests: forget the cached provider (and that the library was loaded). */
-export function resetWalletConnect(): void { cached = null; loadedHere = false; }
+/**
+ * A session approved after its connection was cancelled (the eleventh review round, slice 6c): the provider the page holds is ended as a
+ * Disconnect ends it; one forgotten since has its session ended at its relay and nothing else — the store it shares keeps the held one's keys.
+ */
+export function endWalletConnectOf(p: WcProvider): Promise<void> {
+  return p === cached ? endWalletConnect() : p.disconnect().catch(() => undefined);
+}
+
+/** Tests: forget the cached provider, an init under way (and that the library was loaded). */
+export function resetWalletConnect(): void { cached = null; initing = null; loadedHere = false; }
 /** Tests: the library as loaded in this page. */
 export function markWalletConnectLoaded(): void { loadedHere = true; }

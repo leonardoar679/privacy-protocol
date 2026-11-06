@@ -44,9 +44,9 @@ export function defaultHosts(env = {}) {
 // host (pulse) and the provider's own RPC host through (the review round of 2026-11-02). That RPC host is absent on purpose:
 // the wallet reads through its own endpoints, and a method the provider would route there fails instead of leaking
 const WALLETCONNECT = ["https://relay.walletconnect.com", "wss://relay.walletconnect.com", "https://relay.walletconnect.org", "wss://relay.walletconnect.org"];
-// V7 Stage 16 (spec v3.0 §9): with a project id, the modal's wallet list and logos (AppKit's API, the explorer) and the verify
-// iframe; WalletConnect's telemetry host (pulse) is absent on purpose — the policy stops it
-const WALLETCONNECT_MODAL = ["https://api.web3modal.org", "https://api.web3modal.com", "https://explorer-api.walletconnect.com"];
+// V7 Stage 16 (spec v3.0 §9): with a project id, the verify iframe; WalletConnect's telemetry host (pulse) is absent on purpose — the policy
+// stops it. The modal's hosts (AppKit's API and the explorer, for its wallet list and logos) are gone with the modal: the wallet shows the
+// pairing in its own sheet (the eleventh review round, slice 6c's critique), and nothing asks them
 const WALLETCONNECT_VERIFY = ["https://verify.walletconnect.com", "https://verify.walletconnect.org"];
 
 /** `https://host[:port]` of an absolute URL, or null for a relative path or garbage. */
@@ -65,7 +65,7 @@ export function connectHosts(env = {}, extra = []) {
     for (const part of String(env[name] ?? "").split(",")) { const o = originOf(part); if (o) out.add(o); }
   }
   for (const h of defaultHosts(env)) { const o = originOf(h); if (o) out.add(o); }
-  if (env.VITE_WC_PROJECT_ID) for (const h of [...WALLETCONNECT, ...WALLETCONNECT_MODAL]) out.add(h);
+  if (env.VITE_WC_PROJECT_ID) for (const h of WALLETCONNECT) out.add(h);
   for (const e of extra) { const o = originOf(e); if (o) out.add(o); }
   return [...out];
 }
@@ -86,7 +86,7 @@ export function zkapiHosts(configPath) {
 export function buildCsp(env = {}, extra = []) {
   const wc = !!env.VITE_WC_PROJECT_ID;
   const connect = ["'self'", ...connectHosts(env, extra)];
-  const img = ["'self'", "data:", "blob:", ...(wc ? WALLETCONNECT_MODAL : [])]; // the wallets' logos from the modal's API and the explorer, by exact host
+  const img = ["'self'", "data:", "blob:"];
   return [
     "default-src 'self'",
     "script-src 'self' 'wasm-unsafe-eval'",

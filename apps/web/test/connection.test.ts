@@ -22,6 +22,9 @@ function stubProvider(opts: { accounts?: string[]; chainId?: string; refuse?: bo
     },
     on(event: string, h: Handler) { (handlers.get(event) ?? handlers.set(event, new Set()).get(event)!).add(h); },
     removeListener(event: string, h: Handler) { handlers.get(event)?.delete(h); },
+    // the legacy enable() injected wallets still carry (deprecated): never called — only WalletConnect's provider is enabled (the eleventh
+    // review round, slice 6c's critique)
+    async enable() { calls.push({ method: "enable" }); throw new Error("the deprecated enable() was called"); },
   };
 }
 const w = () => window as unknown as Record<string, unknown>;
@@ -29,6 +32,71 @@ const w = () => window as unknown as Record<string, unknown>;
 afterEach(() => { connection.reset(); setActiveProvider(null); delete w().ethereum; });
 
 describe("the public wallet's connection (spec §7)", () => {
+  it("an injected or an EIP-6963 wallet is asked eth_requestAccounts and its chain — never its deprecated enable() (the eleventh review round, slice 6c)", async () => {
+    const p = stubProvider();
+    w().ethereum = p;
+    expect((await connection.connect()).status).toBe("connected");
+    expect(p.calls.map((c) => c.method)).toEqual(["eth_requestAccounts", "eth_chainId"]);
+    connection.reset();
+    const announced = stubProvider();
+    discover();
+    window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail: { info: { uuid: "u9", name: "Rabbit Wallet", icon: "data:image/svg+xml;base64,", rdns: "io.rabbit" }, provider: announced } }));
+    expect((await connection.connect("io.rabbit")).status).toBe("connected");
+    expect(announced.calls.map((c) => c.method)).toEqual(["eth_requestAccounts", "eth_chainId"]);
+  });
+  it("one connection per wallet whichever entry point asks: Protect's Connect (the browser's first wallet) and the picker's row for it share one prompt (slice 6c's second critique)", async () => {
+    let answer: (a: string[]) => void = () => undefined;
+    const answered = new Promise<string[]>((r) => (answer = r));
+    const asked: string[] = [];
+    const slow = {
+      ...stubProvider(),
+      request: async ({ method }: { method: string }) => {
+        asked.push(method);
+        return method === "eth_requestAccounts" ? answered : "0x1";
+      },
+    };
+    discover();
+    window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail: { info: { uuid: "u7", name: "Rabbit Wallet", icon: "data:image/svg+xml;base64,", rdns: "io.rabbit" }, provider: slow } }));
+    const fromProtect = connection.connect();
+    const fromPicker = connection.connect("io.rabbit");
+    expect(fromPicker, "the same connection").toBe(fromProtect);
+    answer(["0x7A0000000000000000000000000000000000091F2"]);
+    expect((await fromPicker).status).toBe("connected");
+    expect(asked.filter((m) => m === "eth_requestAccounts"), "one prompt").toHaveLength(1);
+  });
+  it("a declined network switch is the switch's, never kept as the connection's failure (slice 6c's second critique)", async () => {
+    const p = { ...stubProvider({ chainId: "0x5" }), request: async ({ method }: { method: string }) => { if (method === "wallet_switchEthereumChain") throw new Error("User rejected the request."); return method === "eth_requestAccounts" ? ["0x7A0000000000000000000000000000000000091F2"] : "0x5"; } };
+    w().ethereum = p;
+    connection.configure({ expectedChainId: 1 });
+    expect((await connection.connect()).status).toBe("wrong-network");
+    expect(await connection.switchNetwork()).toBe(false);
+    expect(connection.get().error).toBeNull();
+  });
+  it("one connection at a time: a second tap on the same wallet gets the first's answer, one prompt; another wallet replaces it (slice 6c)", async () => {
+    let answer: (a: string[]) => void = () => undefined;
+    const answered = new Promise<string[]>((r) => (answer = r));
+    const slow = { ...stubProvider(), request: async ({ method }: { method: string }) => (method === "eth_requestAccounts" ? answered : "0x1") };
+    w().ethereum = slow;
+    const a = connection.connect();
+    const b = connection.connect();
+    expect(b).toBe(a);
+    answer(["0x7A0000000000000000000000000000000000091F2"]);
+    expect((await a).status).toBe("connected");
+    connection.reset();
+    let late: (a: string[]) => void = () => undefined;
+    const lateAnswer = new Promise<string[]>((r) => (late = r));
+    const first = { ...stubProvider(), request: async ({ method }: { method: string }) => (method === "eth_requestAccounts" ? lateAnswer : "0x1") };
+    w().ethereum = first;
+    discover();
+    const replaced = connection.connect(INJECTED_ID);
+    const other = stubProvider({ accounts: ["0xabc0000000000000000000000000000000000001"] });
+    window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail: { info: { uuid: "u8", name: "Rabbit Wallet", icon: "data:image/svg+xml;base64,", rdns: "io.rabbit" }, provider: other } }));
+    expect((await connection.connect("io.rabbit")).account).toBe("0xabc0000000000000000000000000000000000001");
+    late(["0x7A0000000000000000000000000000000000091F2"]); // the replaced wallet answers at last
+    await replaced;
+    expect(connection.get(), "the replaced connection writes nothing").toMatchObject({ status: "connected", account: "0xabc0000000000000000000000000000000000001" });
+    expect(activeProvider()).toBe(other);
+  });
   it("discovers EIP-6963 wallets, falls back to the injected provider, lists WalletConnect only with a project id", () => {
     discover();
     expect(connection.get().connectors).toEqual([]);
@@ -55,7 +123,12 @@ describe("the public wallet's connection (spec §7)", () => {
     expect(connection.get().account).toBe("0xabc0000000000000000000000000000000000001");
     p.emit("accountsChanged", []);
     expect(connection.get()).toMatchObject({ status: "disconnected", account: null });
+    // an injected wallet's disconnect is its link to the chain: the connection reads disconnected through the same connector, still
+    // followed — its account back, the page is connected again (the eleventh review round, slice 6c's third critique)
     p.emit("disconnect");
+    expect(connection.get()).toMatchObject({ status: "disconnected", connector: { kind: "injected" } });
+    p.emit("accountsChanged", ["0xabc0000000000000000000000000000000000001"]);
+    expect(connection.get()).toMatchObject({ status: "connected", account: "0xabc0000000000000000000000000000000000001" });
     connection.disconnect();
     expect(connection.get()).toMatchObject({ status: "disconnected", connector: null });
     expect(activeProvider(), "the injected provider stays the engine's fallback").toBe(p);

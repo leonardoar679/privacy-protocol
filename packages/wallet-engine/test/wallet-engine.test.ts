@@ -6,25 +6,41 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configureWalletConnect, hasWalletConnectSession, resetWalletConnect } from "../src/walletConnect";
 
-// WalletConnect's provider, scripted: every init is a new pairing, and a disconnect ends that session
-const wc = vi.hoisted(() => ({ inits: 0, disconnects: 0, restored: false, lastInit: null as unknown, methods: [] as string[] }));
+// WalletConnect's provider, scripted as the installed one behaves (the eleventh review round, slice 6c's critique: this fake had answered
+// eth_requestAccounts with no pairing, which hid that no first connection ever paired): every init is a new provider, holding the session
+// its store restored or none; enable() pairs when it holds none (a pairing counted), then asks the accounts; eth_requestAccounts without a
+// session throws as the installed one does; a disconnect ends the session
+const wc = vi.hoisted(() => ({ inits: 0, disconnects: 0, pairings: 0, restored: false, lastInit: null as unknown, methods: [] as string[] }));
 vi.mock("@walletconnect/ethereum-provider", () => ({
   EthereumProvider: {
     init: async (opts: unknown) => {
       wc.inits++;
       wc.lastInit = opts;
+      let session = wc.restored;
+      const request = async ({ method }: { method: string }) => {
+        wc.methods.push(method);
+        // V7 Stage 16: eth_accounts answers from a session the provider restored from its own store, or nothing
+        if (method === "eth_requestAccounts") {
+          if (!session) throw new Error("Please call connect() before request()");
+          return ["0x7a3b000000000000000000000000000000c491f2"];
+        }
+        if (method === "eth_accounts") return session ? ["0x7a3b000000000000000000000000000000c491f2"] : [];
+        return method === "eth_chainId" ? "0x1" : null;
+      };
       return {
-        request: async ({ method }: { method: string }) => {
-          wc.methods.push(method);
-          // V7 Stage 16: eth_accounts answers from a session the provider restored from its own store, or nothing
-          if (method === "eth_requestAccounts") return ["0x7a3b000000000000000000000000000000c491f2"];
-          if (method === "eth_accounts") return wc.restored ? ["0x7a3b000000000000000000000000000000c491f2"] : [];
-          return method === "eth_chainId" ? "0x1" : null;
+        request,
+        enable: async () => {
+          if (!session) {
+            wc.pairings++;
+            session = true;
+          }
+          return request({ method: "eth_requestAccounts" });
         },
         on: () => {},
         removeListener: () => {},
         disconnect: async () => {
           wc.disconnects++;
+          session = false;
         },
       };
     },
@@ -140,10 +156,12 @@ describe("WalletConnect (the audit's unverified m65)", () => {
       const first = await connection.connect("walletconnect");
       expect(first.status).toBe("connected");
       expect(wc.inits).toBe(1);
+      expect(wc.pairings, "a first connection pairs (enable(), never eth_requestAccounts alone)").toBe(1);
       connection.disconnect();
       await vi.waitFor(() => expect(wc.disconnects, "the session is ended, not only forgotten").toBe(1));
-      await connection.connect("walletconnect");
-      expect(wc.inits, "a new pairing, never the old session").toBe(2);
+      expect((await connection.connect("walletconnect")).status).toBe("connected");
+      expect(wc.inits, "a new provider").toBe(2);
+      expect(wc.pairings, "a new pairing, never the old session").toBe(2);
     } finally {
       connection.disconnect();
       configureWalletConnect(undefined);

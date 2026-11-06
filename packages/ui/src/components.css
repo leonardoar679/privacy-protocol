@@ -32,6 +32,7 @@
 .ds-btn-destructive:hover:not(:disabled) { border-color: var(--danger); }
 .ds-btn-lg { min-height: 52px; padding: 0 var(--space-6); font-size: var(--body-size); border-radius: var(--radius-lg); }
 .ds-btn-full { width: 100%; }
+a.ds-btn { text-decoration: none; }
 .ds-btn:disabled { opacity: 0.5; cursor: default; }
 .ds-text-btn {
   display: inline-flex;
@@ -332,6 +333,7 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
 .ds-mono-break { font-family: var(--font-mono); font-size: var(--caption-size); overflow-wrap: anywhere; word-break: break-all; display: block; }
 .ds-qr { width: 180px; height: 180px; background: #fff; padding: var(--space-2); border-radius: var(--radius-sm); flex: 0 0 auto; }
 .ds-qr svg { width: 100%; height: 100%; display: block; }
+.ds-qr-lg { width: 240px; height: 240px; align-self: center; }
 .ds-receive { display: flex; gap: var(--space-4); align-items: flex-start; flex-wrap: wrap; }
 .ds-receive-main { flex: 1 1 200px; min-width: 0; }
 .ds-privacy-line { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--shield); font-weight: var(--weight-semibold); }

@@ -38,7 +38,9 @@ import { PRIVACY_CENTER_FIXTURES } from "../features/privacy-center/fixtures";
 // V7 Stage 4 (spec v3.0 §2): the More list, the one Settings page (its sections on a fresh wallet: the stores at their defaults) and the connector picker
 import { MoreView } from "../features/more/More";
 import { Settings } from "../features/settings/Settings";
-import { ConnectSheet } from "../features/wallet/ConnectSheet";
+import { ConnectSheet, ConnectSheetView } from "../features/wallet/ConnectSheet";
+import { PairingPanel } from "../features/wallet/PairingPanel";
+import PairingSheet from "../features/wallet/PairingSheet";
 
 export interface Fixture {
   id: string;
@@ -58,6 +60,9 @@ export interface Fixture {
 }
 
 const noop = () => undefined;
+/** A WalletConnect pairing's link, made up: its topic and key are no pairing's. */
+const FIXTURE_PAIRING =
+  "wc:7f6e504bfad60b485450578e05678ed3e8e8c4751d3c6160be17160d63ec90f9@2?relay-protocol=irn&symKey=587d5484ce2a2a6ee3ba1962fdd7e8588e06200c46823bd18fbd67def96ad303&expiryTimestamp=1762430700";
 const items: NavItem[] = [
   { to: "/", label: "Home", icon: "home", testId: "nav-home" },
   { to: "/swap", label: "Swap", icon: "swap", testId: "nav-swap" },
@@ -192,6 +197,45 @@ export const FIXTURES: readonly Fixture[] = [
       </>
     ),
     { parts: [["sheet", '[data-testid="connect-sheet"]']] },
+  ),
+  // the eleventh review round, slice 6c: a WalletConnect pairing, shown by the wallet itself — the QR code, the link to the wallet app, Cancel
+  screen(
+    "connect-sheet-pairing",
+    "The connector picker — a WalletConnect pairing waiting for the wallet app",
+    () => (
+      <>
+        <Home state="empty" />
+        <ConnectSheetView
+          open
+          onClose={noop}
+          model={{
+            account: null,
+            status: "connecting",
+            via: null,
+            connectors: [{ id: "walletconnect", name: "WalletConnect", kind: "walletconnect" }],
+            error: null,
+          }}
+          pairing={<PairingPanel uri={FIXTURE_PAIRING} onCancel={noop} />}
+          onConnect={noop}
+          onSwitch={noop}
+          onDisconnect={noop}
+        />
+      </>
+    ),
+    { parts: [["sheet", '[data-testid="connect-sheet"]']] },
+  ),
+  // the slice's second critique: a pairing started from Welcome or Protect that the wallet app declined — its own sheet keeps the failure,
+  // in the wallet's words, with Try again
+  screen(
+    "pairing-sheet-failed",
+    "The pairing's own sheet — the wallet app declined the connection",
+    () => (
+      <>
+        <Home state="empty" />
+        <PairingSheet uri={null} failure="User rejected." onClose={noop} />
+      </>
+    ),
+    { parts: [["sheet", '[data-testid="pairing-sheet"]']] },
   ),
   // Home (spec §7.1)
   screen("home-empty", "Home — connected, nothing protected", () => <Home state="empty" />),

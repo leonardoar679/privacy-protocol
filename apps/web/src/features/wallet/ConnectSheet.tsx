@@ -3,13 +3,21 @@
 // remembers the connector (`prefs.lastConnector`) so the next launch reconnects without a prompt; once connected the
 // sheet shows the account, the connection and the connector, Switch network when the network is wrong, Disconnect
 // (which forgets the connector). Connecting never creates, unlocks or exposes the protected wallet (spec v2.0 §1): the
-// public wallet pays deposits and signs nothing else.
+// public wallet pays deposits and signs nothing else. The eleventh review round, slice 6c: a WalletConnect pairing shows
+// here in place of the connectors — its QR code, the link to the wallet app, Cancel (PairingPanel) — and closing the sheet
+// over it cancels it; a failure reads in the sheet's words, the wallet's own text after them under Advanced only.
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { BottomSheet, Button, Icon, ListRow, StatusBadge, type StatusTone } from "@privacy-wallet/ui";
 import { connection, shortAccount, type ConnectionStatus, type ConnectorInfo } from "@privacy-wallet/wallet-engine/connection";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import { useConnection } from "../../hooks/core";
+import { useConnection, usePrefs } from "../../hooks/core";
 import { prefs } from "../../storage/prefs";
+import { connectErrorWords } from "./connectWords";
+import { pairingHost } from "./pairingHost";
+
+// its own chunk (the QR code's library with it): a pairing exists only once WalletConnect's library has loaded
+const PairingPanel = lazy(() => import("./PairingPanel"));
 
 const TONE: Record<ConnectionStatus, StatusTone> = {
   connected: "ok",
@@ -24,7 +32,12 @@ const KIND: Record<ConnectorInfo["kind"], MessageKey> = {
   walletconnect: "wallet.sheet.kind.walletconnect",
 };
 
-/** Connects the chosen connector; a connection that holds (connected, or on the wrong network) is remembered. */
+/**
+ * Connects the chosen connector; a connection that holds (connected, or on the wrong network) is remembered. A cancelled or replaced
+ * connection resolves with its own start, never another connection's state (`connection.connect`; the eleventh review round, slice 6c's
+ * second and third critiques: the picker had remembered a WalletConnect it cancelled, five minutes later, over the browser wallet it
+ * connected, and closed on a retry the first pairing's expiry did not concern).
+ */
 export async function connectWith(id: string): Promise<boolean> {
   const s = await connection.connect(id);
   const held = s.status === "connected" || s.status === "wrong-network";
@@ -38,10 +51,38 @@ export function disconnectWallet(): void {
   prefs().update({ lastConnector: undefined });
 }
 
-export function ConnectSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+
+export interface ConnectSheetModel {
+  /** connected (or on the wrong network): the account */
+  account: string | null;
+  status: ConnectionStatus;
+  /** the connector it is connected through */
+  via: string | null;
+  connectors: ConnectorInfo[];
+  /** the last failure, in words */
+  error: string | null;
+}
+
+export function ConnectSheetView({
+  open,
+  onClose,
+  model,
+  pairing,
+  onConnect,
+  onSwitch,
+  onDisconnect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  model: ConnectSheetModel;
+  /** a WalletConnect pairing waiting for the wallet app: its panel, in place of the connectors */
+  pairing?: ReactNode;
+  onConnect: (id: string) => void;
+  onSwitch: () => void;
+  onDisconnect: () => void;
+}) {
   const t = useT();
-  const conn = useConnection();
-  const connected = conn.account !== null;
+  const connected = model.account !== null;
   return (
     <BottomSheet
       open={open}
@@ -56,72 +97,106 @@ export function ConnectSheet({ open, onClose }: { open: boolean; onClose: () => 
           <div className="ds-kv">
             <span className="ds-kv-label">{t("wallet.account")}</span>
             <b className="ds-kv-value" data-testid="connect-account">
-              {shortAccount(conn.account!)}
+              {shortAccount(model.account!)}
             </b>
           </div>
           <div className="ds-kv">
             <span className="ds-kv-label">{t("wallet.connection")}</span>
-            <StatusBadge tone={TONE[conn.status]} testId="connect-status">
-              {t(`wallet.status.${conn.status}` as MessageKey)}
+            <StatusBadge tone={TONE[model.status]} testId="connect-status">
+              {t(`wallet.status.${model.status}` as MessageKey)}
             </StatusBadge>
           </div>
-          {conn.connector ? (
+          {model.via ? (
             <div className="ds-kv">
               <span className="ds-kv-label">{t("wallet.sheet.via")}</span>
-              <b className="ds-kv-value">{conn.connector.name}</b>
+              <b className="ds-kv-value">{model.via}</b>
             </div>
           ) : null}
           <div className="ds-actions">
-            {conn.status === "wrong-network" ? (
-              <Button onClick={() => void connection.switchNetwork()} data-testid="connect-switch">
+            {model.status === "wrong-network" ? (
+              <Button onClick={onSwitch} data-testid="connect-switch">
                 {t("wallet.switch")}
               </Button>
             ) : null}
-            <Button
-              variant="secondary"
-              onClick={() => {
-                disconnectWallet();
-                onClose();
-              }}
-              data-testid="connect-disconnect"
-            >
+            <Button variant="secondary" onClick={onDisconnect} data-testid="connect-disconnect">
               {t("wallet.disconnect")}
             </Button>
           </div>
         </div>
+      ) : pairing ? (
+        pairing
       ) : (
         <div className="ds-stack-sm">
-          {conn.connectors.length === 0 ? (
+          {model.connectors.length === 0 ? (
             <p className="ds-note" data-testid="connect-none">
               {t("wallet.sheet.none")}
             </p>
           ) : null}
-          {conn.connectors.map((c) => (
+          {model.connectors.map((c) => (
             <ListRow
               key={c.id}
               title={c.name}
               subtitle={t(KIND[c.kind])}
               leading={c.icon ? <img className="ds-connector-icon" src={c.icon} alt="" width={24} height={24} /> : <Icon name="wallet" />}
-              onPress={() => {
-                void connectWith(c.id).then((held) => {
-                  if (held) onClose();
-                });
-              }}
+              onPress={() => onConnect(c.id)}
               testId={`connector-${c.id}`}
             />
           ))}
-          {conn.status === "connecting" ? (
+          {model.status === "connecting" ? (
             <p className="ds-note" role="status" data-testid="connect-connecting">
               {t("wallet.status.connecting")}
             </p>
           ) : null}
-          {conn.error ? (
+          {model.error ? (
             <p className="ds-field-error" role="alert" data-testid="connect-error">
-              {conn.error}
+              {model.error}
             </p>
           ) : null}
         </div>
       )}
     </BottomSheet>
+  );
+}
+
+export function ConnectSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
+  const conn = useConnection();
+  const advanced = usePrefs().experience === "advanced";
+  // while the sheet is open a WalletConnect pairing shows in it, never in a sheet of its own as well (pairingHost)
+  useEffect(() => (open ? pairingHost.hold() : undefined), [open]);
+  const model: ConnectSheetModel = {
+    account: conn.account,
+    status: conn.status,
+    via: conn.connector?.name ?? null,
+    connectors: conn.connectors,
+    error: conn.error ? connectErrorWords(t, conn.error, advanced, "picker", conn.connectors.length > 1) : null,
+  };
+  return (
+    <ConnectSheetView
+      open={open}
+      onClose={() => {
+        // closed over a pairing: the pairing is cancelled — nothing is left waiting for the wallet app
+        if (conn.pairing || conn.pending?.kind === "walletconnect") connection.cancel(); // its link shown, or its library still loading
+        onClose();
+      }}
+      model={model}
+      pairing={
+        conn.pairing ? (
+          <Suspense fallback={null}>
+            <PairingPanel uri={conn.pairing} onCancel={() => connection.cancel()} />
+          </Suspense>
+        ) : null
+      }
+      onConnect={(id) => {
+        void connectWith(id).then((held) => {
+          if (held) onClose();
+        });
+      }}
+      onSwitch={() => void connection.switchNetwork()}
+      onDisconnect={() => {
+        disconnectWallet();
+        onClose();
+      }}
+    />
   );
 }

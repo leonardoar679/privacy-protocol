@@ -13,6 +13,7 @@ import { Welcome } from "../features/onboarding/Welcome";
 import { Create, Restore, Unlock } from "../features/onboarding/Lock";
 import { Outlet } from "react-router-dom";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
+import { RootPairing } from "../features/wallet/RootPairing";
 
 /** React Router 6 with the v7 behaviours already on (relative splat paths, fetcher persistence, partial hydration …). */
 export const ROUTER_FUTURE = { v7_relativeSplatPath: true, v7_fetcherPersist: true, v7_normalizeFormMethod: true, v7_partialHydration: true, v7_skipActionErrorRevalidation: true } as const;
@@ -32,8 +33,9 @@ const GuestRoute = lazy(() => import("../features/guest/GuestRoute"));
 // __PREVIEW__ is a build constant (vite.config.ts): a production build drops this branch and the preview's chunk with it
 const Preview = __PREVIEW__ ? lazy(() => import("@privacy-wallet/ui/Preview").then((m) => ({ default: m.Preview }))) : null;
 
+// RootPairing (the eleventh review round, slice 6c): a WalletConnect pairing the connector picker does not show, in a sheet of its own
 function Root({ deployment }: { deployment?: Deployment | null }) {
-  return <Providers deployment={deployment}><Outlet /></Providers>;
+  return <Providers deployment={deployment}><Outlet /><RootPairing /></Providers>;
 }
 
 /** While the router loads the lazy screens the first path matched: the page's own background, marked busy. */

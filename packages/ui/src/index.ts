@@ -8,7 +8,7 @@ export { formatAmount, formatUsdCents, setFormatLocale, shortAddress, type Amoun
 export { durationMs, prefersReducedMotion, transition, type Speed } from "./animations/index";
 export { Icon, AssetMonogram, ICON_NAMES, type IconName } from "./icons";
 export * from "./primitives";
-export { Button, IconButton, TextButton, TextLink, type ButtonProps, type ButtonVariant } from "./components/Button";
+export { Button, ButtonLink, IconButton, TextButton, TextLink, type ButtonProps, type ButtonVariant } from "./components/Button";
 export { AppShell, BottomNavigation, Card, DESKTOP_QUERY, Header, Menu, Page, type NavItem, type ShellNav } from "./components/Layout";
 export { useMediaQuery } from "./useMediaQuery";
 export {

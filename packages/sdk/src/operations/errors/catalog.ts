@@ -33,6 +33,9 @@ const SERVICE_MESSAGES: [RegExp, string][] = [
 ];
 const WALLET_MESSAGES: [RegExp, string][] = [
   [/no injected wallet/i, "wallet_disconnected"], // a Protect confirmed with no wallet to pay (the review round of 2026-11-03, W4): not moved, never "unknown"
+  // a WalletConnect provider whose session the wallet app ended asks nothing: its request throws this before anything is sent (the eleventh
+  // review round, slice 6c's critique) — not moved, never "unknown"
+  [/please call connect\(\) before request\(\)/i, "wallet_disconnected"],
   [/insufficient shielded balance/i, "insufficient_balance"],
   [/insufficient funds|doesn't have enough funds|exceeds (the )?balance/i, "wallet_insufficient_funds"],
   [/spread over \d+ notes|needs a private merge/i, "housekeeping_needed"],

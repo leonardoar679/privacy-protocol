@@ -1495,7 +1495,8 @@ try {
     const classicDb = classicStorage.databases.find((d) => d.name === "tornado-classic");
     check("the Classic database exists with its history and jobs stores", !!classicDb && classicDb.stores.length >= 2, JSON.stringify(classicStorage.databases));
     check("no note in any database of the origin, none in localStorage", !secrets.some((h) => classicStorage.text.toLowerCase().includes(h)) && !/tornado-eth-/.test(classicStorage.localStorageText) && !secrets.some((h) => classicStorage.localStorageText.toLowerCase().includes(h)), `${classicStorage.text.length} chars read; localStorage keys: ${classicStorage.localStorage.join(", ") || "none"}`);
-    check("localStorage still holds nothing of the wallet's", classicStorage.localStorage.every((k) => /^tornado-classic\./.test(k)), classicStorage.localStorage.join(", "));
+    // Classic's one key is its language choice, `tornado-classic:locale` (slice 6c: the dot alone had read that key as the wallet's)
+    check("localStorage still holds nothing of the wallet's", classicStorage.localStorage.every((k) => /^tornado-classic[.:]/.test(k)), classicStorage.localStorage.join(", "));
   }
 
 } catch (e) {

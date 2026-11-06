@@ -51,10 +51,14 @@ describe("the content security policy (spec §20)", () => {
     expect(buildCsp(ENV)).not.toContain("walletconnect");
     const wc = buildCsp({ ...ENV, VITE_WC_PROJECT_ID: "abc" });
     expect(wc).toContain("wss://relay.walletconnect.com");
-    // V7 Stage 16 (spec v3.0 §9): the modal's wallet list and logos, the verify iframe — with a project id only; never a frame otherwise
+    // V7 Stage 16 (spec v3.0 §9): the verify iframe — with a project id only; never a frame otherwise. The eleventh review round, slice 6c: the
+    // modal's hosts (its wallet list and logos) are gone with the modal — the wallet shows the pairing itself
     const directiveOf = (csp: string, name: string) => csp.split("; ").find((d) => d.startsWith(name + " "))!;
-    expect(directiveOf(wc, "connect-src")).toContain("https://api.web3modal.org");
-    expect(directiveOf(wc, "img-src")).toBe("img-src 'self' data: blob: https://api.web3modal.org https://api.web3modal.com https://explorer-api.walletconnect.com");
+    for (const host of ["https://api.web3modal.org", "https://api.web3modal.com", "https://explorer-api.walletconnect.com"]) {
+      expect(directiveOf(wc, "connect-src")).not.toContain(host);
+      expect(directiveOf(wc, "img-src")).not.toContain(host);
+    }
+    expect(directiveOf(wc, "img-src")).toBe("img-src 'self' data: blob:");
     // the review round of 2026-11-02: exact hosts only, matched as a browser would — a wildcard had let WalletConnect's
     // telemetry host and the provider's RPC host through while a string check read "never"
     const sourcesOf = (csp: string, name: string) => directiveOf(csp, name).split(" ").slice(1);

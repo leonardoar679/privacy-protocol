@@ -2,8 +2,7 @@
 // (Bitcoin / Solana / EVM) from the Chain Key Abstraction — a new one on demand, each meant to be used once, so the
 // permanent public address never has to be shown. The QR and the address, with the destination card beside them:
 // the QR alone is never the confirmation. The address book says when a fresh address was used.
-import { useEffect, useMemo, useState } from "react";
-import qrcode from "qrcode-generator";
+import { useEffect, useState } from "react";
 import type { ChainAccount, ChainKind } from "@privacy-wallet/protocol/wallet/chainKeys";
 import { Button, Page, Segmented } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
@@ -12,16 +11,13 @@ import { consumeFreshAddress, lastUnusedFreshAddress } from "@privacy-wallet/sdk
 import { findEntry } from "@privacy-wallet/sdk/wallet/addressBook";
 import { discoverSoon } from "@privacy-wallet/sdk/wallet/discovery";
 import { DestinationCard } from "../../components/DestinationCard";
+import { QrCode } from "../../components/QrCode";
 import { unsavedAddressWords } from "../destinationWords";
 import { useAddressBook } from "../../hooks";
 
 type Kind = "private-eth" | "bitcoin" | "solana" | "evm";
 const CHAIN: Record<Kind, ChainKind | null> = { "private-eth": null, bitcoin: "bitcoin", solana: "solana", evm: "evm" };
 
-function QR({ text }: { text: string }) {
-  const svg = useMemo(() => { const q = qrcode(0, "M"); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }, [text]);
-  return <div className="ds-qr" data-testid="receive-qr" dangerouslySetInnerHTML={{ __html: svg }} />;
-}
 
 export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack?: () => void }) {
   const t = useT();
@@ -74,7 +70,7 @@ export function Receive({ masterSeed, onBack }: { masterSeed: Uint8Array; onBack
         {address ? (
           <>
             <div className="ds-receive">
-              <QR text={address} />
+              <QrCode text={address} testId="receive-qr" />
               <div className="ds-receive-main ds-stack-sm">
                 <code className="ds-mono-break" data-testid="receive-address">{address}</code>
                 {current ? <p className="ds-note">{t("receive.fresh", { n: current.index + 1 })}{spent ? ` · ${t("receive.usedOnce")}` : ""}</p> : null}

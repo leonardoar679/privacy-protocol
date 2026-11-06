@@ -42,6 +42,25 @@ export function TextButton({ icon, className, children, type = "button", ...rest
   );
 }
 
+/**
+ * A link with a button's look (the eleventh review round, slice 6c): for a link the system hands to another app — a WalletConnect pairing's
+ * "Open the wallet app" —, a real anchor.
+ */
+export function ButtonLink({
+  variant = "primary",
+  size = "md",
+  full,
+  className,
+  children,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: ButtonVariant; size?: "md" | "lg"; full?: boolean }) {
+  return (
+    <a className={cx("ds-btn", `ds-btn-${variant}`, `ds-btn-${size}`, full && "ds-btn-full", className)} data-variant={variant} {...rest}>
+      <span className="ds-btn-label">{children}</span>
+    </a>
+  );
+}
+
 /** A text link to a route or a page (the same look as TextButton, a real anchor). */
 export function TextLink({ icon, className, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & { icon?: IconName }) {
   return (
