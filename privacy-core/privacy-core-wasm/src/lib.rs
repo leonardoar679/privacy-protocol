@@ -69,11 +69,11 @@ pub fn phantom_nullifier(nullifier0: &[u8], input_index: u32, spend_key0: &[u8])
     Ok(out(core_phantom(&fr(nullifier0)?, input_index as u64, &fr(spend_key0)?)))
 }
 
-/// spendKey ‖ viewKey ‖ noteKey (96 bytes).
+/// spendKey ‖ viewKey ‖ noteKey (96 bytes); an empty or all-zero seed is refused (the eleventh review round, G11-7).
 #[wasm_bindgen]
-pub fn derive_keys(seed: &[u8]) -> Vec<u8> {
-    let k = core_derive_keys(seed);
-    [fr_to_be32(&k.spend_key), fr_to_be32(&k.view_key), fr_to_be32(&k.note_key)].concat()
+pub fn derive_keys(seed: &[u8]) -> Result<Vec<u8>, JsError> {
+    let k = core_derive_keys(seed).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok([fr_to_be32(&k.spend_key), fr_to_be32(&k.view_key), fr_to_be32(&k.note_key)].concat())
 }
 
 #[wasm_bindgen]

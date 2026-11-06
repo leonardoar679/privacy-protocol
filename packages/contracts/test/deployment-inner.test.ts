@@ -5,13 +5,15 @@ import { describe, expect, it } from "vitest";
 import type { Address, Hex } from "viem";
 import devVerifier from "../../../contracts/abi/dev/TransactionVerifierDev.json";
 import { CIRCUIT_LEVELS, DEV_VERIFIER_CODEHASH, verifyDeployment, type DeploymentReader } from "../src/deployments";
+import { CORE_IDS, POSEIDON2_ONE_TWO_THREE, WRAPPED_NATIVE_OF } from "../src/deployments";
+import hasherRuntime from "../../../contracts/abi/runtime/Poseidon2Hasher.json";
 
 const CORE = "0x00000000000000000000000000000000000000c0" as Address;
 const FACTORY = "0x00000000000000000000000000000000000000fa" as Address;
 const VERIFIER = "0x00000000000000000000000000000000000000ab" as Address;
 const INNER = "0x00000000000000000000000000000000000000cd" as Address;
 const ETH_VAULT = "0x00000000000000000000000000000000000000e7" as Address;
-const ID = (n: number): Hex => ("0x" + n.toString(16).padStart(64, "0")) as Hex;
+const HASHER = "0x00000000000000000000000000000000000000E5" as const; // the core's Poseidon2 hasher
 
 function reader(o: { innerCode?: Hex; levels?: bigint; getCode?: boolean } = {}): DeploymentReader {
   return {
@@ -19,15 +21,30 @@ function reader(o: { innerCode?: Hex; levels?: bigint; getCode?: boolean } = {})
     readContract: async ({ address, functionName, args }) => {
       if (address === CORE)
         return (
-          { PROTOCOL_ID: ID(1), CIRCUIT_ID: ID(2), HASH_ID: ID(3), VERIFIER, VAULT_FACTORY: FACTORY, LEVELS: o.levels ?? 32n } as Record<string, unknown>
+          {
+            PROTOCOL_ID: CORE_IDS.protocolId,
+            CIRCUIT_ID: CORE_IDS.circuitId,
+            HASH_ID: CORE_IDS.hashId,
+            VERIFIER,
+            VAULT_FACTORY: FACTORY,
+            LEVELS: o.levels ?? 32n,
+            HASHER,
+          } as Record<string, unknown>
         )[functionName];
       if (address === VERIFIER && functionName === "INNER") return INNER;
       if (address === FACTORY && functionName === "vaultOf")
         return String(args![0]) === "0x0000000000000000000000000000000000000000" ? ETH_VAULT : "0x0000000000000000000000000000000000000000";
       if (functionName === "VAULT_VERSION") return 1n;
+      if (functionName === "poseidon2") return POSEIDON2_ONE_TWO_THREE; // the build's Poseidon2 on [1, 2, 3] (the eleventh review round, G11-1)
+      if (functionName === "WRAPPED_NATIVE") return WRAPPED_NATIVE_OF[1]; // both factories take the chain's WETH (G11-6)
       throw new Error(`unexpected read ${address}.${functionName}`);
     },
-    ...(o.getCode === false ? {} : { getCode: async ({ address }) => (address === INNER ? (o.innerCode ?? ("0x6001600155" as Hex)) : undefined) }),
+    ...(o.getCode === false
+      ? {}
+      : {
+          getCode: async ({ address }) =>
+            address === INNER ? (o.innerCode ?? ("0x6001600155" as Hex)) : address === HASHER ? (hasherRuntime.deployedBytecode as Hex) : undefined,
+        }),
   };
 }
 const claim = (production: boolean) => ({ chainId: 1, core: CORE, assets: { eth: null }, ...(production ? { production: true } : {}) });

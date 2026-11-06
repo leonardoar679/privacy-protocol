@@ -183,6 +183,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   // the ninth review round (2026-11-04, C-09): a hand-over whose answer was lost, past its window, the escrow not holding the order
   handover_unknown: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring", "start-refund"] },
   deployment_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
+  // the chain does not say what this build requires (deploymentGuard.ts; the eleventh review round): forgetting the remembered deployment
+  // changes nothing, so its words offer no More → Advanced
+  deployment_refused: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   insufficient_balance: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   wallet_insufficient_funds: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   relayer_unreachable: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking", "check-settings"] },

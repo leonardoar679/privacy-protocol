@@ -39,6 +39,12 @@ contract NativeAssetVault is BaseAssetVault {
         return ok;
     }
 
+    /// A claim forwards its caller's gas (G11-2): the bound above is for the release, whose relayer a recipient could otherwise grief.
+    function _claimOut(address recipient, uint256 amount) internal override returns (bool) {
+        (bool ok,) = payable(recipient).call{value: amount}("");
+        return ok;
+    }
+
     function actualAssetBalance() public view override returns (uint256) {
         return address(this).balance;
     }

@@ -107,7 +107,7 @@ fn owner_keys_match_the_web_wallets_vectors() {
     // derives it: a second implementation of the frozen derivation, run by verify-all --rust
     let v = json("packages/protocol/test/vectors/owner-keys.json");
     let dec = |x: &Value| x.as_str().unwrap().to_string();
-    let keys = derive_keys(v["seed"].as_str().unwrap().as_bytes());
+    let keys = derive_keys(v["seed"].as_str().unwrap().as_bytes()).unwrap();
     assert_eq!(OWNER_KEY_LABEL, v["label"].as_str().unwrap());
     assert_eq!(fr_to_dec(&keys.spend_key), dec(&v["spendKey"]));
     assert_eq!(fr_to_dec(&keys.note_key), dec(&v["noteKey"]));

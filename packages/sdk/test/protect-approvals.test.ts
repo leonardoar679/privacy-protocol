@@ -12,6 +12,7 @@ import { erc20Abi } from "../src/privacyProtocol";
 import { approvalsFor, prepareShield, submitShield } from "../src/privateTx";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
+import { CORE_IDS, POSEIDON2_ONE_TWO_THREE, WRAPPED_NATIVE_OF } from "@privacy-wallet/contracts/deployments";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9" as const;
 const FACTORY = "0x00000000000000000000000000000000000000f1";
@@ -21,7 +22,7 @@ const USDT_VAULT = "0x00000000000000000000000000000000000000C3" as const;
 const ROUTER = "0x00000000000000000000000000000000000000a1" as const;
 const OWNER = "0x00000000000000000000000000000000000000b0";
 const ZERO = "0x0000000000000000000000000000000000000000";
-const ID = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
+const HASHER = "0x00000000000000000000000000000000000000E5" as const; // the core's Poseidon2 hasher
 const deployment: Deployment = {
   chainId: 1,
   core: CORE,
@@ -61,12 +62,13 @@ const client = {
     if (address === CORE)
       return (
         {
-          PROTOCOL_ID: ID(1),
-          CIRCUIT_ID: ID(2),
-          HASH_ID: ID(3),
+          PROTOCOL_ID: CORE_IDS.protocolId,
+          CIRCUIT_ID: CORE_IDS.circuitId,
+          HASH_ID: CORE_IDS.hashId,
           VERIFIER: "0x00000000000000000000000000000000000000Ab",
           VAULT_FACTORY: FACTORY,
           LEVELS: 32n,
+          HASHER,
         } as Record<string, unknown>
       )[functionName];
     if (address === FACTORY && functionName === "vaultOf")
@@ -75,6 +77,8 @@ const client = {
     if (functionName === "INNER") return "0x00000000000000000000000000000000000000Cd"; // the key behind the adapter (the fifth review round, 2026-11-03)
     if (address === ROUTER && functionName === "CORE") return CORE;
     if (address === USDT && functionName === "decimals") return 6; // the token's own, as configured (critic gap 1)
+    if (functionName === "poseidon2") return POSEIDON2_ONE_TWO_THREE; // the build's Poseidon2 on [1, 2, 3] (the eleventh review round, G11-1)
+    if (functionName === "WRAPPED_NATIVE") return WRAPPED_NATIVE_OF[1]; // both factories take the chain's WETH (G11-6)
     throw new Error(`unexpected read ${address}.${functionName}`);
   },
   waitForTransactionReceipt: async ({ hash }: { hash: string }) => ({

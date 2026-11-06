@@ -42,7 +42,7 @@ pub fn normalize_mnemonic(phrase: &str) -> String {
 /// The whitespace a phrase is split on: JavaScript's, as the web wallet's phraseToSeed (`trim`, `\s`) splits it (audit
 /// round 2, n32) — the byte-order mark included (a phrase pasted with one restored on the web and was refused here), U+0085
 /// not (one word on the web, two here).
-fn is_space(c: char) -> bool {
+pub(crate) fn is_space(c: char) -> bool {
     matches!(c, '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}')
 }
 

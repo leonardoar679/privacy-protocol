@@ -12,6 +12,7 @@ import { DeploymentMismatch, claimOf, forgetDeployment, guardDeployment, remembe
 import { classify, failureTarget } from "../src/operations/errors/catalog";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
+import { CORE_IDS, POSEIDON2_ONE_TWO_THREE, WRAPPED_NATIVE_OF } from "@privacy-wallet/contracts/deployments";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9" as const;
 const FACTORY = "0x00000000000000000000000000000000000000f1";
@@ -20,7 +21,7 @@ const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
 const USDC_VAULT = "0x00000000000000000000000000000000000000C2" as const;
 const ROUTER = "0x00000000000000000000000000000000000000a1" as const;
 const ZERO = "0x0000000000000000000000000000000000000000";
-const ID = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
+const HASHER = "0x00000000000000000000000000000000000000E5" as const; // the core's Poseidon2 hasher
 const deployment: Deployment = {
   chainId: 1,
   core: CORE,
@@ -55,12 +56,13 @@ function chain(
       if (address === CORE)
         return (
           {
-            PROTOCOL_ID: ID(1),
-            CIRCUIT_ID: ID(2),
-            HASH_ID: ID(3),
+            PROTOCOL_ID: CORE_IDS.protocolId,
+            CIRCUIT_ID: CORE_IDS.circuitId,
+            HASH_ID: CORE_IDS.hashId,
             VERIFIER: o.verifier ?? "0x00000000000000000000000000000000000000Ab",
             VAULT_FACTORY: FACTORY,
             LEVELS: 32n,
+            HASHER,
           } as Record<string, unknown>
         )[functionName];
       if (functionName === "INNER") return "0x00000000000000000000000000000000000000Cd"; // the key behind the adapter (the fifth review round, 2026-11-03)
@@ -81,6 +83,8 @@ function chain(
           throw new ContractFunctionExecutionError(new ContractFunctionZeroDataError({ functionName: "predict" }), { abi: [], functionName: "predict" });
         return answer;
       }
+      if (functionName === "poseidon2") return POSEIDON2_ONE_TWO_THREE; // the build's Poseidon2 on [1, 2, 3] (the eleventh review round, G11-1)
+      if (functionName === "WRAPPED_NATIVE") return WRAPPED_NATIVE_OF[1]; // both factories take the chain's WETH (G11-6)
       throw new Error(`unexpected read ${address}.${functionName}`);
     },
   };
@@ -139,6 +143,11 @@ describe("the deployment check before the first operation (doc §71)", () => {
       changed: false,
       problems: ["the configured vault of ETH is not the canonical one"],
     });
+    // a refusal, not a remembered deployment that differs (the eleventh review round, the third critique of slice 5): forgetting it under
+    // More → Advanced changes nothing, and its words say so
+    const refused = classify(await guardDeployment(wrongVault, reader).catch((x: unknown) => x));
+    expect(refused).toMatchObject({ code: "deployment_refused", fundsClass: "not-moved", actions: ["check-settings"] });
+    expect(failureTarget(refused)).toBe("FAILED");
     await expect(guardDeployment(deployment, chain({ routerCore: "0x00000000000000000000000000000000000000c0" }))).rejects.toMatchObject({
       problems: ["ProtectRouter answers to another core"],
     });

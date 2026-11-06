@@ -208,6 +208,26 @@ describe.skipIf(!wasm)("WASM core == TypeScript reference (build: node privacy-c
     }
   });
 
+  it("refuses and reads the shared inputs as the reference does: a seed that is no seed, a pasted address (the eleventh review round, G11-7, G11-8)", () => {
+    const v = JSON.parse(readFileSync(join(here, "vectors/inputs.json"), "utf8"));
+    const ok = (f: () => unknown): boolean => {
+      try {
+        f();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (const s of v.refusedSeeds) {
+      const seed = hexToBytes(s.hex);
+      expect([ok(() => deriveKeys(seed)), ok(() => wasm.derive_keys(seed))], s.name).toEqual([false, false]);
+      expect(() => wasm.derive_keys(seed), s.name).toThrow("the wallet's seed is not available");
+    }
+    // a refusal is an error, never a panic that ends the instance: a live seed still derives after them
+    expect(bytesToHex(wasm.derive_keys(seed))).toBe(bytesToHex(new Uint8Array([...be32(keys.spendKey), ...be32(keys.viewKey), ...be32(keys.noteKey)])));
+    for (const c of v.addresses) expect([ok(() => decodePrivacyAddress(c.input)), ok(() => wasm.parse_privacy_address(c.input))], c.name).toEqual([c.accept, c.accept]);
+  });
+
   it("opens the web wallet's keystore vector", () => {
     const w = JSON.parse(readFileSync(join(here, "vectors/wallet.json"), "utf8"));
     expect(bytesToHex(wasm.unlock_keystore(JSON.stringify(w.keystore.keystore), w.keystore.password))).toBe(w.keystore.seed);

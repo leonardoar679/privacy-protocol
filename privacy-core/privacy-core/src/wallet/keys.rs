@@ -23,8 +23,27 @@ fn derive_field(seed: &[u8], label: &str) -> Fr {
     fr_from_be_mod(&keccak256(&buf))
 }
 
-pub fn derive_keys(master_seed: &[u8]) -> WalletKeys {
-    WalletKeys { spend_key: derive_field(master_seed, "/spend"), view_key: derive_field(master_seed, "/view"), note_key: derive_field(master_seed, "/note") }
+/// Why no key derives: the seed is empty or all zero — the seed a lock zeroed, or none —, whose keys anyone can compute (the eleventh review
+/// round, 2026-11-04, G11-7: the TypeScript core's `assertLiveSeed` refused it, and this core, its WASM build and the FFI derived its keys).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyError {
+    SeedUnavailable,
+}
+
+impl core::fmt::Display for KeyError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("the wallet's seed is not available (the wallet locked): nothing is derived from it, nothing is sent")
+    }
+}
+
+impl std::error::Error for KeyError {}
+
+/// The three wallet keys of a live seed (spec §4); an empty or all-zero seed is refused, as packages/protocol/src/keys.ts refuses it.
+pub fn derive_keys(master_seed: &[u8]) -> Result<WalletKeys, KeyError> {
+    if master_seed.is_empty() || master_seed.iter().all(|&b| b == 0) {
+        return Err(KeyError::SeedUnavailable);
+    }
+    Ok(WalletKeys { spend_key: derive_field(master_seed, "/spend"), view_key: derive_field(master_seed, "/view"), note_key: derive_field(master_seed, "/note") })
 }
 
 /// noteSecret for the wallet's own notes: keccak(noteKey ‖ uint64 counter) mod p.

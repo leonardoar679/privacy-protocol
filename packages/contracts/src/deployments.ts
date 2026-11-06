@@ -15,6 +15,7 @@ import {
 } from "viem";
 import type { DeploymentFingerprint, ProtocolDeployment } from "@privacy-wallet/protocol-types";
 import devVerifier from "../../../contracts/abi/dev/TransactionVerifierDev.json";
+import hasherRuntime from "../../../contracts/abi/runtime/Poseidon2Hasher.json";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -25,7 +26,10 @@ const CORE_ABI = [
   { type: "function", name: "VERIFIER", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "VAULT_FACTORY", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "LEVELS", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "HASHER", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
 ] as const;
+const HASHER_ABI = [{ type: "function", name: "poseidon2", stateMutability: "pure", inputs: [{ type: "uint256[]" }], outputs: [{ type: "uint256" }] }] as const;
+const WRAPPED_ABI = [{ type: "function", name: "WRAPPED_NATIVE", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 const VERIFIER_ABI = [{ type: "function", name: "INNER", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 const FACTORY_ABI = [{ type: "function", name: "vaultOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "address" }] }] as const;
 const VAULT_ABI = [{ type: "function", name: "VAULT_VERSION", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] }] as const;
@@ -41,6 +45,40 @@ export interface DeploymentReader {
 
 /** The development verifier's runtime code hash: a key that accepts any proof, for devnets only (the fifth review round, 2026-11-03). */
 export const DEV_VERIFIER_CODEHASH: Hex = keccak256(devVerifier.deployedBytecode as Hex);
+/**
+ * The development key itself (the eleventh review round, 2026-11-04, G11-4): its delta and IC points, which every compilation of the verifier
+ * template embeds as 32-byte immediates — the code hash recognised one compilation alone, and the same insecure key built with another
+ * toolchain (a metadata trailer suffices) passed. Exported from TransactionVerifierDev.sol by export-abi.mjs.
+ */
+export const DEV_KEY_WORDS: readonly Hex[] = (devVerifier as { keyWords: string[] }).keyWords as Hex[];
+/** Whether code embeds the development key: one of its words as a byte-aligned run of the code. */
+export const holdsDevKey = (code: Hex): boolean =>
+  DEV_KEY_WORDS.some((w) => {
+    const body = code.toLowerCase().slice(2);
+    const word = w.toLowerCase().slice(2);
+    for (let i = body.indexOf(word); i >= 0; i = body.indexOf(word, i + 1)) if (i % 2 === 0) return true;
+    return false;
+  });
+/**
+ * This build's protocol, circuit and hash identifiers (contracts/src/core/CoreTypes.sol; the eleventh review round, G11-1): a core of another
+ * protocol, circuit or hash had passed the check, its identifiers read and compared with nothing — every deposit into it locked for good.
+ */
+export const CORE_IDS = {
+  protocolId: keccak256(stringToHex("privacy-protocol/v1.0")),
+  circuitId: keccak256(stringToHex("privacy-protocol/v1/circuit/transaction-2in3out-depth32-poseidon2")),
+  hashId: keccak256(stringToHex("poseidon2-bn254-t4-rf8-rp56/noir-sponge/v1")),
+} as const;
+/** This build's Poseidon2 hasher's runtime code hash (no immutables: a constant of the pinned build; export-abi.mjs). */
+export const HASHER_CODEHASH: Hex = keccak256(hasherRuntime.deployedBytecode as Hex);
+/** poseidon2([1, 2, 3]) of this build's hash — three inputs, the rate's own case (the sponge's last permutation skipped): the hasher read back. */
+export const POSEIDON2_ONE_TWO_THREE = 0x23864adb160dddf590f1d3303683ebcb914f828e2635f6e85a32f0a1aecd3dd8n;
+/** The chain's wrapped native token, as both factories must take it (the eleventh review round, G11-6); a chain absent here: any but none,
+ * save the devnet (chain id 31337), where the deploy scripts take none (DeploySwapPeriphery.s.sol, DeployShieldReceiver.s.sol). */
+const DEVNET_CHAIN_ID = 31337;
+export const WRAPPED_NATIVE_OF: Readonly<Record<number, Address>> = {
+  1: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH9 (the local stack places it at this address too)
+  11155111: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14", // Sepolia WETH
+};
 /** The circuit's depth: Transaction(32, 2, 3); a core built at another depth can never verify a spend. */
 export const CIRCUIT_LEVELS = 32;
 
@@ -99,14 +137,30 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
   if (chainId !== claim.chainId) problems.push(`the endpoints answer chain ${chainId}, the configuration names chain ${claim.chainId}`);
   const core = claim.core;
   const read = (functionName: (typeof CORE_ABI)[number]["name"]) => client.readContract({ address: core, abi: CORE_ABI, functionName });
-  const [protocolId, circuitId, hashId, verifier, vaultFactory, levels] = (await Promise.all([
+  const [protocolId, circuitId, hashId, verifier, vaultFactory, levels, hasher] = (await Promise.all([
     read("PROTOCOL_ID"),
     read("CIRCUIT_ID"),
     read("HASH_ID"),
     read("VERIFIER"),
     read("VAULT_FACTORY"),
     read("LEVELS"),
-  ])) as [Hex, Hex, Hex, Address, Address, bigint];
+    read("HASHER"),
+  ])) as [Hex, Hex, Hex, Address, Address, bigint, Address];
+  // this build's protocol, circuit and hash (the eleventh review round, G11-1): another's core takes a deposit no proof of this build can spend
+  if (protocolId.toLowerCase() !== CORE_IDS.protocolId) problems.push(`the core's protocol identifier ${protocolId} is not this build's`);
+  if (circuitId.toLowerCase() !== CORE_IDS.circuitId)
+    problems.push(`the core's circuit identifier ${circuitId} is not this build's circuit: no proof of this build can verify`);
+  if (hashId.toLowerCase() !== CORE_IDS.hashId) problems.push(`the core's hash identifier ${hashId} is not this build's`);
+  // and its hasher: the build's code, and read back on the rate's own case — another hasher's commitments are notes no scan finds
+  const hasherCode = client.getCode ? await client.getCode({ address: hasher }) : undefined;
+  if (client.getCode && (!hasherCode || hasherCode === "0x")) problems.push(`the core's hasher ${hasher} has no code`);
+  else if (hasherCode && keccak256(hasherCode).toLowerCase() !== HASHER_CODEHASH.toLowerCase())
+    problems.push(`the core's hasher ${hasher} is not this build's Poseidon2`);
+  const heard = (await client.readContract({ address: hasher, abi: HASHER_ABI, functionName: "poseidon2", args: [[1n, 2n, 3n]] }).catch((e: unknown) => {
+    if (notThatContract(e)) return null;
+    throw e;
+  })) as bigint | null;
+  if (heard !== POSEIDON2_ONE_TWO_THREE) problems.push(`the core's hasher ${hasher} does not hash as this build's Poseidon2`);
   // the depth and the key behind the adapter (the fifth review round, 2026-11-03): the fingerprint had named the adapter's address and
   // nothing of the inner Groth16 verifier — the ceremony's or the development one, which accepts any proof —, nor the tree's depth,
   // which the core takes from 3 to 32 while the circuit is fixed at 32 (a wrong depth locks every spend for good)
@@ -115,7 +169,8 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
   const innerCode = client.getCode ? await client.getCode({ address: inner }) : undefined;
   const innerCodehash: Hex | null = innerCode && innerCode !== "0x" ? keccak256(innerCode) : null;
   if (client.getCode && innerCodehash === null) problems.push(`the proof verifier's inner key ${inner} has no code`);
-  if (claim.production && innerCodehash !== null && innerCodehash.toLowerCase() === DEV_VERIFIER_CODEHASH.toLowerCase())
+  // the key, not one compilation of it (the eleventh review round, G11-4)
+  if (claim.production && innerCode && innerCode !== "0x" && (innerCodehash?.toLowerCase() === DEV_VERIFIER_CODEHASH.toLowerCase() || holdsDevKey(innerCode)))
     problems.push("the proof verifier is the development key, which accepts any proof: not a deployment to use");
   const vaults: Record<string, Address> = {};
   let vaultVersion = 0;
@@ -141,6 +196,23 @@ export async function verifyDeployment(client: DeploymentReader, claim: Deployme
     })) as Address | null;
     if (!pool || lower(pool) !== lower(vaultFactory))
       problems.push(`the shield receiver factory deposits into ${pool ?? "no pool"}, not this core's vault factory ${vaultFactory}`);
+  }
+  // both factories take the chain's wrapped native token (the eleventh review round, G11-6): a shield factory built on none let anyone sweep
+  // an ETH receipt's WETH to the public fallback, and a swap factory on another refunds nothing it unwraps
+  for (const [name, factory] of [
+    ["shield receiver", claim.shieldFactory],
+    ["swap", claim.swapFactory],
+  ] as const) {
+    if (!factory) continue;
+    const wrapped = (await client.readContract({ address: factory, abi: WRAPPED_ABI, functionName: "WRAPPED_NATIVE" }).catch((e: unknown) => {
+      if (notThatContract(e)) return null;
+      throw e;
+    })) as Address | null;
+    const want = WRAPPED_NATIVE_OF[chainId];
+    if (!wrapped || lower(wrapped) === ZERO) {
+      if (chainId !== DEVNET_CHAIN_ID) problems.push(`the ${name} factory ${factory} takes no wrapped native token`);
+    } else if (want && lower(wrapped) !== lower(want))
+      problems.push(`the ${name} factory ${factory} takes ${wrapped} as the wrapped native token, not this chain's ${want}`);
   }
   const deployment: ProtocolDeployment = {
     chainId,

@@ -5,13 +5,14 @@ import { describe, expect, it } from "vitest";
 import { ContractFunctionExecutionError, ContractFunctionZeroDataError, HttpRequestError } from "viem";
 import { ABI, BYTECODE, verifyDeployment, type DeploymentReader } from "../src";
 import escrowJson from "../../../contracts/abi/periphery/SwapOrderEscrow.json";
+import { CORE_IDS, POSEIDON2_ONE_TWO_THREE, WRAPPED_NATIVE_OF } from "../src/deployments";
 
 const CORE = "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9" as const;
 const FACTORY = "0x00000000000000000000000000000000000000f1";
 const ETH_VAULT = "0x36ffA23fd38Ae93e2b01Aa5fA1570845aDA89469";
 const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
 const USDC_VAULT = "0x00000000000000000000000000000000000000c2";
-const ID = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
+const HASHER = "0x00000000000000000000000000000000000000E5" as const; // the core's Poseidon2 hasher
 
 const SHIELD_FACTORY = "0x00000000000000000000000000000000000000f5";
 
@@ -25,18 +26,21 @@ function chain(
       if (address === CORE)
         return (
           {
-            PROTOCOL_ID: ID(1),
-            CIRCUIT_ID: ID(2),
-            HASH_ID: ID(3),
+            PROTOCOL_ID: CORE_IDS.protocolId,
+            CIRCUIT_ID: CORE_IDS.circuitId,
+            HASH_ID: CORE_IDS.hashId,
             VERIFIER: o.verifier ?? "0x00000000000000000000000000000000000000Ab",
             VAULT_FACTORY: FACTORY,
             LEVELS: 32n,
+            HASHER,
           } as Record<string, unknown>
         )[functionName];
       if (functionName === "INNER") return "0x00000000000000000000000000000000000000Cd"; // the key behind the adapter (the fifth review round, 2026-11-03)
       if (address === FACTORY && functionName === "vaultOf") return vaults[String(args![0]).toLowerCase()] ?? "0x0000000000000000000000000000000000000000";
       if (functionName === "VAULT_VERSION") return BigInt(o.versions?.[address] ?? 1);
       if (address === SHIELD_FACTORY && functionName === "VAULT_FACTORY") return o.shieldPool ?? FACTORY;
+      if (functionName === "poseidon2") return POSEIDON2_ONE_TWO_THREE; // the build's Poseidon2 on [1, 2, 3] (the eleventh review round, G11-1)
+      if (functionName === "WRAPPED_NATIVE") return WRAPPED_NATIVE_OF[1]; // both factories take the chain's WETH (G11-6)
       throw new Error(`unexpected read ${address}.${functionName}`);
     },
   };
@@ -51,7 +55,7 @@ describe("verifyDeployment", () => {
     expect(b.fingerprint.hash).toBe(a.fingerprint.hash);
     expect(b.changed).toBe(false);
     expect(a.fingerprint.read.vaults).toEqual({ eth: ETH_VAULT.toLowerCase(), usdc: USDC_VAULT });
-    expect(a.fingerprint.read.protocolVersion).toBe(`${ID(1)}/${ID(2)}/${ID(3)}`);
+    expect(a.fingerprint.read.protocolVersion).toBe(`${CORE_IDS.protocolId}/${CORE_IDS.circuitId}/${CORE_IDS.hashId}`);
   });
 
   it("a different verifier or vault is a different fingerprint — flagged against the remembered one, never adopted silently", async () => {

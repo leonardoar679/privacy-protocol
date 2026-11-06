@@ -749,7 +749,10 @@ export const ko: Record<MessageKey, string> = {
   "op.error.housekeeping_needed.title": "먼저 잔액을 통합해야 합니다",
   "op.error.deployment_mismatch.title": "이 앱이 배포된 프로토콜과 일치하지 않습니다",
   "op.error.deployment_mismatch.reason":
-    "이 네트워크의 컨트랙트가 이 앱이 만들어진 대상이 아니거나, 이 지갑이 이전에 본 것과 다릅니다. 아무것도 전송되지 않았습니다. 앱을 업데이트하세요. 더보기 → 고급에서 앱이 지정한 배포를 수락하도록 선택할 수 있습니다.",
+    "이 네트워크의 컨트랙트가 이 지갑이 이전에 본 것과 다릅니다. 아무것도 전송되지 않았습니다. 앱을 업데이트하세요. 더보기 → 고급에서 앱이 지정한 배포를 수락하도록 선택할 수 있습니다.",
+  "op.error.deployment_refused.title": "이 앱은 이 네트워크의 컨트랙트를 사용할 수 없습니다",
+  "op.error.deployment_refused.reason":
+    "이 네트워크의 컨트랙트가 이 앱이 만들어진 대상이 아니므로 사용하지 않습니다. 아무것도 전송되지 않았습니다. 앱이나 그 구성을 업데이트하세요.",
   "op.error.execution_unavailable.title": "지금은 이 경로를 실행할 수 없습니다",
   "op.error.execution_unavailable.reason":
     "인계 전 점검이 실패해 아무것도 넘겨지지 않았습니다. 자금은 이 스왑을 위해 보관되어 있습니다. 새 견적으로 다시 시도하거나 보호 잔액으로 반환하세요.",
@@ -1792,7 +1795,7 @@ export const ko: Record<MessageKey, string> = {
   "advanced.fingerprint": "첫 작업 전에 확인되며, 이 지갑이 기억하는 지문: {hash}",
   "advanced.fingerprintNone": "첫 작업 전에 배포를 확인하고, 읽은 내용을 기억합니다.",
   "advanced.fingerprintForget": "기억된 배포 지우기",
-  "advanced.fingerprintForgotten": "지웠습니다. 다음 작업에서 이 앱이 지정한 배포를 기억합니다.",
+  "advanced.fingerprintForgotten": "지웠습니다. 다음 작업에서 배포를 다시 확인하고, 문제가 없으면 기억합니다.",
   "advanced.noDeployment": "구성된 배포 없음: VITE_RPC_URLS, VITE_CORE, VITE_ETH_VAULT를 설정하세요 (docs/testnet.md)",
   "advanced.unaudited":
     "감사를 받지 않았으며 프로덕션용이 아닙니다. 개발 환경에서 제공되는 증명 키는 안전하지 않은 단일 참여자 설정입니다 (circuits/setup/dev).",

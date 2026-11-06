@@ -28,7 +28,10 @@ contract DeployShieldReceiver {
 
     function run() external {
         address core = vm.envAddress("CORE");
-        address wrappedNative = vm.envOr("WRAPPED_NATIVE", address(0));
+        // the chain's own by default, as the swap periphery's script takes it, and never none off a devnet (the eleventh review round,
+        // 2026-11-04, G11-6): a factory built on none let anyone sweep an ETH receipt's WETH to the public fallback, the receiver's own rule
+        // undone, while every check passed
+        address wrappedNative = _wrappedNativeOrRefuse();
         address vaultFactory = ICoreVaultFactory(core).VAULT_FACTORY();
         vm.startBroadcast();
         ShieldReceiverFactory f = new ShieldReceiverFactory(vaultFactory, wrappedNative);
@@ -38,6 +41,33 @@ contract DeployShieldReceiver {
         _log("VAULT_FACTORY (read from the core)", vm.toString(f.VAULT_FACTORY()));
         _log("WRAPPED_NATIVE", vm.toString(f.WRAPPED_NATIVE()));
         _log("deployment record", string.concat("shieldFactory=", vm.toString(address(f))));
+    }
+
+    /// WRAPPED_NATIVE, else the chain's own; none only on a devnet.
+    function _wrappedNativeOrRefuse() internal view returns (address) {
+        return _checkedWrappedNative(_envWrappedNative());
+    }
+
+    /// The operator's WRAPPED_NATIVE, else the chain's own. Virtual: a test names an override without the process-wide environment, which
+    /// forge's parallel tests share (the third critique of slice 5: the run path with an override had no test).
+    function _envWrappedNative() internal view virtual returns (address) {
+        return vm.envOr("WRAPPED_NATIVE", _wrappedNative());
+    }
+
+    /// The token taken: none only on a devnet, and where the wallet pins one (mainnet, Sepolia) that one alone — the second critique of
+    /// slice 5: an override the wallet's deployment check refuses had deployed an immutable factory, refused only at the first money
+    /// operation.
+    function _checkedWrappedNative(address w) internal view returns (address) {
+        require(w != address(0) || block.chainid == 31337, "WRAPPED_NATIVE: the chain's wrapped native token (none only on a devnet, chain id 31337)");
+        address own = _wrappedNative();
+        require(own == address(0) || w == own, "WRAPPED_NATIVE: on mainnet and Sepolia only the chain's own WETH, as the wallet's deployment check requires");
+        return w;
+    }
+
+    function _wrappedNative() internal view returns (address) {
+        if (block.chainid == 1) return 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2; // WETH9
+        if (block.chainid == 11155111) return 0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14; // Sepolia WETH ("Wrapped Ether")
+        return address(0);
     }
 
     function _log(string memory what, string memory v) internal view {

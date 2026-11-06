@@ -2,7 +2,8 @@
 // the receiving address inside notes) and their view public key (envelope.ts, to encrypt the
 // payload). Wallet-level convention (the core knows only owner commitments): bech32m (BIP-350),
 // human-readable part "pp", data = version 0x01 ‖ ownerCommitment (32 bytes, big-endian) ‖ viewPub
-// (32 bytes). Typo-resistant (the checksum detects any 4 errors), case-insensitive, 113 characters.
+// (32 bytes). Case-insensitive, 113 characters; at its 110 data characters the checksum detects any 3 errors and almost every other — BIP-350's
+// 4 hold to 89 data characters (the eleventh review round, G11-9: a 4-character substitution turns any address into another valid one).
 import { x25519 } from "@noble/curves/ed25519";
 import { FIELD } from "./field";
 import { isCanonicalViewKey } from "./envelope";
@@ -49,6 +50,9 @@ export function bech32mEncode(hrp: string, bytes: Uint8Array): string {
 }
 
 export function bech32mDecode(s: string): { hrp: string; bytes: Uint8Array } {
+  // printable ASCII only, as the Rust decoder reads it (the eleventh review round, G11-8): JavaScript's case mapping had read a Kelvin sign as
+  // a "k", and the two cores disagreed on one string
+  if (!/^[\x21-\x7e]*$/.test(s)) throw new Error("invalid character");
   if (s !== s.toLowerCase() && s !== s.toUpperCase()) throw new Error("mixed-case address");
   const str = s.toLowerCase();
   const pos = str.lastIndexOf("1");

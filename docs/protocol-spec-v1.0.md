@@ -256,23 +256,28 @@ balAfter  = token.balanceOf(vault)
 require balAfter − balBefore == amount        else UnsupportedTokenBehavior   (fee-on-transfer, rebasing)
 accountedDeposits += amount; commitDeposit(...)
 ```
-Supported ERC-20 behaviour: standard `transfer`/`transferFrom` returning `true` or nothing. Anything
-else is rejected at deposit, so it can never be inside a vault.
+Supported ERC-20 behaviour at the deposit: a standard `transferFrom` returning `true` or nothing, moving exactly the amount (a
+fee-on-transfer or rebasing token is refused there). `transfer` is never called at the deposit, so a token whose `transfer` answers a
+status word or calls the recipient's hook can be inside a vault: the payout does not read its answer and is judged by the vault's own
+balance under a 300,000-gas bound (§8.3; the eleventh review round, G11-3/G11-5).
 
 ### 8.3 Release and the claim state machine (§51–52)
 ```
 release(recipient, amount)   onlyCore, nonReentrant
   require amount > 0 and accountedDeposits ≥ amount     else Undercollateralized
   accountedDeposits −= amount                            # EFFECT first
-  ok = softTransfer(recipient, amount)                   # never reverts: ETH call with 100,000 gas at most / ERC-20 call, false on failure
-                                                         # an ERC-20 32-byte answer is read as a word: non-zero = paid (the fifth review round, 2026-11-03)
+  ok = softTransfer(recipient, amount)                   # never reverts: ETH call with 100,000 gas at most / ERC-20 call with 300,000
+                                                         # (TOKEN_PUSH_GAS), false on failure; an ERC-20 payout is paid when the vault's
+                                                         # own balance fell (the token's answer unread), a claim only when nothing left
+                                                         # (the eleventh review round, G11-3/G11-5; the fifth had read a non-zero word as paid)
   if ok:  emit Released(recipient, amount)
   else:   claimable[recipient] += amount; totalClaimable += amount; emit WithdrawalClaimCreated(recipient, amount)
 
 claim(recipient)             anyone, nonReentrant
   amt = claimable[recipient]; require amt > 0            else NothingToClaim
   claimable[recipient] = 0; totalClaimable −= amt        # EFFECT first
-  require softTransfer(recipient, amt)                   else ClaimTransferFailed   (revert restores the claim)
+  require claimOut(recipient, amt)                       else ClaimTransferFailed   (revert restores the claim)
+                                                         # the caller's gas forwarded, paid by the same balance rule (the eleventh round, G11-2)
   emit Claimed(recipient, amt)
 ```
 States per `(vault, recipient)`: `NONE —release fails→ CLAIMABLE(x) —release fails again→ CLAIMABLE(x+y)

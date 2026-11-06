@@ -66,9 +66,15 @@ abstract contract BaseAssetVault is IAssetVault, ReentrancyGuard {
         if (amt == 0) revert VaultTypes.NothingToClaim();
         claimable[recipient] = 0;
         totalClaimable -= amt;
-        if (!_transferOut(recipient, amt)) revert VaultTypes.ClaimTransferFailed(); // revert restores the claim
+        if (!_claimOut(recipient, amt)) revert VaultTypes.ClaimTransferFailed(); // revert restores the claim
         emit Claimed(recipient, amt);
     }
+
+    /// @dev The claim's payout (the eleventh review round, 2026-11-04, G11-2). The release's push is bounded so that a recipient cannot
+    /// make the relayer's whole transact revert; a claim's caller pays its own gas and a failed claim reverts by itself, so the claim
+    /// forwards it — under the release's bound, a recipient whose receive() honestly needs more was never paid, its funds held for good.
+    /// claim() turns a false into a revert, which restores the obligation.
+    function _claimOut(address recipient, uint256 amount) internal virtual returns (bool);
 
     function _commitDeposit(uint256 ownerCommitment, uint256 noteSecret, uint256 amount, bytes calldata noteData)
         internal
@@ -77,7 +83,7 @@ abstract contract BaseAssetVault is IAssetVault, ReentrancyGuard {
         return IPrivacyCore(core).commitDeposit(ownerCommitment, noteSecret, amount, noteData);
     }
 
-    /// @dev MUST NOT revert on an ordinary transfer failure — return false so release() can fall
-    /// back to claimable. (claim() turns a false into a revert to preserve the obligation.)
+    /// @dev The release's payout, bounded so that no recipient can make the relayer's whole transact revert. MUST NOT revert on an
+    /// ordinary transfer failure — return false, and the release books the amount as claimable (the claim pays through `_claimOut`).
     function _transferOut(address recipient, uint256 amount) internal virtual returns (bool);
 }

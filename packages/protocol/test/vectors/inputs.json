@@ -1,0 +1,64 @@
+{
+  "schema": "Inputs both cores refuse or read alike (the eleventh review round, 2026-11-04): G11-7 — a seed that is no seed derives no key (packages/protocol keys.ts assertLiveSeed; privacy-core keys.rs KeyError::SeedUnavailable); G11-8 — a pasted privacy address is trimmed as JavaScript's trim trims (the byte-order mark included, U+0085 not) and holds printable ASCII only, in both decoders.",
+  "refusedSeeds": [
+    {
+      "name": "empty",
+      "hex": ""
+    },
+    {
+      "name": "32 zero bytes (the seed a lock zeroed)",
+      "hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "one zero byte",
+      "hex": "00"
+    }
+  ],
+  "addresses": [
+    {
+      "name": "canonical",
+      "input": "pp1qyd0pz2ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se",
+      "accept": true
+    },
+    {
+      "name": "upper case",
+      "input": "PP1QYD0PZ2EK06GDJ9CQ97E6P85S87RG583FHKDVWV5QXEYRGCJL3H2THE9V97AQ2WZ499JSDY8JHHYMFV3P35X8GXNATUE35TKH8EW0E2X7236SE",
+      "accept": true
+    },
+    {
+      "name": "ASCII spaces and a newline around",
+      "input": "  pp1qyd0pz2ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se\n",
+      "accept": true
+    },
+    {
+      "name": "a byte-order mark before (a file saved with one)",
+      "input": "﻿pp1qyd0pz2ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se",
+      "accept": true
+    },
+    {
+      "name": "no-break spaces around (pasted from a page)",
+      "input": " pp1qyd0pz2ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se ",
+      "accept": true
+    },
+    {
+      "name": "U+0085 before (not whitespace to JavaScript)",
+      "input": "pp1qyd0pz2ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se",
+      "accept": false
+    },
+    {
+      "name": "a Kelvin sign for one K, upper case",
+      "input": "PP1QYD0PZ2EK06GDJ9CQ97E6P85S87RG583FHKDVWV5QXEYRGCJL3H2THE9V97AQ2WZ499JSDY8JHHYMFV3P35X8GXNATUE35TKH8EW0E2X7236SE",
+      "accept": false
+    },
+    {
+      "name": "mixed case",
+      "input": "Pp1qyd0pz2ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se",
+      "accept": false
+    },
+    {
+      "name": "a zero-width space inside",
+      "input": "pp1qyd0pz2​ek06gdj9cq97e6p85s87rg583fhkdvwv5qxeyrgcjl3h2the9v97aq2wz499jsdy8jhhymfv3p35x8gxnatue35tkh8ew0e2x7236se",
+      "accept": false
+    }
+  ]
+}

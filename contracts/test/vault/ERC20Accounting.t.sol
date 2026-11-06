@@ -104,7 +104,8 @@ contract ERC20AccountingTest is PPTestBase {
 
     function test_OddReturnWord_ReleasePaysInsteadOfReverting() public {
         // a 32-byte word that is neither 0 nor 1 from `transfer` (the fifth review round, 2026-11-03): the decoder had reverted, and the
-        // whole transact with it after a valid proof — the asset could never leave the vault; a non-zero word reads as the transfer it is
+        // whole transact with it after a valid proof — the asset could never leave the vault. Since the eleventh round (G11-3) the word is
+        // not read at all: the payout counts as paid because the vault's own balance fell
         OddReturnToken tok = new OddReturnToken();
         ERC20AssetVault v = _vault(address(tok));
         tok.mint(alice, 100e18);
@@ -113,7 +114,7 @@ contract ERC20AccountingTest is PPTestBase {
         _depositERC20(v, alice, 10e18, 1);
         CoreTypes.PublicInputs memory pi = _withdrawPI(address(v), bob, 10e18, 1, 2);
         _transact(pi);
-        assertEq(tok.balanceOf(bob), 10e18, "paid: the token moved the funds and said so in its own word");
+        assertEq(tok.balanceOf(bob), 10e18, "paid: the token moved the funds, the vault's balance fell");
         assertEq(v.claimable(bob), 0, "no claim booked for a payout that went through");
         assertTrue(v.isSolvent());
     }

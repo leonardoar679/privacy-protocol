@@ -66,7 +66,10 @@ random key bytes had their top bit set half the time). A view public key at or a
 privacy-address decoder and the encryption refuse it in both cores, since no payment to it could be opened. Fresh ephemeral
 key and nonce per payload; no sender identity is encoded (the recipient learns nothing about who paid).
 **Privacy address** (wallet convention, `packages/protocol/src/address.ts`): bech32m, hrp `pp`,
-data `0x01 ‖ ownerCommitment(32) ‖ viewPub(32)` → `pp1…` (113 characters, typo-detecting, case-insensitive).
+data `0x01 ‖ ownerCommitment(32) ‖ viewPub(32)` → `pp1…` (113 characters, case-insensitive; at its 110 data characters the bech32m
+checksum detects any 3 errors and almost every other — BIP-350's 4 hold up to 89 data characters, and a 4-character substitution can turn an
+address into another valid one: the eleventh review round, G11-9). Both cores read a pasted address alike: trimmed as JavaScript's `trim`
+trims (the byte-order mark included, U+0085 not), printable ASCII only (G11-8; `packages/protocol/test/vectors/inputs.json`).
 
 ## Wallet keystore, recovery phrase, journal and chain keys (V1.1, plan §44–§45)
 Specified in [`wallet-formats.md`](wallet-formats.md): scrypt + XChaCha20-Poly1305 keystore, the BIP-39 phrase of the seed, the seed-keyed journal, the backup file, and the BIP-44 / BIP-84 / SLIP-0010 derivations — pinned by `packages/protocol/test/vectors/{wallet,chainkeys}.json` and reproduced by the web wallet and the Rust core.

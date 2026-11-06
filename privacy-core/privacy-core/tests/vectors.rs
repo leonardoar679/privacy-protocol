@@ -73,7 +73,7 @@ fn domains_zero_leaf_and_tags_match() {
 #[test]
 fn keys_note_nullifiers_and_record() {
     let p = json("circuits/vectors/primitives.json");
-    let keys = derive_keys(EXAMPLE_SEED);
+    let keys = derive_keys(EXAMPLE_SEED).unwrap();
     assert_eq!(keys.spend_key, dec(&p["keys"]["spendKey"]));
     assert_eq!(keys.view_key, dec(&p["keys"]["viewKey"]));
     assert_eq!(keys.note_key, dec(&p["keys"]["noteKey"]));
@@ -142,7 +142,7 @@ fn payload_binding_and_tx_domain() {
 fn envelope_and_address_vectors() {
     let v = json("packages/protocol/test/vectors/envelope.json");
     for case in v["cases"].as_array().unwrap() {
-        let keys = derive_keys(case["seed"].as_str().unwrap().as_bytes());
+        let keys = derive_keys(case["seed"].as_str().unwrap().as_bytes()).unwrap();
         assert_eq!(keys.view_key, dec(&case["viewKey"]));
         let view = view_key_pair(&keys.view_key);
         assert_eq!(hex::encode(view.public), case["viewPub"].as_str().unwrap());
@@ -161,7 +161,7 @@ fn envelope_and_address_vectors() {
             t[i] ^= 1;
             assert_eq!(decrypt_note_data(&view, &t), None, "byte {i}");
         }
-        let other = view_key_pair(&derive_keys(b"someone else").view_key);
+        let other = view_key_pair(&derive_keys(b"someone else").unwrap().view_key);
         assert_eq!(decrypt_note_data(&other, &note_data), None);
         // note discovery: the opening must reproduce the leaf with OUR owner commitment
         let oc = owner_commitment_of(&keys.spend_key);
@@ -190,7 +190,7 @@ fn envelope_and_address_vectors() {
         }
     }
     // dummies: same shape, open for nobody
-    let keys = derive_keys(EXAMPLE_SEED);
+    let keys = derive_keys(EXAMPLE_SEED).unwrap();
     let view = view_key_pair(&keys.view_key);
     let mut rnd = [0u8; NOTE_DATA_BYTES];
     for (i, b) in rnd.iter_mut().enumerate() {
@@ -297,8 +297,8 @@ fn layers_give_the_incremental_root_and_every_path_in_one_pass() {
 
 #[test]
 fn scan_payloads_finds_exactly_the_notes_that_open_their_leaf_for_us() {
-    let ours = derive_keys(EXAMPLE_SEED);
-    let other = derive_keys(b"someone else entirely");
+    let ours = derive_keys(EXAMPLE_SEED).unwrap();
+    let other = derive_keys(b"someone else entirely").unwrap();
     let view = view_key_pair(&ours.view_key);
     let oc = owner_commitment_of(&ours.spend_key);
     let eph = [0x11u8; 32];
@@ -329,8 +329,8 @@ fn scan_payloads_finds_exactly_the_notes_that_open_their_leaf_for_us() {
 #[test]
 fn open_payloads_opens_every_payload_for_our_view_key_and_says_which_reproduce() {
     // the audit round of 2026-10-16 (c18): a deposited note is made out to its own owner commitment, derived from its secret
-    let ours = derive_keys(EXAMPLE_SEED);
-    let other = derive_keys(b"someone else entirely");
+    let ours = derive_keys(EXAMPLE_SEED).unwrap();
+    let other = derive_keys(b"someone else entirely").unwrap();
     let view = view_key_pair(&ours.view_key);
     let oc = owner_commitment_of(&ours.spend_key);
     let nonce = [0x22u8; 24];

@@ -16,9 +16,14 @@ import { clientFor, type Deployment } from "./chain";
 import { config } from "./config";
 import { session } from "./wallet/session";
 
-/** The blocking error: classified as `deployment_mismatch` (nothing was sent). */
+/**
+ * The blocking error (nothing was sent): `deployment_refused` when the chain does not say what this build requires — forgetting the
+ * remembered deployment changes nothing — and `deployment_mismatch` when only the deployment this wallet remembered differs, which More →
+ * Advanced can forget. Both had read "accept it under More → Advanced", which offers nothing for a refusal (the eleventh review round,
+ * the third critique of slice 5: its new checks all refuse).
+ */
 export class DeploymentMismatch extends Error {
-  readonly code = "deployment_mismatch";
+  readonly code: "deployment_mismatch" | "deployment_refused";
   constructor(
     readonly problems: string[],
     readonly changed: boolean,
@@ -27,6 +32,7 @@ export class DeploymentMismatch extends Error {
       `this app does not match the deployed protocol: ${[...(changed ? ["the deployment differs from the one this wallet remembered for this chain"] : []), ...problems].join("; ")}`,
     );
     this.name = "DeploymentMismatch";
+    this.code = problems.length ? "deployment_refused" : "deployment_mismatch";
   }
 }
 

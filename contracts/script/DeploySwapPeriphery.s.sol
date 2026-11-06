@@ -22,8 +22,9 @@ interface VmPeriphery {
 /// in contracts/abi/periphery/SwapOrderEscrow.json — the address prediction in endpoints.ts is only
 /// valid for that exact creation code.
 ///
-/// The factory takes the chain's wrapped native token (WETH9 on mainnet, WETH on Sepolia; WRAPPED_NATIVE
-/// overrides): escrows unwrap a wrapped refund of an ETH order before re-shielding it.
+/// The factory takes the chain's wrapped native token: on mainnet and Sepolia that chain's own WETH (WETH9, Sepolia's WETH) and no
+/// other — an override is refused, as the wallet's deployment check refuses it; on another chain WRAPPED_NATIVE names it, and none is
+/// taken on a devnet (chain id 31337) only. Escrows unwrap a wrapped refund of an ETH order before re-shielding it.
 ///
 /// Dry run (no network):   forge script script/DeploySwapPeriphery.s.sol
 /// Broadcast:              forge script script/DeploySwapPeriphery.s.sol --rpc-url $RPC --broadcast --verify
@@ -31,7 +32,7 @@ contract DeploySwapPeriphery {
     VmPeriphery internal constant vm = VmPeriphery(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function run() external {
-        address wrappedNative = vm.envOr("WRAPPED_NATIVE", _wrappedNative());
+        address wrappedNative = _wrappedNativeOrRefuse();
         vm.startBroadcast();
         SwapOrderFactory factory = new SwapOrderFactory(wrappedNative);
         vm.stopBroadcast();
@@ -40,6 +41,26 @@ contract DeploySwapPeriphery {
         _log("wrapped native (escrows unwrap refunds paid in it)", vm.toString(wrappedNative));
         _log("SwapOrderEscrow creationCode keccak256", vm.toString(keccak256(type(SwapOrderEscrow).creationCode)));
         _log("engine env", string.concat("SWAP_FACTORY=", vm.toString(address(factory))));
+    }
+
+    /// WRAPPED_NATIVE, else the chain's own; none only on a devnet (the eleventh review round's first critique of slice 5): the wallet's
+    /// deployment check refuses a swap factory built on none off a devnet — refused here first, before an immutable factory exists.
+    function _wrappedNativeOrRefuse() internal view returns (address) {
+        return _checkedWrappedNative(_envWrappedNative());
+    }
+
+    /// The operator's WRAPPED_NATIVE, else the chain's own; virtual for the tests, as DeployShieldReceiver.s.sol's.
+    function _envWrappedNative() internal view virtual returns (address) {
+        return vm.envOr("WRAPPED_NATIVE", _wrappedNative());
+    }
+
+    /// The token taken: none only on a devnet, and where the wallet pins one (mainnet, Sepolia) that one alone (the second critique of
+    /// slice 5), as DeployShieldReceiver.s.sol takes it.
+    function _checkedWrappedNative(address w) internal view returns (address) {
+        require(w != address(0) || block.chainid == 31337, "WRAPPED_NATIVE: the chain's wrapped native token (none only on a devnet, chain id 31337)");
+        address own = _wrappedNative();
+        require(own == address(0) || w == own, "WRAPPED_NATIVE: on mainnet and Sepolia only the chain's own WETH, as the wallet's deployment check requires");
+        return w;
     }
 
     function _wrappedNative() internal view returns (address) {

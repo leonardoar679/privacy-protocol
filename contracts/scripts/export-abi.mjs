@@ -29,5 +29,17 @@ for (const c of PERIPHERY) {
 // verifier is this key, which accepts any proof; exported as its deployed bytecode, hashed where it is read
 mkdirSync(join(root, "abi", "dev"), { recursive: true });
 const dev = art("TransactionVerifierDev");
-writeFileSync(join(root, "abi", "dev", "TransactionVerifierDev.json"), JSON.stringify({ deployedBytecode: dev.deployedBytecode.object }, null, 2) + "\n");
+// and the key's own words (the eleventh review round, 2026-11-04, G11-4): its delta and IC points, the 32-byte immediates every compilation of
+// the template embeds — the code hash recognised this one compilation alone
+const devSource = readFileSync(join(root, "src", "verifier", "dev", "TransactionVerifierDev.sol"), "utf8");
+const keyWords = ["deltax1", "deltay1", "IC0x", "IC0y"].map((name) => {
+  const m = new RegExp(`uint256 constant ${name} = (\\d+);`).exec(devSource);
+  if (!m) throw new Error(`TransactionVerifierDev.sol: no ${name}`);
+  return "0x" + BigInt(m[1]).toString(16).padStart(64, "0");
+});
+writeFileSync(join(root, "abi", "dev", "TransactionVerifierDev.json"), JSON.stringify({ deployedBytecode: dev.deployedBytecode.object, keyWords }, null, 2) + "\n");
+// the Poseidon2 hasher's runtime code (the eleventh review round, G11-1): the wallet requires the core's HASHER to be this code — it has no
+// immutables, so its hash is a constant of the pinned build
+mkdirSync(join(root, "abi", "runtime"), { recursive: true });
+writeFileSync(join(root, "abi", "runtime", "Poseidon2Hasher.json"), JSON.stringify({ deployedBytecode: art("Poseidon2Hasher").deployedBytecode.object }, null, 2) + "\n");
 console.log(`exported ${CORE.length} frozen core ABIs (+SHA256SUMS), ${PERIPHERY.length} periphery artifacts with bytecode and the development verifier's runtime code`);

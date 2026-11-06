@@ -753,7 +753,12 @@ type ProtocolDeployment = { chainId: number; protocolVersion: string; privacyCor
 `verifyDeployment()` reads on chain the core's `PROTOCOL_ID` / `CIRCUIT_ID` / `HASH_ID`, `VAULT_VERSION`, its
 verifier, `vaultOf(asset)` for every registry asset, and every periphery contract's `CORE()`; the result's
 fingerprint is remembered, and a different fingerprint is a blocking notice ("This app does not match the deployed
-protocol."), never a silent switch.
+protocol."), never a silent switch. The identifiers must be this build's (`CORE_IDS`, the contracts' own `CoreTypes.sol` strings),
+the core's `HASHER()` must carry this build's Poseidon2 runtime code and answer `poseidon2([1, 2, 3])` as this build does, a
+production build refuses an inner verifier whose code embeds the development key's words however it was compiled, and both
+factories' `WRAPPED_NATIVE()` must be the chain's wrapped native token — WETH on mainnet and Sepolia (`WRAPPED_NATIVE_OF`), any token
+but none on another chain, none only on the devnet (chain id 31337) — the eleventh review round,
+G11-1, G11-4, G11-6: a core of another protocol, circuit or hash had passed, its deposits locked for good.
 
 Code (Stage 10): `packages/sdk/src/deploymentGuard.ts` — `guardDeployment` runs before a session's first money operation
 (the engine's `submitShield`, `privateTransfer`, `privateWithdrawal`, `mergeNotes`, `splitNote`: before any request,

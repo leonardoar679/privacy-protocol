@@ -52,6 +52,14 @@ class Primitives(unittest.TestCase):
         with self.assertRaises(ffi.CoreError.Invalid):  # a word >= p is not a field element
             ffi.poseidon2_hash(b"\xff" * 32)
 
+    def test_a_seed_that_is_no_seed_derives_no_key(self):
+        # the eleventh review round, G11-7: an empty or all-zero seed is refused, as the TypeScript core refuses it
+        # (packages/protocol/test/vectors/inputs.json, the vectors both cores and the WASM build read)
+        for s in vectors("packages/protocol/test/vectors/inputs.json")["refusedSeeds"]:
+            with self.assertRaises(ffi.CoreError.Invalid, msg=s["name"]):
+                ffi.derive_wallet_keys(bytes.fromhex(s["hex"]))
+        self.assertEqual(len(ffi.derive_wallet_keys(EXAMPLE_SEED).spend_key), 32, "a live seed still derives")
+
     def test_keys_note_commitment_nullifier(self):
         k = ffi.derive_wallet_keys(EXAMPLE_SEED)
         self.assertEqual(num(k.spend_key), int(self.p["keys"]["spendKey"]))

@@ -48,11 +48,11 @@ pub struct WalletKeys {
     pub note_key: Vec<u8>,
 }
 
-/// The three wallet keys of a master seed (spec §4).
+/// The three wallet keys of a master seed (spec §4); an empty or all-zero seed is refused (the eleventh review round, G11-7).
 #[uniffi::export]
-pub fn derive_wallet_keys(seed: Vec<u8>) -> WalletKeys {
-    let k = privacy_core::keys::derive_keys(&seed);
-    WalletKeys { spend_key: out(&k.spend_key), view_key: out(&k.view_key), note_key: out(&k.note_key) }
+pub fn derive_wallet_keys(seed: Vec<u8>) -> Result<WalletKeys, CoreError> {
+    let k = privacy_core::keys::derive_keys(&seed).map_err(|e| invalid(e.to_string()))?;
+    Ok(WalletKeys { spend_key: out(&k.spend_key), view_key: out(&k.view_key), note_key: out(&k.note_key) })
 }
 
 #[uniffi::export]

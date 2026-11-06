@@ -9,7 +9,8 @@ production procedure: the testnet rehearsal uses the insecure dev verifier on pu
 | Order | Contract(s) | Script | Notes |
 |---|---|---|---|
 | 1 | `Groth16Verifier` (adapter) → `Poseidon2Hasher` → `PrivacyCore` (deploys its own `AssetVaultFactory`) → ETH vault (+ optional USDC/USDT vaults) | `contracts/script/Deploy.s.sol` | `SEPOLIA_DEV_VERIFIER=true` deploys the **insecure** dev verifier, hard-gated to chain id 11155111; the ceremony verifier (`INNER_VERIFIER`) is the only production path |
-| 2 | `SwapOrderFactory` (periphery; the core does not know it) | `contracts/script/DeploySwapPeriphery.s.sol` | takes the chain's wrapped native token (`WRAPPED_NATIVE`, default WETH on Sepolia `0xfFf9…6B14` and mainnet `0xC02a…6Cc2`; escrows unwrap a WETH refund of an ETH order before re-shielding, and re-shield WETH or ETH paid back to an ERC-20 order as ETH); logs the factory address and the escrow creation-code hash; the hash must equal keccak256 of `contracts/abi/periphery/SwapOrderEscrow.json` `bytecode` (dry run: `0x270af79b…4e1c`, matched) |
+| 2 | `SwapOrderFactory` (periphery; the core does not know it) | `contracts/script/DeploySwapPeriphery.s.sol` | takes the chain's wrapped native token: on Sepolia and mainnet that chain's own WETH (`0xfFf9…6B14`, `0xC02a…6Cc2`) and no other — a `WRAPPED_NATIVE` naming another is refused, as the wallet's check refuses it; on another chain `WRAPPED_NATIVE` names it, and none is taken on a devnet (chain id 31337) only — the eleventh review round; escrows unwrap a WETH refund of an ETH order before re-shielding, and re-shield WETH or ETH paid back to an ERC-20 order as ETH); logs the factory address and the escrow creation-code hash; the hash must equal keccak256 of `contracts/abi/periphery/SwapOrderEscrow.json` `bytecode` (dry run: `0x270af79b…4e1c`, matched) |
+| 3 | `ShieldReceiverFactory` (periphery: same-chain swaps into the protected balance) | `contracts/script/DeployShieldReceiver.s.sol` | `CORE=` the core; takes the chain's wrapped native token as the row above says (on Sepolia and mainnet their own WETH only; none on a devnet only) — a factory built on none let anyone sweep an ETH receipt's WETH to the public fallback (the eleventh review round, G11-6); the wallet's deployment check reads both factories' `WRAPPED_NATIVE()` back |
 
 Dry runs executed here (no network, chain id 31337):
 ```
@@ -21,8 +22,10 @@ FOUNDRY_OFFLINE=true forge script script/DeploySwapPeriphery.s.sol --use $SOLC -
 ## Mainnet, once a ceremony verifier exists
 The deploy script takes the ceremony verifier by address AND by code (the fifth review round, 2026-11-03): `INNER_VERIFIER_CODEHASH`
 is the keccak256 of its runtime code as its own build produced it, and the script refuses an address whose code hashes to anything
-else — the development verifier's included, on any chain but a devnet. The wallet reads the same key back through the adapter's
-`INNER()` and keeps its code hash in the deployment fingerprint.
+else — the development verifier's included, on every chain: `DEV_VERIFIER` (chain id 31337) and `SEPOLIA_DEV_VERIFIER` (Sepolia) are its only paths. The wallet reads the same key back through the adapter's
+`INNER()` and keeps its code hash in the deployment fingerprint. Both also refuse any code that embeds the development key's words
+(its delta and IC points), however it was compiled — a metadata trailer had been enough to pass a code-hash comparison (the eleventh
+review round, G11-4).
 ```
 INNER_VERIFIER=0x… INNER_VERIFIER_CODEHASH=0x… forge script script/Deploy.s.sol --rpc-url $RPC --private-key $PRIVATE_KEY --broadcast --verify -vv
 ```
@@ -34,15 +37,16 @@ export PRIVATE_KEY=0x…              # a throwaway deployer key, never a user k
 cd contracts
 SEPOLIA_DEV_VERIFIER=true forge script script/Deploy.s.sol --rpc-url $SEPOLIA --private-key $PRIVATE_KEY --broadcast -vv
 forge script script/DeploySwapPeriphery.s.sol --rpc-url $SEPOLIA --private-key $PRIVATE_KEY --broadcast -vv
+CORE=<core> forge script script/DeployShieldReceiver.s.sol --rpc-url $SEPOLIA --private-key $PRIVATE_KEY --broadcast -vv   # Sepolia's own WETH; a WRAPPED_NATIVE naming another is refused
 ```
-Then record the five core addresses + the factory in `contracts/deployments/sepolia.json` (create it:
-`{ "chainId": 11155111, "core": …, "ethVault": …, "swapFactory": …, "verifier": "DEV — insecure" }`)
+Then record the five core addresses + the two factories in `contracts/deployments/sepolia.json` (create it:
+`{ "chainId": 11155111, "core": …, "ethVault": …, "swapFactory": …, "shieldFactory": …, "verifier": "DEV — insecure" }`)
 and point the tooling at it:
 ```
 # the API (V6: apps/api over the swap engine)
 cd apps/api
 CHAIN_ID=11155111 SWAP_FACTORY=<factory> NATIVE_VAULT=<ethVault> npm start
-# wallet (frontend): VITE_SWAP_SERVICE as usual; the shield/withdraw screens take the core address from the deployment file
+# wallet (frontend): VITE_SWAP_SERVICE as usual, VITE_SHIELD_FACTORY=<shield factory>; the shield/withdraw screens take the core address from the deployment file
 ```
 
 ## What a testnet rehearsal can and cannot show

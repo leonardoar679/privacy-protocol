@@ -1,6 +1,7 @@
 //! Privacy address (wallet-level convention, packages/protocol/src/address.ts): bech32m (BIP-350),
 //! human-readable part "pp", data = version 0x01 ‖ ownerCommitment (32 bytes, big-endian) ‖ viewPub
-//! (32 bytes). Typo-resistant, case-insensitive, 113 characters.
+//! (32 bytes). Case-insensitive, 113 characters; at its 110 data characters the checksum detects any 3 errors and almost every other
+//! (BIP-350's 4 hold to 89 data characters: the eleventh review round, G11-9).
 use crate::field::{fr_from_be32_checked, fr_to_be32, Fr};
 
 const CHARSET: &[u8; 32] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
@@ -127,6 +128,11 @@ pub fn bech32m_encode(hrp: &str, bytes: &[u8]) -> String {
 }
 
 pub fn bech32m_decode(s: &str) -> Result<(String, Vec<u8>), AddressError> {
+    // printable ASCII only, as the TypeScript decoder reads it (the eleventh review round, G11-8): the two cores had disagreed on a string with
+    // a byte-order mark, U+0085 or a Kelvin sign in it
+    if !s.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+        return Err(AddressError::InvalidCharacter);
+    }
     let has_lower = s.chars().any(|c| c.is_ascii_lowercase());
     let has_upper = s.chars().any(|c| c.is_ascii_uppercase());
     if has_lower && has_upper {
@@ -167,7 +173,8 @@ pub struct PrivacyAddress {
 }
 
 pub fn decode_privacy_address(s: &str) -> Result<PrivacyAddress, AddressError> {
-    let (hrp, bytes) = bech32m_decode(s.trim())?;
+    // trimmed as JavaScript's `trim` trims (the phrase's rule, audit round 2, n32): the byte-order mark included, U+0085 not (G11-8)
+    let (hrp, bytes) = bech32m_decode(s.trim_matches(crate::bip39::is_space))?;
     if hrp != ADDRESS_HRP {
         return Err(AddressError::WrongHrp(hrp));
     }

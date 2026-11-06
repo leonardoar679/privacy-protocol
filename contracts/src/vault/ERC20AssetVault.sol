@@ -38,8 +38,18 @@ contract ERC20AssetVault is BaseAssetVault {
         return IERC20(asset).balanceOf(address(this));
     }
 
+    /// The gas a release hands the token's transfer (the eleventh review round, G11-5), as the ETH push is bounded: a token that calls the
+    /// recipient (an ERC-777 tokensReceived hook, ERC-223) let a recipient burn all it was given, the vault left 1/64 for its claim
+    /// bookkeeping and the relayer's whole transact reverted — the griefing the fifth round closed for ETH. A transfer that needs more
+    /// becomes claimable; the claim forwards its caller's gas.
+    uint256 internal constant TOKEN_PUSH_GAS = 300_000;
+
     function _transferOut(address recipient, uint256 amount) internal override returns (bool) {
-        return _softTransfer(recipient, amount);
+        return _softTransfer(recipient, amount, TOKEN_PUSH_GAS);
+    }
+
+    function _claimOut(address recipient, uint256 amount) internal override returns (bool) {
+        return _softTransfer(recipient, amount, gasleft());
     }
 
     /// @dev Strict: revert on a reverting token, a `false` return, or a non-standard return shape.
@@ -52,15 +62,20 @@ contract ERC20AssetVault is BaseAssetVault {
         }
     }
 
-    /// @dev Soft: never reverts; returns false on any failure so release() can fall back to
-    /// claimable. A blacklisted recipient simply yields a claimable obligation. A 32-byte answer is read as a word, not a bool
-    /// (the fifth review round, 2026-11-03): `abi.decode(data, (bool))` reverted on a word that is neither 0 nor 1 — a token
-    /// answering with a status code or the amount, as an upgraded one may start to —, and the whole transact with it, after a
-    /// valid proof, for every recipient of that asset. A non-zero word means the transfer went through (the token moved the funds;
-    /// `true` is 1), zero means it did not.
-    function _softTransfer(address to, uint256 amount) internal returns (bool) {
-        (bool success, bytes memory data) =
-            asset.call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
-        return success && (data.length == 0 || (data.length == 32 && abi.decode(data, (uint256)) != 0));
+    /// @dev Soft: never reverts on the token's answer; returns false on any failure so the release can fall back to claimable. A
+    /// blacklisted recipient simply yields a claimable obligation. Paid is what the vault's own balance says (the eleventh review round,
+    /// G11-3): the token's answer is not read at all — the fifth round had read any non-zero word as paid, and a status-code token (0 =
+    /// done, non-zero = an error, nothing moved) answers non-zero exactly when it refused, the payout then booked as Released with nothing
+    /// paid; a word that is neither 0 nor 1 never reverts the transact either. Paid when the balance FELL, by anything: a payout is a claim
+    /// only when nothing left. A partial hand-back during the call is never read as unpaid — a hook token's recipient that
+    /// hands one unit back would otherwise keep the payout and be booked its claim too, paid twice from the other depositors' tokens (the
+    /// round's first critique of slice 5). A recipient's whole take stays at most `amount` whatever it hands back: one unit back, the
+    /// payout stands; all of it back, the claim pays it once. A token that moves less than asked and answers success shorts its own
+    /// recipient, never the vault (fee-on-transfer and rebasing tokens were refused at the deposit).
+    function _softTransfer(address to, uint256 amount, uint256 gasLimit) internal returns (bool) {
+        uint256 balBefore = IERC20(asset).balanceOf(address(this));
+        (bool success,) = asset.call{gas: gasLimit}(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
+        if (!success) return false;
+        return IERC20(asset).balanceOf(address(this)) < balBefore;
     }
 }

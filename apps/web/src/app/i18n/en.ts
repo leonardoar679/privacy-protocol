@@ -748,7 +748,10 @@ export const en = {
   "op.error.housekeeping_needed.title": "Your balance needs consolidating first",
   "op.error.deployment_mismatch.title": "This app does not match the deployed protocol",
   "op.error.deployment_mismatch.reason":
-    "The contracts on this network are not the ones this app was built for, or not the ones this wallet saw before. Nothing was sent. Update the app; under More → Advanced you can choose to accept the deployment it names.",
+    "The contracts on this network are not the ones this wallet saw before. Nothing was sent. Update the app; under More → Advanced you can choose to accept the deployment it names.",
+  "op.error.deployment_refused.title": "This app cannot use the contracts on this network",
+  "op.error.deployment_refused.reason":
+    "The contracts on this network are not the ones this app was built for, so it does not use them. Nothing was sent. Update the app or its configuration.",
   "op.error.execution_unavailable.title": "The route cannot execute right now",
   "op.error.execution_unavailable.reason":
     "Its check before the hand-over failed, so nothing was handed over. Your funds are held for this swap: try again with a fresh quote, or return them to your protected balance.",
@@ -1802,7 +1805,7 @@ export const en = {
   "advanced.fingerprint": "Checked before the first operation; the fingerprint this wallet remembers: {hash}",
   "advanced.fingerprintNone": "The deployment is checked before your first operation, and what it reads is remembered.",
   "advanced.fingerprintForget": "Forget the remembered deployment",
-  "advanced.fingerprintForgotten": "Forgotten: the next operation remembers the deployment this app names.",
+  "advanced.fingerprintForgotten": "Forgotten: the next operation checks the deployment again and remembers it if nothing is wrong.",
   "advanced.noDeployment": "No deployment configured: set VITE_RPC_URLS, VITE_CORE, VITE_ETH_VAULT (docs/testnet.md)",
   "advanced.unaudited": "Unaudited; not for production. The proving key served in dev is the insecure single-party setup (circuits/setup/dev).",
   "advanced.networkTitle": "Privacy and network",

@@ -37,6 +37,10 @@ interface VmDeploy {
 contract Deploy {
     VmDeploy internal constant vm = VmDeploy(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint256 internal constant LEVELS = 32; // the circuit's depth
+    /// The development key's delta and first IC point (TransactionVerifierDev.sol `deltax1`, `IC0x`): 32-byte immediates every compilation of
+    /// the verifier template embeds — the wallet's deployment check reads the same words (packages/contracts DEV_KEY_WORDS).
+    uint256 internal constant DEV_DELTA_X1 = 5194700165901174422425083130443367793879434620418714366739565157482437651080;
+    uint256 internal constant DEV_IC0_X = 12490250489579078334468903666746122328520461107555501967769973561042847684859;
 
     function run() external {
         address inner = vm.envOr("INNER_VERIFIER", address(0));
@@ -58,7 +62,13 @@ contract Deploy {
             );
             require(
                 inner.codehash != keccak256(type(TransactionVerifierDev).runtimeCode),
-                "the development verifier never leaves a devnet"
+                "INNER_VERIFIER is the development verifier: only DEV_VERIFIER (chain id 31337) or SEPOLIA_DEV_VERIFIER (Sepolia) deploys it"
+            );
+            // the key, not one compilation of it (the eleventh review round, 2026-11-04, G11-4): the same insecure key built with another
+            // toolchain — a metadata trailer suffices — had passed the code-hash comparison
+            require(
+                !_holdsDevKey(inner.code),
+                "INNER_VERIFIER embeds the development key, however it was compiled: only DEV_VERIFIER (chain id 31337) or SEPOLIA_DEV_VERIFIER (Sepolia) deploys it"
             );
         }
         IProofVerifier verifier = new Groth16Verifier(ITransactionGroth16Verifier(inner));
@@ -81,6 +91,18 @@ contract Deploy {
         _log("NativeAssetVault (ETH)", ethVault);
         if (usdcVault != address(0)) _log("ERC20AssetVault (USDC)", usdcVault);
         if (usdtVault != address(0)) _log("ERC20AssetVault (USDT)", usdtVault);
+    }
+
+    /// Whether code embeds the development key: one of its words anywhere in it, byte by byte.
+    function _holdsDevKey(bytes memory code) internal pure returns (bool) {
+        for (uint256 i = 0; i + 32 <= code.length; i++) {
+            uint256 w;
+            assembly {
+                w := mload(add(add(code, 32), i))
+            }
+            if (w == DEV_DELTA_X1 || w == DEV_IC0_X) return true;
+        }
+        return false;
     }
 
     function _log(string memory what, address a) internal view {
