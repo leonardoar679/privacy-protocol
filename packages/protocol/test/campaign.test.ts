@@ -7,7 +7,7 @@ import {
   canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, ledger, maximumLossModel, nextAction, planTranches, providerLimit, providerShares,
   rateE18, replan, riskierClass, settledBy, stallAfterSeconds, stricterGate, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, MAX_TRANCHES, REPLAN_PAUSE, STALL_FLOOR_SECONDS, TRACK_INTERVAL_MS, TooManyTranches,
   type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState,
-  trancheMinimum,
+  swappedInFull, trancheMinimum, unreturnedOf,
 } from "../src/wallet/campaign";
 import { bucketsFor } from "../src/wallet/amounts";
 
@@ -402,6 +402,43 @@ describe("the seventh review round (2026-11-03): what ended undelivered, what is
     // a partial fill settled for what was not returned (n19) ends nothing
     const n19 = withTrancheState(campaign([p, p], ["executing", "planned"]), 0, "settled", 5, { amount: (35n * ETH).toString(), funded: p.toString(), outcome: { refunded: (15n * ETH).toString() } });
     expect(exposure(n19)).toMatchObject({ completed: 35n * ETH, ended: 0n, remaining: p + 15n * ETH }); // the planned step and the 15 that came back
+  });
+  it("the eleventh review round's critique of E11-1: what did not arrive as asked (notDelivered) apart from what returned steps lost to their fees (returnCosts) — ended is both", () => {
+    let c = campaign([p, p, p, p], ["undelivered", "refunded", "settled", "planned"]);
+    c = withTrancheState(c, 1, "refunded", 2, { outcome: { refunded: (p - ETH / 100n).toString() } }); // the tip stayed behind
+    c = withTrancheState(c, 2, "settled", 3, { amount: (30n * ETH).toString(), funded: p.toString(), outcome: { refunded: "0" } }); // 30 delivered, nothing back
+    const e = exposure(c);
+    expect(e.notDelivered, "the undelivered step and the partial fill's rest").toBe(p + 20n * ETH);
+    expect(e.returnCosts, "the returned step's tip").toBe(ETH / 100n);
+    expect(e.ended).toBe(e.notDelivered + e.returnCosts);
+    expect(unreturnedOf(c.tranches[2])).toBe(20n * ETH);
+    expect(unreturnedOf(c.tranches[0]), "only a settled step has an unreturned rest").toBe(0n);
+    // a step returned less its tip, and nothing else: its fees alone, not one unit "not delivered"
+    const back = withTrancheState(campaign([p, p], ["refunded", "planned"]), 0, "refunded", 2, { outcome: { refunded: (p - ETH / 500n).toString() } });
+    expect(exposure(back)).toMatchObject({ notDelivered: 0n, returnCosts: ETH / 500n, ended: ETH / 500n });
+    // a partial fill whose rest came back: its cost is in what it settled for
+    const n19 = withTrancheState(campaign([p, p], ["executing", "planned"]), 0, "settled", 5, { amount: (35n * ETH).toString(), funded: p.toString(), outcome: { refunded: (15n * ETH).toString() } });
+    expect(exposure(n19)).toMatchObject({ notDelivered: 0n, returnCosts: 0n });
+    expect(unreturnedOf(n19.tranches[0])).toBe(0n);
+  });
+  it("swappedInFull (the eleventh review round's fourth critique of slice 4): nothing short of what was asked, and what settled, what stays and the returned steps' fees cover the total", () => {
+    const settle = (c: Campaign, i: number) => withTrancheState(c, i, "settled", 10 + i);
+    expect(swappedInFull(exposure(campaign([p, p], ["settled", "settled"]))), "every step settled").toBe(true);
+    // a step returned less its tip, the rest planned again and settled: the tip is the step's cost, the swap in full
+    let back = withTrancheState(campaign([p, p], ["refunded", "planned"]), 0, "refunded", 2, { outcome: { refunded: (p - ETH / 500n).toString() } });
+    back = settle(settle(replan(back, [p, p - ETH / 500n], 3), 1), 2);
+    expect(exposure(back)).toMatchObject({ returnCosts: ETH / 500n, notDelivered: 0n, completed: 2n * p - ETH / 500n });
+    expect(swappedInFull(exposure(back))).toBe(true);
+    // a last remainder kept in the private balance, too small to swap on its own
+    const kept = withTrancheState(campaign([p, ETH / 1000n], ["settled", "planned"]), 1, "skipped", 4, { outcome: { kept: true } });
+    expect(exposure(kept).kept).toBe(ETH / 1000n);
+    expect(swappedInFull(exposure(kept))).toBe(true);
+    // a step never started, given up when the rest returned: part of it was not swapped
+    expect(swappedInFull(exposure(campaign([p, p], ["settled", "skipped"])))).toBe(false);
+    // a step returned and not planned again
+    expect(swappedInFull(exposure(withTrancheState(campaign([p, p], ["settled", "refunded"]), 1, "refunded", 3, { outcome: { refunded: p.toString() } })))).toBe(false);
+    // a step not delivered as asked
+    expect(swappedInFull(exposure(campaign([p, p], ["settled", "undelivered"])))).toBe(false);
   });
   it("an undelivered first step never passes the first-step health test", () => {
     const c = campaign([p, p, p], ["undelivered", "executing", "planned"], {}, { concurrency: "parallel", maxParallel: 2, capBps: 10000 });

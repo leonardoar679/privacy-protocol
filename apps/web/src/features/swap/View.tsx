@@ -26,6 +26,7 @@ import {
   type CheckState,
 } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { durationText } from "../../app/i18n/duration";
 import type { MessageKey } from "../../app/i18n/en";
 import { Amt, Usd, type Amount } from "../viewKit";
 
@@ -65,7 +66,13 @@ export interface SwapModel {
   noRoute?: string | null;
   /** the funds were protected recently (doc §35): the note and "Delay for more privacy" */
   /** "Delay for more privacy" (spec v2.0 §14.1): `older` — funded at once from older notes, else at a random time in 1–24 h */
-  privacy?: { recent: boolean; delay: boolean; older?: boolean } | null;
+  /**
+   * `graceMinutes`: how long after the drawn time the funding still runs at the least, and only while the wallet is unlocked (the eleventh
+   * review round, 2026-11-04, E11-9: the note had promised the funding at that time whatever the wallet's state)
+   */
+  privacy?: { recent: boolean; delay: boolean; older?: boolean; graceMinutes: number } | null;
+  /** a protected execution's steps (V7 Stage 13): how many, and the plan's time for all of them — "Estimated time" states it (E11-15) */
+  steps?: { n: number; seconds: number } | null;
   /** above the standard band: the notice */
   notice?: string | null;
   /** Advanced (doc §29): the route's facts */
@@ -377,7 +384,8 @@ export function SwapView({
                 )}
                 <div className="ds-review-row" data-testid="swap-eta">
                   <dt>{t("screen.swap.estimatedTime")}</dt>
-                  <dd>{etaWords(q.eta, t)}</dd>
+                  {/* a protected execution's steps: the plan's time for all of them, never the one order's minutes (the eleventh review round, E11-15) */}
+                  <dd>{m.steps ? t("screen.swap.stepsEta", { duration: durationText(t, m.steps.seconds), n: m.steps.n }) : etaWords(q.eta, t)}</dd>
                 </div>
               </dl>
               {m.expiresIn !== undefined && m.expiresIn !== null ? (
@@ -418,7 +426,7 @@ export function SwapView({
               ) : null}
               {m.privacy.delay ? (
                 <p className="ds-note" data-testid="swap-delay-note">
-                  {t(m.privacy.older ? "screen.swap.delayOlderNote" : "screen.swap.delayNote")}
+                  {m.privacy.older ? t("screen.swap.delayOlderNote") : t("screen.swap.delayNote", { minutes: m.privacy.graceMinutes })}
                 </p>
               ) : null}
             </Card>

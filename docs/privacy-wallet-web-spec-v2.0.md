@@ -289,7 +289,7 @@ USDC → ETH   ✓   $8,200
 It answers how much, whether it is protected, and what the user can do. States: **new user** → `/welcome`
 (`Welcome / Protect your financial activity / [ Connect Wallet ]`); **connected, nothing protected** →
 `$0 / Protected balance / [ Protect Assets ]`; **has assets** (above); **executing** → a card `Executing / ETH →
-BTC / $12,400 / View progress` (and after a return: "Your ETH → BTC swap is still executing."); **action needed** →
+BTC / $12,400 / View progress` (and after a return: "Your ETH → BTC swap is still executing."); **scheduled** (a funding delayed for privacy, not made yet; the eleventh review round, E11-9) → `Scheduled / ETH → BTC / $1,240 / Funded at … if this wallet is open and unlocked then. / View progress` (after a return: "Your ETH → BTC swap is scheduled: keep this wallet open and unlocked at …"), and a card still being prepared reads `Preparing`, as Activity does; **action needed** →
 `Action needed / Your funds are safe. / View operation` — "Your funds are safe." only when the funds class allows
 it (§12.4), otherwise `We're checking on your funds.`. An old failed or cancelled operation never blocks Home:
 only open operations raise a card, the newest first. Moved off Home in Simple: the maintenance schedule, the
@@ -330,7 +330,12 @@ Code (Stage 10): `apps/web/src/features/protect/ProtectScreen.tsx` serves `/prot
 `/protect/progress/:opId` from one container (nested routes under the `protect/*` splat, so the flow's state survives
 the navigation; a reload of the progress route reads the journaled operation); the §23 flow and the page's view-model
 are `apps/web/src/features/protect/model.ts` (`protectStepOf`, `PROTECT_OPERATION_STATE`, `protectModel`). The
-relayer/network line is the connected wallet's own `eth_estimateGas` × its gas price, in dollars; the common sizes are
+relayer/network line is the connected wallet's own `eth_estimateGas` × its gas price, in dollars. Max of ETH leaves
+three times that estimate in the wallet for the deposit's own fee — a wallet sets the gas limit above its estimate and its
+highest fee per gas above today's price — and an amount that leaves less is refused before the Review (the eleventh review
+round, 2026-11-04, E11-13: Max had filled the whole balance, and the wallet's prompt refused it), save Max's own amount while
+it stands unedited (the estimate read next for it, a few wei above, had refused it: its critique); a balance that three times
+the estimate takes whole is said not to cover a deposit and its fee. The common sizes are
 Advanced only; the recovery-information card sits on the first Review of a session; a failed ERC-20 protect reads the
 approval it left behind and offers to revoke it, and a retry uses an approval of exactly its amount as it is. The local stack: 5,000 USDC → 4,950 in the vault, 50 to the router's
 fee recipient. V5's `Protect.tsx` is deleted.
@@ -426,6 +431,12 @@ Protected execution
 Because this is a large transaction, we added additional safety checks.
 ✓ Destination verified  ✓ Quote locked  ✓ Route health checked  ✓ Execution limits enabled
 ```
+Each check is ticked only while the Review's own fact holds (the eleventh review round, 2026-11-04, E11-12: the card had drawn its four
+✓ whatever they said): `Destination verified` once the destination is the wallet's fresh address or a typed-in one re-confirmed —
+until then `○ Destination not re-confirmed yet` —, `Route health checked` once the chosen route's health reads ok — otherwise
+`⚠ Route health check not passed`, beside the route's own warning. The quote is locked and the execution limits are on at every
+Review of the band. Hold to Confirm stays disabled while a check is open.
+
 **One confirmation** (owner, 2026-10-13): after Confirm the wallet commits the order, funds the escrow
 immediately, and signs the provider call by itself while the fresh hard quote's minimum is at least the approved
 one (the existing `swapSign` checks run first); a worse minimum pauses the operation (`QUOTE_EXPIRED`, reason
@@ -463,7 +474,7 @@ showed. So are `relayer_not_ready` (a V6 follow-up of 2026-10-16): the relayer t
 swap factory or a list without the swap service's key, and a funded escrow it refused would hold the funds until the
 refund time; and `service_key_changed` (the same follow-up): the swap service no longer takes the key the order was
 confirmed under. *A V6 follow-up of 2026-10-14 — the execution window:* an order with less than five minutes of its window left
-(`FUNDING_MARGIN_MS`; a funding delayed for privacy runs at the next unlock, which can come later) is never funded: it
+(`FUNDING_MARGIN_MS`; a funding delayed for privacy runs only while the wallet is unlocked — at the next unlock, which can come after the window: §14.1) is never funded: it
 stops unfunded as `order_expired` (CANCELLED, not-moved, "Review again"). The window is read by the later of the
 device's clock and the chain's latest block (`fundingClock`; audit round 2, critic gap 5: a device clock minutes slow had
 funded an escrow past its deadline, its execution reverted and its funding's fee lost). A funded order whose window has closed with
@@ -517,6 +528,11 @@ Execution
 ● Destination settlement
 ○ Complete
 ```
+A record that ends without its settlement ends the timeline where it did, never with steps it will not reach "waiting" (the eleventh
+review round, 2026-11-04, E11-7): `Returning to your balance` while a refund returns and `Returned to your balance` once it is back,
+`Cancelled`, or the step a final failure stopped at; a submission reads `Submitted` — `Protected execution submitted` only for a swap
+at the $50K band or above. A record that needs recovery shows its card without the busy "Confirming on the network…" bar.
+
 Advanced: Operation ID, Provider, Execution ID, Blockchain transaction, Block, Root, Proof status, Settlement
 state, Recovery state, Estimated / Actual / Difference (§3), Remove from this device. Recovery never offers a
 generic Retry: the wallet determines the settlement state (§12.4) and offers the valid path — `Your funds are safe.
@@ -1099,7 +1115,13 @@ then.
   thrown before anything is sent. The runner stops the order unfunded: `paused.code` `older_notes_unavailable`, state
   `abandoned`, the record CANCELLED with that reason, funds class not-moved. The progress screen offers "Review again".
   A younger note is never spent instead.
-- **Otherwise** the funding waits a random 1–24 h, as before.
+- **Otherwise** the funding waits a random 1–24 h, as before. It runs only while the wallet is unlocked (the App's scheduler) and
+  inside its order's window, which ends 30 minutes after the drawn time and the commit's quote lifetime later (the sixth review
+  round: the escrow's deadline encodes the planned funding), less `FUNDING_MARGIN_MS`: at the least 25 minutes after that time,
+  on every route. A wallet opened later finds the order stopped unfunded (`order_expired`, nothing sent). *The eleventh review
+  round (2026-11-04, E11-9):* the Swap page and the Review say so where the delay is chosen, the progress page names the drawn
+  time and the last moment the runner still funds the order, and Home reads such an order "Scheduled" with its time — never
+  "Executing" nor "still executing"; before, all of them promised the funding at the drawn time.
 - **When it is offered.** The card stays while the choice is on; it is offered while the funds the swap would spend
   are recent, and only on a one-order swap (a protected execution's steps have their own timing).
 
@@ -1333,7 +1355,10 @@ Code (Stage 16):
 - **Focus and live regions.** A dialog or a sheet gives the focus back to what opened it. Radix gave it to its own
   Trigger, which these controlled dialogs do not use, so the focus fell to the page's body; the run found it. State
   changes are live regions: a new quote's figures, a search in progress, a stopped transaction or an error (`alert`),
-  the progress.
+  the progress. Since the eleventh review round (2026-11-04, E11-6) the verdict card is an `alert` and a result a `status` — the
+  warning-coloured results too: a swap not delivered as asked, in another token, its rest not back —, the
+  progress page's live line names the step in hand as it changes, and the flows' error lines are `alert`s: a Send, a Protect or a
+  Swap that stopped had changed its page in silence.
 - **Text size.** The type scale is in rem, so the reader's text size scales it. Labels, badges and large numerals wrap
   only once their line no longer fits, and nothing changes at the normal size.
 - **Tests.** `apps/web/test/i18n-ko.test.tsx`; `apps/web/test/a11y/fixtures.test.tsx` (axe on every fixture state, the

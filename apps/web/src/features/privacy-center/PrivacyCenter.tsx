@@ -45,6 +45,7 @@ export function PrivacyCenter({
       notes: notes.filter((n) => !n.spent).length,
       operations: operations.length + (session.isUnlocked() ? session.journal().swaps.length : 0),
       addressBook: book.length,
+      privateAi: privateAi(),
     },
     purposes: listedPurposes(privateAi()),
     poolNotes: stats ? stats.notes : null,

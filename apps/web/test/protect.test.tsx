@@ -372,7 +372,8 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(screen.getByTestId("protect-error").textContent).toMatch(/\w/);
     expect((screen.getByTestId("protect-review") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId("protect-max"));
-    expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("2");
+    // the eleventh review round (2026-11-04, E11-13): Max of ETH leaves the deposit's network fee — 3 × (120,000 gas × 20 gwei) of the 2 ETH
+    await waitFor(() => expect((screen.getByTestId("amount-input") as HTMLInputElement).value).toBe("1.9928"));
     expect(screen.queryByTestId("protect-error")).toBeNull();
   });
   it("without a connected wallet the balance and the estimate are not read and the connection is offered", async () => {

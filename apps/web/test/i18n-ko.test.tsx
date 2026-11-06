@@ -122,6 +122,7 @@ const KEPT = new Set([
   "Chainflip",
   "NEAR",
   "LI.FI",
+  "WalletConnect",
   "Face",
   "Touch",
   "Windows",

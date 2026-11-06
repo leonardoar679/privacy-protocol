@@ -241,9 +241,10 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
       return there ? { ...there, at: relayerUrl } : null;
     },
     track: (stored) => trackOrder(stored, { deployment: d.deployment, relayerUrl: relayerOf(stored), session: d.session }),
-    // the relayer it was handed to takes its refund; when that one cannot be reached, the one Settings name now does (the
-    // escrow pays its refund to this wallet's own note, whoever asks, and only once). A lost answer is no such case: the
-    // first may hold the job
+    // the relayer it was handed to takes its refund; when that one cannot be reached, or answers that it runs no swaps now (a relayer
+    // restarted without its executor had kept an order's funds from coming back: the eleventh review round's third critique of slice 4),
+    // the one Settings name now does (the escrow pays its refund to this wallet's own note, whoever asks, and only once). A lost answer is
+    // no such case: the first may hold the job
     refund: async (stored) => {
       const own = stored.relayerUrl;
       if (!own || (d.submission.kind === "relayer" && own === d.submission.url))
@@ -251,7 +252,8 @@ export function orderIo(d: { masterSeed: Uint8Array; deployment: Deployment | nu
       try {
         return await returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: { kind: "relayer", url: own } });
       } catch (e) {
-        if (d.submission.kind !== "relayer" || e instanceof RelayerTimeout || classify(e).code !== "relayer_unreachable") throw e;
+        const code = classify(e).code;
+        if (d.submission.kind !== "relayer" || e instanceof RelayerTimeout || (code !== "relayer_unreachable" && code !== "swap_unavailable")) throw e;
         return returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission });
       }
     },

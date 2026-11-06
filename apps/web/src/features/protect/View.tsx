@@ -14,7 +14,11 @@ export interface ProtectModel {
   /** the amount as typed */
   amount: string;
   quote: { receive: Amount; privacyFee: Amount; networkUsdCents: bigint | null } | null;
-  error: "insufficient" | "too-small" | null;
+  /**
+   * `insufficient-fee` (the eleventh review round, 2026-11-04, E11-13): ETH that leaves too little for the deposit's own network fee;
+   * `cannot-cover-fee` (its critique): a balance that cannot leave it whatever the amount
+   */
+  error: "insufficient" | "insufficient-fee" | "cannot-cover-fee" | "too-small" | null;
   /** no external wallet yet: the source offers the connection */
   connect?: { connecting: boolean } | null;
   /** the external wallet is on another network than the deployment's (a V6 follow-up of 2026-10-16): the source offers the switch */
@@ -118,7 +122,11 @@ export function ProtectView({ model: m, actions: a }: { model: ProtectModel; act
       ) : null}
       {m.error ? (
         <p className="ds-field-error" role="alert" data-testid="protect-error">
-          {t(m.error === "insufficient" ? "screen.protect.insufficient" : "screen.protect.tooSmall")}
+          {m.error === "insufficient-fee"
+            ? t("screen.protect.insufficientFee", { symbol: m.asset.symbol })
+            : m.error === "cannot-cover-fee"
+              ? t("screen.protect.cannotCoverFee", { symbol: m.asset.symbol })
+              : t(m.error === "insufficient" ? "screen.protect.insufficient" : "screen.protect.tooSmall")}
         </p>
       ) : null}
       {m.quote ? (

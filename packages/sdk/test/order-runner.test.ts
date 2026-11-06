@@ -1029,7 +1029,9 @@ describe("the order runner (spec v2.0 §7.6: one confirmation)", () => {
     expect((await runOrderTick(action(delayUntil), deps(io, delayUntil)))?.step).toBe("paused");
     expect([asked, w.funds], "nothing funded").toEqual([1, 0]);
     expect(stored().paused).toMatchObject({ code: "minimum_moved", minOut: "2900000", approved: "2970000" });
-    expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "still-protected" } });
+    // nothing funded: its funds were not moved, and no refund is offered or watched (the eleventh review round's fifth critique of slice 4)
+    expect(record()).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "minimum_moved", fundsClass: "not-moved" } });
+    expect(record()?.recovery).toBeUndefined();
     expect(pending(), "no tick until the user decides").toBeUndefined();
     expect(acceptNewMinimum(ORDER, session, delayUntil + 1000)).toBe(true);
     expect((await runOrderTick(pending()!, deps(io, delayUntil + 1000)))?.step).toBe("funded");

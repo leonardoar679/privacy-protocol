@@ -17,7 +17,16 @@ export function ActivityDetailRoute() {
   const navigate = useNavigate();
   const deployment = useDeployment();
   const { id = "" } = useParams();
-  return <Detail id={idOfRoute(decodeURIComponent(id))} deployment={deployment} onBack={() => navigate("/activity")} onNewQuote={() => navigate("/swap")} />;
+  // a funded order's pause is answered on its own page, never on a blank swap (the eleventh review round, 2026-11-04, E11-14)
+  return (
+    <Detail
+      id={idOfRoute(decodeURIComponent(id))}
+      deployment={deployment}
+      onBack={() => navigate("/activity")}
+      onNewQuote={() => navigate("/swap")}
+      onOpenSwap={(recordId) => navigate(`/swap/progress/${routeHandle(recordId)}`)}
+    />
+  );
 }
 
 export default ActivityRoute;

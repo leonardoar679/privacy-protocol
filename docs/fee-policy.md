@@ -2,8 +2,9 @@
 
 **Status:** V7 Stage 12, 2026-10-27. Privacy Wallet Web spec v3.0 §3 (the owner's decision 2 of 2026-10-26: "1 % on every
 operation, disclosed") over the formulas of spec v2.0 §3. The wallet links here from the Privacy Center and from Settings
-as **Fees & refunds**; the in-app page says the same things in the same words (`apps/web/src/features/privacy-center/FeesAndRefunds.tsx`,
-English and Korean). Tornado Classic has its own fee lines and none of this (§6).
+as **Fees & refunds**; the in-app page says the same things (`apps/web/src/features/privacy-center/FeesAndRefunds.tsx`, English
+and Korean) in a Simple screen's words, without gas, escrow, nullifier or proof (the eleventh review round, 2026-11-04).
+Tornado Classic has its own fee lines and none of this (§6).
 
 ## 1. The privacy fee
 

@@ -24,10 +24,13 @@ export function TransactionTimeline({ steps, testId = "timeline" }: { steps: Tim
 
 export type FundsState = "not-moved" | "still-protected" | "unknown";
 
-/** Plan §38: a title, the sentence about the funds first, the reason, the actions — never a raw code. */
+/**
+ * Plan §38: a title, the sentence about the funds first, the reason, the actions — never a raw code. An alert, read out the moment it
+ * appears (the eleventh review round, 2026-11-04, E11-6: a Send, a Protect or a Swap that stopped had changed its page in silence).
+ */
 export function ErrorCard({ title, fundsLine, fundsState, reason, actions, testId = "error" }: { title: string; fundsLine: string; fundsState: FundsState; reason?: string; actions?: ReactNode; testId?: string }) {
   return (
-    <Card elevation={1} className="ds-error-card" testId={testId} as="section">
+    <Card elevation={1} className="ds-error-card" testId={testId} as="section" role="alert">
       <h2 className="ds-error-title">{title}</h2>
       <p className="ds-error-funds" data-state={fundsState} data-testid={`${testId}-funds`}>{fundsLine}</p>
       {reason ? <p className="ds-error-reason" data-testid={`${testId}-reason`}>{reason}</p> : null}
@@ -36,10 +39,13 @@ export function ErrorCard({ title, fundsLine, fundsState, reason, actions, testI
   );
 }
 
-/** A caution that does not stop anything (doc §9): amber, a title, one or two sentences, an optional action. */
-export function WarningCard({ title, body, action, testId = "warning" }: { title: string; body?: ReactNode; action?: ReactNode; testId?: string }) {
+/**
+ * A caution that does not stop anything (doc §9): amber, a title, one or two sentences, an optional action. A result told in it is a status,
+ * read out politely as a SuccessCard is (`role`; the eleventh review round's critique of E11-6: the results that most needed it were silent).
+ */
+export function WarningCard({ title, body, action, testId = "warning", role }: { title: string; body?: ReactNode; action?: ReactNode; testId?: string; role?: "status" }) {
   return (
-    <Card elevation={0} className="ds-warning-card" testId={testId} as="section">
+    <Card elevation={0} className="ds-warning-card" testId={testId} as="section" {...(role ? { role } : {})}>
       <div className="ds-callout">
         <span className="ds-callout-icon ds-callout-icon-warn">
           <Icon name="warning" size={22} />
@@ -54,10 +60,10 @@ export function WarningCard({ title, body, action, testId = "warning" }: { title
   );
 }
 
-/** A finished operation (doc §9, §58): the protection's green, a title, the facts, the next actions. */
+/** A finished operation (doc §9, §58): the protection's green, a title, the facts, the next actions. A status, read out politely (E11-6). */
 export function SuccessCard({ title, body, details, actions, testId = "success" }: { title: string; body?: ReactNode; details?: ReactNode; actions?: ReactNode; testId?: string }) {
   return (
-    <Card elevation={1} className="ds-success-card" testId={testId} as="section">
+    <Card elevation={1} className="ds-success-card" testId={testId} as="section" role="status">
       <div className="ds-callout">
         <span className="ds-callout-icon ds-callout-icon-success">
           <Icon name="check-circle" size={22} />

@@ -87,9 +87,9 @@ export function lint(f: LintFacts): LintItem[] {
   const add = (id: LintId, level: LintLevel, category: LintCategory, [text, words]: Said) => items.push({ id, level: level === "block" ? blockLevel : level, category, text, words, ...(level === "block" && f.acknowledged?.includes(id) ? { acknowledged: true } : {}) });
 
   add("source-not-reused", f.sourceIsPool ? "ok" : "block", "Financial privacy", f.sourceIsPool
-    ? (f.action === "swap" ? say("source-escrow", "The source is a one-time escrow funded from your private balance; your permanent address appears nowhere.") : say("source-private", "The source is your private balance; your permanent address appears nowhere."))
+    ? (f.action === "swap" ? say("source-escrow", "The source is a one-time account funded from your private balance; your permanent address appears nowhere.") : say("source-private", "The source is your private balance; your permanent address appears nowhere."))
     : say("source-public", "The source is a public address: whoever watches it sees this payment."));
-  add("private-wallet-used", f.sourceIsPool ? "ok" : "block", "Financial privacy", f.sourceIsPool ? say("notes-spent", "Spends private notes, proven in this wallet.") : say("notes-not-spent", "Does not spend private notes."));
+  add("private-wallet-used", f.sourceIsPool ? "ok" : "block", "Financial privacy", f.sourceIsPool ? say("notes-spent", "Spends private notes, secured in this wallet.") : say("notes-not-spent", "Does not spend private notes."));
 
   if (f.destinationKind === "privacy-address") add("destination-fresh", "ok", "Destination linkage", say("dest-privacy-address", "Pays a privacy address inside the pool: nothing about the recipient is public."));
   else if (f.destinationKind === "fresh") add("destination-fresh", "ok", "Destination linkage", say("dest-fresh", "Pays a fresh address of this wallet, used once."));
@@ -101,7 +101,7 @@ export function lint(f: LintFacts): LintItem[] {
   if (f.action === "swap") {
     if (f.linkPublic === null) add("no-public-linkage", "ok", "Provider visibility", say("link-unknown", "What the route publishes is known once a route is chosen."));
     else if (f.linkPublic) add("no-public-linkage", "warn", "Provider visibility", say("link-public", "This route settles publicly: the destination amount will be visible. Your private source stays protected, but timing and amount may be correlated."));
-    else add("no-public-linkage", "ok", "Provider visibility", say("link-private", "The route keeps the escrow → destination link off public chains."));
+    else add("no-public-linkage", "ok", "Provider visibility", say("link-private", "The route keeps the link between this swap's one-time account and its destination off public chains."));
     if (f.providerIdentityDetached === null) add("provider-identity-detached", "ok", "Provider visibility", say("identity-unknown", "Quote requests carry no identity; the chosen provider learns the destination only at execution."));
     else if (f.providerIdentityDetached) add("provider-identity-detached", "ok", "Provider visibility", say("identity-detached", "Indicative quotes carried placeholders; only the chosen provider sees your fresh address."));
     else add("provider-identity-detached", "warn", "Provider visibility", say("identity-shared", "The quotes carried your destination to every provider asked."));

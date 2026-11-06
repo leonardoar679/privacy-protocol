@@ -5,6 +5,7 @@ import { formatAmount } from "@privacy-wallet/ui";
 import type { Amount, Status } from "./viewKit";
 import { isDraft, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { needsAttention } from "@privacy-wallet/sdk/operations/recovery";
+import { exposure, swappedInFull, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import type { MessageKey } from "../app/i18n/en";
 import type { Vars } from "../app/i18n/messages";
 
@@ -62,8 +63,28 @@ export function statusOf(r: OperationRecord): Status {
   }
 }
 
-/** An activity line's journal status as the word a person reads (spec §7.8; never a bare failure for a funded order). */
-export function activityStatus(kind: string, status: string): Status {
+/**
+ * An activity line's journal status as the word a person reads (spec §7.8; never a bare failure for a funded order). A protected
+ * execution's line that has ended reads its campaign (the eleventh review round, 2026-11-04, E11-1): the line's status is the
+ * campaign's state alone, and one that ended with part of its amount not delivered as asked had read "Completed" — or "Cancelled", as
+ * had one returned after steps were delivered — on the one row a Simple user has for it.
+ */
+export function activityStatus(kind: string, status: string, campaign?: Campaign | null): Status {
+  if (kind === "campaign" && campaign && (campaign.state === "completed" || campaign.state === "cancelled")) {
+    const e = exposure(campaign);
+    // part of it delivered: the rest not as asked, or returned
+    // (what did not arrive as asked, never a returned step's fees: the critique of E11-1) — a cancel that returned nothing reads complete (its
+    // third critique)
+    if (campaign.state === "cancelled" && swappedInFull(e)) return "completed";
+    if (e.completed > 0n && (e.notDelivered > 0n || campaign.state === "cancelled")) return "partial";
+    if (e.notDelivered > 0n) {
+      // nothing delivered as asked: what the steps handed over became
+      const ways = new Set(campaign.tranches.filter((x) => x.state === "undelivered").map((x) => x.outcome?.undelivered ?? "lost"));
+      if (ways.size === 1 && ways.has("refunded-at-destination")) return "refunded-at-destination";
+      if (ways.size === 1 && ways.has("other-token")) return "other-token";
+      if (ways.size > 0) return "failed";
+    }
+  }
   if (["completed", "settled"].includes(status)) return "completed";
   if (["refunded", "returned"].includes(status)) return kind === "campaign" ? "completed" : "refunded";
   if (["failed"].includes(status)) return "failed";

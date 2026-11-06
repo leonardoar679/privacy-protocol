@@ -82,7 +82,8 @@ describe("walletless deposit instruction, checked in the browser (happy-dom)", (
     await quoted(container);
     bent = { to: "bc1qattackerattackerattackerattackerattack" };
     await act(async () => { button(container, "Show my deposit instruction")!.click(); });
-    await vi.waitFor(() => expect(container.textContent).toMatch(/deposit instruction does not match what you asked for \(vault/));
+    // the refused field in the screen's own words, never the instruction's message (the eleventh review round, 2026-11-04, E11-10)
+    await vi.waitFor(() => expect(container.textContent).toMatch(/deposit instruction does not match what you asked for: the address it names is not one of THORChain's vaults/));
     expect(calls.filter((c) => c.endsWith("/thorchain/vaults/asgard")), "not the vault suggested: the gateways' lists of active vaults were read").toHaveLength(3);
     expect(container.textContent).not.toContain("bc1qattacker");
     expect(container.querySelector("svg"), "no QR code").toBeNull();

@@ -170,6 +170,7 @@ export const REVIEW_FIXTURES = {
     destination: { label: "bc1q…82c1", verified: true },
     protection: "high",
     large: true,
+    routeHealthy: true, // the eleventh review round (2026-11-04, E11-12): the card ticks the route only on its health read
   },
   protect: {
     kind: "protect",

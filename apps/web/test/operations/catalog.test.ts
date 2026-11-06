@@ -36,6 +36,8 @@ describe("coverage (spec §13: a test scans the sources and fails on a code with
       for (const m of s.matchAll(/(?:RelayerError|SwapJobError|ShieldJobError)\("([a-z_]+)"/g)) found.add(m[1]);
       for (const m of s.matchAll(/readonly code = "([a-z_]+)"/g)) found.add(m[1]);
       for (const m of s.matchAll(/code: "([a-z_]+)"/g)) found.add(m[1]);
+      // the swap engine's tip codes, thrown as TipError (the eleventh review round's third critique of slice 4: three had no row)
+      for (const m of s.matchAll(/TipError\("([a-z_]+)"/g)) found.add(m[1]);
     }
     expect(found.size).toBeGreaterThanOrEqual(30);
     const missing = [...found].filter((c) => !hasCode(c));

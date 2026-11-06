@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OPERATION_ID, QUOTE_ID } from "../src/ids";
+import { TipError } from "@privacy-wallet/swap-engine/tips";
 import { harness, orderBody, sign, signedRestore, swapRequest, type Harness } from "./helpers";
 
 let h: Harness;
@@ -235,6 +236,28 @@ describe("the registries, the status, the risk view, the track, the guest quote"
     expect((await h.get(`/v1/track/thorchain?tx=0x${"12".repeat(32)}&inDecimals=1e3`)).status).toBe(400);
     expect((await h.post("/v1/guest/quote", swapRequest())).body.quotes).toHaveLength(1);
     expect((await h.get("/v1/gateway/health")).status).toBe(200);
+  });
+});
+
+describe("a guest's quote prices no executor tip: it has no escrow (the eleventh review round's third critique of slice 4)", () => {
+  it("a tip no amount covers refuses the wallet's quote, never a guest's — whose quote never asks for one", async () => {
+    await h.close();
+    let priced = 0;
+    h = await harness({
+      tipFor: async () => {
+        priced++;
+        throw new TipError("amount_too_small", "executing costs more than the escrow may pay (1 %)");
+      },
+    });
+    const wallet = await h.post("/v1/quotes", swapRequest());
+    expect(wallet.status).toBe(400);
+    expect(wallet.body).toMatchObject({ code: "amount_too_small" });
+    const asked = priced;
+    expect(asked).toBeGreaterThan(0);
+    const guest = await h.post("/v1/guest/quote", swapRequest());
+    expect(guest.status, JSON.stringify(guest.body)).toBe(200);
+    expect(guest.body.quotes).toHaveLength(1);
+    expect(priced, "the guest's quote priced no tip").toBe(asked);
   });
 });
 

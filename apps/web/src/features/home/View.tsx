@@ -25,6 +25,11 @@ export interface HomeOperation {
   status: Extract<Status, "executing" | "action-needed" | "preparing">;
   /** the funds class allows "Your funds are safe." (spec §12.4); otherwise "We're checking on your funds." */
   fundsSafe: boolean;
+  /**
+   * an order delayed for more privacy and not funded yet: its drawn funding time, in the reader's words — the card reads "Scheduled" and when,
+   * since it funds only while the wallet is unlocked (the eleventh review round, 2026-11-04, E11-9: it had read "Executing")
+   */
+  scheduled?: string | null;
 }
 export interface HomeRecent {
   id: string;
@@ -116,10 +121,17 @@ export function HomeView({ model: m, actions: a, wide }: { model: HomeModel; act
   const operations = m.operations.map((o) => (
     <Card key={o.id} padding="md" testId="operation-card">
       <div className="ds-op-card">
-        <StatusBadge tone={STATUS_TONE[o.status]}>{t(o.status === "action-needed" ? "operation.actionNeeded" : "operation.executing")}</StatusBadge>
+        {/* the row's own word, as Activity says it — save a delayed order before its time, "Scheduled" here and "Preparing" on Activity's row (the
+            eleventh review round, 2026-11-04, E11-9: a card scheduled or prepared had read "Executing") */}
+        <StatusBadge tone={STATUS_TONE[o.status]}>{t(o.scheduled ? "operation.scheduled" : STATUS_WORD[o.status])}</StatusBadge>
         <span className="ds-op-title">{o.title}</span>
         <span className="ds-op-amount">{o.usdCents !== null ? <Usd cents={o.usdCents} /> : <Amt a={o.amount} />}</span>
         {o.status === "action-needed" ? <span className="ds-op-funds">{t(o.fundsSafe ? "operation.fundsSafe" : "operation.checkingFunds")}</span> : null}
+        {o.scheduled ? (
+          <span className="ds-op-funds" data-testid="operation-scheduled">
+            {t("home.scheduledNote", { time: o.scheduled })}
+          </span>
+        ) : null}
         <TextButton icon="chevron-right" onClick={() => a.onOperation(o.id)} data-testid="operation-open">
           {t(o.status === "action-needed" ? "operation.viewOperation" : "operation.viewProgress")}
         </TextButton>

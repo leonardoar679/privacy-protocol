@@ -71,6 +71,9 @@ export const world: {
   orderTip?: bigint;
   /** the ninth review round: the escrow's balance the RPC answers (eth_getBalance), when set; unset, the read fails as before */
   escrowBalance?: bigint;
+  /** the eleventh review round (E11-9): the commit's execute window built from the wallet's request, as the swap API builds it (routes/swap.ts
+   *  windowOf → the engine's executeWindowFor) — a delayed order's is the delay plus 30 minutes; unset, the policy's whole budget as before */
+  windowAsAsked?: boolean;
 } = {
   bend: {},
   rpcBend: {},
@@ -212,6 +215,9 @@ async function service(path: string, body: any): Promise<Response> {
           refundNoteSecret: BigInt(body.refundNoteSecret),
           refundNoteDataHash: body.refundNoteDataHash,
         },
+        undefined,
+        undefined,
+        world.windowAsAsked && Number(body.executeWindowSeconds) > 0 ? { executeWindowSeconds: Number(body.executeWindowSeconds) } : {},
       );
       orders.set(order.orderId, { order });
       return json({ order, scores: [score], status: "Pending", vouch: { order: ORDER_VOUCH } });
@@ -324,6 +330,7 @@ export function resetWorld(): void {
   world.quoteRisk = undefined;
   world.quoteTip = undefined;
   world.orderTip = undefined;
+  world.windowAsAsked = undefined;
   world.rpcBend = {};
   world.ttlSeconds = 600;
   rpcSeen.length = 0;

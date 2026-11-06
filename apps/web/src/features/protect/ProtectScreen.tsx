@@ -29,7 +29,7 @@ import { furthestLine, progressModelOf } from "../progress/model";
 import { ReviewView, type ReviewModel } from "../review/View";
 import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
 import { ProtectView } from "./View";
-import { protectModel } from "./model";
+import { maxProtect, protectModel } from "./model";
 import { estimateShieldCost, type NetworkEstimate } from "./estimate";
 import { readPublicBalance } from "./publicBalance";
 import { useConnectivity, useOperation, usePrefs, usePrices, useSettings } from "../../hooks";
@@ -75,6 +75,8 @@ export function ProtectScreen(p: ProtectScreenProps) {
   const assets = useMemo(() => assetsOf(p.deployment), [p.deployment]);
   const [asset, setAsset] = useState<Asset | undefined>(assets[0]);
   const [amount, setAmount] = useState("");
+  // the amount Max filled, while it stands unedited: its reserve was taken from the estimate live then (the critique of E11-13)
+  const [maxFilled, setMaxFilled] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [publicBalance, setPublicBalance] = useState<bigint | null>(null);
   const [estimate, setEstimate] = useState<NetworkEstimate | null>(null);
@@ -136,6 +138,8 @@ export function ProtectScreen(p: ProtectScreenProps) {
           split,
           networkWei: estimate?.wei ?? null,
           ethUsd1e8: eth?.usd1e8 ?? null,
+          native: !asset.token, // the deposit's network fee comes out of the same ETH (E11-13)
+          maxFilled: maxFilled !== null && amount === maxFilled,
         }),
         connect: p.account || p.wrongNetwork ? null : { connecting: !!p.connecting },
         ...(p.wrongNetwork && !p.account ? { switchNetwork: true } : {}),
@@ -159,6 +163,28 @@ export function ProtectScreen(p: ProtectScreenProps) {
 
   const router = p.deployment?.protectRouter;
   const leftoverOwner = useRef<`0x${string}` | null>(null);
+  // Max (the eleventh review round, 2026-11-04, E11-13): of the chain's own coin it leaves the deposit's network fee — the live estimate,
+  // read now for the whole balance when no amount was estimated yet, times the reserve of ./model.ts. It had filled the whole balance the
+  // same wallet pays the fee from: the page let it through and the wallet's prompt refused it. An amount typed or another asset chosen
+  // while the estimate is read wins over the Max.
+  const maxRun = useRef(0);
+  const typed = (v: string) => {
+    maxRun.current++;
+    setAmount(v);
+  };
+  async function fillMax() {
+    const a = asset;
+    const balance = publicBalance;
+    if (!a || balance === null) return;
+    const run = ++maxRun.current;
+    const native = !a.token;
+    const wei = native && p.deployment && p.account ? (estimate?.wei ?? (await estimateShieldCost(p.deployment, a, balance, p.account))?.wei ?? null) : null;
+    if (run === maxRun.current) {
+      const filled = formatAmount(a, maxProtect(balance, native, wei));
+      setAmount(filled);
+      setMaxFilled(filled);
+    }
+  }
   const checkLeftover = useCallback(async () => {
     if (!asset?.token) return;
     const provider = activeProvider();
@@ -313,14 +339,14 @@ export function ProtectScreen(p: ProtectScreenProps) {
       <ProtectView
         model={model}
         actions={{
-          onAmount: setAmount,
+          onAmount: typed,
           onAsset: () => setPicking(true),
-          ...(publicBalance !== null && asset ? { onMax: () => setAmount(formatAmount(asset, publicBalance)) } : {}),
+          ...(publicBalance !== null && asset ? { onMax: () => void fillMax() } : {}),
           onReview: () => navigate("/protect/review"),
           onBack: p.onBack,
           ...(p.onConnect ? { onConnect: p.onConnect } : {}),
           ...(p.onSwitch ? { onSwitch: p.onSwitch } : {}),
-          onChip: setAmount,
+          onChip: typed,
         }}
       />
       <AssetSelector
@@ -331,8 +357,10 @@ export function ProtectScreen(p: ProtectScreenProps) {
         onChange={(id) => {
           const a = assets.find((x) => x.vault === id);
           if (a) {
+            maxRun.current++;
             setAsset(a);
             setAmount("");
+            setMaxFilled(null); // another asset: its own Max
           }
           setPicking(false);
         }}

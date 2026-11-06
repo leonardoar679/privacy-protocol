@@ -150,7 +150,7 @@ async function acknowledgeAll(page) { // the privacy lint's block items, the des
   }
   return n;
 }
-async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a pointer hold of HOLD_MS (1.5 s), never a tap
+async function hold(page, ms = 2400, attempt = 1) { // the hold to confirm (spec §3.9): a pointer hold of HOLD_MS (1.5 s), never a tap
   const b = byId(page, "hold-to-confirm");
   await b.waitFor({ state: "visible", timeout: 30_000 });
   for (let i = 0; i < 50 && (await b.isDisabled()); i++) await page.waitForTimeout(200);
@@ -184,6 +184,11 @@ async function hold(page, ms = 2400) { // the hold to confirm (spec §3.9): a po
   if (!filled) {
     const seen = await b.evaluate((el) => el.__holdEvents ?? []).catch(() => ["(the button is gone)"]);
     log(`the hold did not fill: ring progress ${samples.filter((x, i) => i % 10 === 0).join(" ")} (url ${new URL(page.url()).pathname}); the button's pointer events: ${seen.join(", ")}`);
+    // the eleventh review round's local run: a hold the button cancelled when it could no longer confirm is held again once it can
+    if (attempt < 3 && (await b.count()) > 0) {
+      log(`the hold is held again (attempt ${attempt + 1})`);
+      return hold(page, ms, attempt + 1);
+    }
   }
 }
 /** the Review's confirmation: a hold from the protected band, a tap below it (V6 Stage 10: the V6 Review's tap or the V2–V4 one) */

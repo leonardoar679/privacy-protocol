@@ -5,11 +5,20 @@
 import { useEffect, useRef } from "react";
 import { useToast, type ToastKind } from "@privacy-wallet/ui";
 import { watchOperationNotifications, type NotifiedAmount, type OperationNotification } from "@privacy-wallet/sdk/operations/notify";
-import { notifications, notify, setSystemNotificationWords, type WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
+import {
+  notifications,
+  notify,
+  setSystemNotificationBody,
+  setSystemNotificationWords,
+  type WalletNotification,
+} from "@privacy-wallet/sdk/wallet/notifications";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { t, type MessageKey } from "./i18n/messages";
 import { amountFrom, displayAmount } from "../features/amounts";
 import { useNotifications } from "../hooks/core";
+import type { AlertKind } from "@privacy-wallet/protocol/wallet/campaign";
+import { PAUSE_WORDS } from "../features/swap/protected/alertWords";
+import { hasCode, reasonKey } from "@privacy-wallet/sdk/operations/errors/codes";
 
 const TONE: Record<OperationNotification["kind"], "info" | "success" | "warn"> = {
   "quote-ready": "info",
@@ -42,13 +51,23 @@ export function notificationWords(n: OperationNotification): { title: string; bo
 }
 
 /**
- * A notification in the reader's language (audit round 2, r57): a protected execution's alert by its catalog words — a pause
- * keeps the runner's own reason —, any other as given.
+ * A notification in the reader's language (audit round 2, r57): a protected execution's alert by its catalog words — a pause by the
+ * words of its kind, the runner's own reason under Advanced only (the eleventh review round, 2026-11-04, E11-10: that English had been every
+ * reader's, a Korean one's too) —, any other as given. A finished one by the key the runner gives it, its distinction kept: part of
+ * the amount not delivered as asked (`completed-not-all`, `cancelled-not-all`, a warning), a remainder kept in the balance
+ * (`completed-kept`) — the eleventh review round, 2026-11-04, E11-1: "Every step settled." had replaced the runner's "part of the
+ * amount did not arrive as you asked".
  */
 export function shownWords(n: WalletNotification): { title: string; body: string } {
   if (!n.words) return { title: n.title, body: n.body };
   const title = t(`notification.campaign.${n.words.key}.title` as MessageKey, n.words.vars);
-  const body = n.words.key === "paused" ? n.body : t(`notification.campaign.${n.words.key}.body` as MessageKey, n.words.vars);
+  // the cause's own code when the runner sent one (the third critique of slice 4), else the words of the pause's kind
+  const code = n.words.vars?.code;
+  const paused = (): string =>
+    settings.get().advanced
+      ? n.body
+      : t(code && hasCode(code) ? (reasonKey(code) as MessageKey) : (PAUSE_WORDS[n.kind as AlertKind] ?? "notification.campaign.paused.body"));
+  const body = n.words.key === "paused" ? paused() : t(`notification.campaign.${n.words.key}.body` as MessageKey, n.words.vars);
   return { title, body };
 }
 
@@ -56,6 +75,8 @@ export function shownWords(n: WalletNotification): { title: string; body: string
 export function startOperationNotifications(): () => void {
   // the system notification's words in the reader's language (audit round 2, r57)
   setSystemNotificationWords(() => ({ app: t("app.name"), generic: t("notification.generic") }));
+  // and its body, when the user allows more than the generic text, in the toast's words (the second critique of E11-10)
+  setSystemNotificationBody((n) => shownWords({ id: "", at: 0, ...n }).body);
   return watchOperationNotifications(
     (n) => {
       const w = notificationWords(n);

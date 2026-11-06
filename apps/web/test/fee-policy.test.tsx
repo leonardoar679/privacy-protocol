@@ -73,7 +73,7 @@ describe("the fee statement on the Review (spec v3.0 §3)", () => {
 
 describe("Fees & refunds (spec v3.0 §3)", () => {
   const policy = readFileSync(join(__dirname, "..", "..", "..", "docs", "fee-policy.md"), "utf8").replace(/\s+/g, " "); // the document wraps its lines
-  it("the page says what the published policy says, in the same words", () => {
+  it("the page says what the published policy says, in a Simple screen's words", () => {
     render(<FeesAndRefunds onBack={noop} />);
     expect(screen.getByTestId("fees-and-refunds")).toBeInTheDocument();
     for (const s of FEE_POLICY_SECTIONS) expect(screen.getByTestId(s.testId)).toBeInTheDocument();
@@ -85,7 +85,6 @@ describe("Fees & refunds (spec v3.0 §3)", () => {
       "earned when",
       "returns the swapped amount",
       "never sent twice",
-      "never a percentage and never a fixed gas price",
     ];
     const page = document.body.textContent ?? "";
     const review = `${en["screen.review.feeStatement"]} ${en["screen.review.feeAgain"]}`;
@@ -93,6 +92,11 @@ describe("Fees & refunds (spec v3.0 §3)", () => {
       expect(policy, p).toContain(p);
       expect(`${page} ${review}`, p).toContain(p);
     }
+    // the eleventh review round (2026-11-04, E11-3): the page is a Simple screen — the document keeps its "fixed gas price", the page says
+    // "a fixed price", and none of its words is gas, escrow, nullifier or proof
+    expect(policy).toContain("never a percentage and never a fixed gas price");
+    expect(page).toContain("never a percentage and never a fixed price");
+    expect(page).not.toMatch(/\b(gas|escrow|nullifier|proofs?)\b/i);
     // every sentence of the page has its Korean twin
     for (const s of FEE_POLICY_SECTIONS) for (const k of [s.title, ...s.lines]) expect(ko[k as keyof typeof ko], k).toBeTruthy();
     expect(ko["screen.review.feeStatement"]).toContain("1 %");

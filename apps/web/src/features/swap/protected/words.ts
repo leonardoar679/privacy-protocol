@@ -1,6 +1,6 @@
 // The words of a step's state (High-Value Protection spec §15, plan V3 §110): never "failed" for a step whose last
 // read failed — "unknown / reconnecting" is the progress' word for that.
-import { exposure, type Campaign, type Tranche } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, unreturnedOf, type Campaign, type Tranche } from "@privacy-wallet/protocol/wallet/campaign";
 import type { MessageKey } from "../../../app/i18n/en";
 import type { Vars } from "../../../app/i18n/messages";
 import type { CampaignStatus } from "./CampaignProgress";
@@ -14,8 +14,36 @@ const STATUS_WORDS: Record<CampaignStatus["word"], MessageKey> = {
   Processing: "campaign.status.processing",
   Completed: "campaign.status.completed",
   Returned: "campaign.status.returned",
+  // part of the amount not delivered as asked (the eleventh review round, 2026-11-04, E11-1)
+  PartNotDelivered: "campaign.status.partNotDelivered",
 };
 export const campaignStatusWords = (t: T, st: CampaignStatus): string => t(STATUS_WORDS[st.word]);
+
+/** How a step not delivered as asked ended (Tranche.outcome.undelivered), in the reader's words. */
+const NOT_DELIVERED_WORDS: Record<"refunded-at-destination" | "other-token" | "lost" | "partial-unreturned", MessageKey> = {
+  "refunded-at-destination": "screen.swap.stepsWhere.refundedAtDestination",
+  "other-token": "screen.swap.stepsWhere.otherToken",
+  lost: "screen.swap.stepsWhere.lost",
+  // a settled partial fill whose rest never came back (exposure().notDelivered counts it: the critique of E11-1)
+  "partial-unreturned": "screen.swap.stepsWhere.partialUnreturned",
+};
+type Way = keyof typeof NOT_DELIVERED_WORDS;
+/**
+ * Where the value of the steps not delivered as asked went — refunded at the step's destination address in the provider's own asset,
+ * delivered there in another token, or failed with nothing back —, one sentence for each way, in the order of the steps (the eleventh
+ * review round, 2026-11-04, E11-1): the Simple steps page had said "Your funds are safe" beside such a step, then "complete", and never
+ * where it went.
+ */
+export function notDeliveredWords(t: T, c: Campaign): string[] {
+  const ways = [
+    ...new Set(
+      c.tranches.flatMap((x): Way[] =>
+        x.state === "undelivered" ? [x.outcome?.undelivered ?? "lost"] : unreturnedOf(x) > 0n ? ["partial-unreturned"] : [],
+      ),
+    ),
+  ];
+  return ways.map((w) => t(NOT_DELIVERED_WORDS[w], { symbol: c.request.to.symbol }));
+}
 
 /**
  * A protected execution's line (the SDK's English progressLine, which the activity journal keeps) in the reader's words

@@ -595,8 +595,9 @@ export function SendScreen(p: SendScreenProps) {
             )}
           </Card>
         ) : null}
+        {/* an alert, read out the moment a confirmation fails (the eleventh review round, 2026-11-04, E11-6: it had appeared in silence) */}
         {status ? (
-          <p className="ds-note-warn" data-testid="send-status">
+          <p className="ds-note-warn" role="alert" data-testid="send-status">
             {status}
           </p>
         ) : null}

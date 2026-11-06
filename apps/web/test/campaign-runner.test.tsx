@@ -1060,6 +1060,13 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("fund");
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error", trancheIndex: 0 } });
     expect(current(c).pause?.detail).toMatch(/cannot be funded.*runs no swap executor/);
+    // the cause's own code, so the screens say the relayer — never "the provider reported an error" (the eleventh review round's third
+    // critique); a protected execution's own row, earlier steps maybe swapped (its fourth)
+    expect(current(c).pause?.code).toBe("step_relayer_not_ready");
+    // and its notification carries the code, so the toast and the system's body name the relayer (the mutation check of the third pass),
+    // and so does its alert (the fourth critique: the alerts had said "Provider degraded")
+    expect(notes.at(-1)?.words).toEqual({ key: "paused", vars: { code: "step_relayer_not_ready" } });
+    expect(current(c).alerts?.at(-1)).toMatchObject({ kind: "provider-degraded", code: "step_relayer_not_ready", trancheIndex: 0 });
     expect(current(c).tranches[0].state, "the step stays committed for the resume").toBe("committed");
   });
   it("a step whose relayer fee rose past the Review's bound pauses the campaign with the reason, nothing sent (V7 Stage 12 follow-up): never the silent backoff that left the step committed", async () => {
@@ -1073,6 +1080,36 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "bounds", trancheIndex: 0 } });
     expect(current(c).pause?.detail).toMatch(/relayer fee rose above what you approved.*nothing was sent/);
     expect(current(c).tranches[0].state, "the step stays committed: funded once the fee fits, or returned with the rest").toBe("committed");
+  });
+
+  it("a step the swap service could not commit pauses as commit_failed, whatever the service answered: nothing committed or sent, Resume commits it again (the eleventh review round's third critique, and its fourth: the service's own rows speak of another moment)", async () => {
+    const thrown = [
+      Object.assign(new Error("thorchain: upstream 502"), { code: "provider_unavailable" }),
+      Object.assign(new Error("internal error"), { code: "internal" }),
+      Object.assign(new Error("no quote for this pair"), { code: "no_quote" }),
+      Object.assign(new Error("too many commits"), { code: "rate_limited" }),
+      new Error("the swap service did not answer"),
+    ];
+    for (const e of thrown) {
+      const c = await fresh();
+      world.commitThrows = e;
+      expect((await tick(c))?.action.kind).toBe("commit");
+      expect(current(c), e.message).toMatchObject({ state: "paused", pause: { code: "commit_failed", trancheIndex: 0 } });
+      expect(current(c).tranches[0].state, "planned again: nothing was committed").toBe("planned");
+      expect(current(c).pause?.detail, "the service's own words, for Advanced").toContain(e.message);
+      expect(notes.at(-1)?.words).toEqual({ key: "paused", vars: { code: "commit_failed" } });
+      expect(current(c).alerts?.at(-1)?.code).toBe("commit_failed");
+    }
+  });
+
+  it("a step's commit the wallet itself refused before it asked — its journal not kept, or not read — keeps that row and its remedy, never 'the swap service could not prepare' (the fifth critique)", async () => {
+    for (const code of ["journal_not_kept", "journal_unreadable"]) {
+      const c = await fresh();
+      world.commitThrows = Object.assign(new Error("this browser is not keeping the wallet's data"), { code });
+      expect((await tick(c))?.action.kind).toBe("commit");
+      expect(current(c), code).toMatchObject({ state: "paused", pause: { code, trancheIndex: 0 } });
+      expect(notes.at(-1)?.words).toEqual({ key: "paused", vars: { code } });
+    }
   });
 
   it("a step refused by the wallet's own hold after a restore waits for the note scan: never a pause that blames the provider (audit round 2, r07)", async () => {

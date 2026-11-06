@@ -310,6 +310,8 @@ button.ds-list-row, a.ds-list-row { cursor: pointer; }
 .ds-op-card > .ds-text-btn { grid-column: 1 / -1; justify-self: start; padding-left: 0; }
 .ds-checks-block { flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); font-size: var(--body-small-size); color: var(--shield); }
 .ds-checks-block li[data-state="fail"] { color: var(--danger); }
+/* a check still to do (the eleventh review round, 2026-11-04, E11-12): never the green of one passed */
+.ds-checks-block li[data-state="open"] { color: var(--warn); }
 .ds-progress-title { margin: 0 0 var(--space-4); font-weight: var(--weight-semibold); }
 .ds-flow-source { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .ds-group-title { margin: var(--space-2) 0 0; color: var(--fg-muted); font-size: var(--body-small-size); font-weight: var(--weight-semibold); }

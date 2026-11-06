@@ -21,7 +21,7 @@
 import { destinationWords } from "../destinationWords";
 import { idOfRoute, routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
 import { knownRecipients } from "../recipients";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { availablePrice, atLeast, formatUsd, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
@@ -29,12 +29,12 @@ import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/walle
 import { assessSwapPrivacy, timingOfFunding } from "@privacy-wallet/protocol/wallet/privacyAssessment";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
-import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, swappedInFull } from "@privacy-wallet/protocol/wallet/campaign";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, WarningCard, formatUsdCents, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
-import type { SettlementLabel } from "@privacy-wallet/sdk/orderTracker";
+
 import { formatDateTime } from "../../app/i18n/intl";
 import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -51,9 +51,12 @@ import { mergeSchedule } from "@privacy-wallet/sdk/wallet/mergeSchedule";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { proofEstimateMs } from "@privacy-wallet/sdk/wallet/proofStats";
 import { fundingTiming, olderFunding } from "@privacy-wallet/sdk/wallet/privacyTiming";
-import { acceptNewMinimum, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
+import { acceptNewMinimum, ONE_CONFIRM_EXECUTE_WINDOW_SECONDS, retryOrder, returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
+import { FUNDING_MARGIN_MS, FundingAlreadySent, FundingUnderWay, windowEndOf } from "@privacy-wallet/sdk/swapFunding";
 import { fundedOf } from "@privacy-wallet/sdk/wallet/journal";
+import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { actionsFor } from "../operations/recovery";
+import { errorWords, returnFundsWords } from "../operations/errorWords";
 import {
   buildCampaign,
   cancelCampaign,
@@ -65,7 +68,7 @@ import {
   campaignMinimumOutput,
 } from "@privacy-wallet/sdk/wallet/campaigns";
 import { inFlightLimitReached, protectedInFlight } from "@privacy-wallet/sdk/wallet/inFlight";
-import { campaignLineText } from "./protected/words";
+import { campaignLineText, notDeliveredWords } from "./protected/words";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
 import { walletSwapProvider } from "@privacy-wallet/sdk/swapProvider";
@@ -73,6 +76,7 @@ import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
 import { CATALOG, classify, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
 import { PrivacyLint } from "../../components/PrivacyLint";
+import { SETTLEMENT_WORDS } from "../../components/settlementWords";
 import { DestinationStatus } from "../../components/protection/AddressBook";
 import { Review } from "../review/ReviewScreen";
 import { BLOCKER_WORDS, ReviewView, feeRowsText, type ReviewModel } from "../review/View";
@@ -95,6 +99,7 @@ import {
   shieldTipOf,
   providerFeeCents,
   stepsAmountAtFixedPoint,
+  stepsSeconds,
 } from "./model";
 import { commitDetails, commitExecution, commitLines, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy } from "./protectedChecks";
@@ -113,6 +118,13 @@ export interface SwapScreenProps {
 
 /** How long the user may pause between keystrokes before the quote is fetched. */
 const QUOTE_DEBOUNCE_MS = 700;
+/**
+ * How long after its drawn time a funding delayed for privacy still runs, at the least (the eleventh review round, 2026-11-04, E11-9): it
+ * runs only while the wallet is unlocked, its order's window ends the one-confirm window after that time (and the commit's quote lifetime
+ * later), and no order is funded in its window's last FUNDING_MARGIN_MS — 25 minutes on every route. The words had promised the funding at
+ * the drawn time whatever the wallet's state, and a wallet opened after the window found the swap stopped with nothing sent.
+ */
+const DELAY_GRACE_MINUTES = Math.floor((ONE_CONFIRM_EXECUTE_WINDOW_SECONDS * 1000 - FUNDING_MARGIN_MS) / 60_000);
 
 export function SwapScreen(p: SwapScreenProps) {
   const t = useT();
@@ -245,7 +257,12 @@ export function SwapScreen(p: SwapScreenProps) {
           const read = submission.kind === "relayer" ? await feeTerms(deployment, submission, fromAsset.vault) : null;
           const tm: FeeTerms | null = read ? { minimum: read.fee.amount, feePercentBps: read.info.feePercentBps ?? 0 } : null;
           const split = tm ? swapFunding(units, tm) : null;
-          if (split?.tooSmall) throw new Error(t("swap.tooSmallForFees"));
+          // the wallet's own words as they are (the eleventh review round, 2026-11-04, E11-10): thrown, the classifier below would read them
+          // as a failure it does not know
+          if (split?.tooSmall) {
+            if (seq.current === mine) setQuoteError(t("swap.tooSmallForFees"));
+            return;
+          }
           const set = await swapService.quote(
             {
               from: refOf(fromAsset),
@@ -271,7 +288,10 @@ export function SwapScreen(p: SwapScreenProps) {
           setNow(Date.now());
           setQuoteError(set.chosen ? null : t("swap.noRoute"));
         } catch (e) {
-          if (seq.current === mine && !abort.signal.aborted) setQuoteError(classify(e).detail || String(e));
+          // the catalog's words, the service's own text after them under Advanced only (the eleventh review round, 2026-11-04, E11-10): its
+          // English had been every reader's, a Korean one's too
+          if (seq.current === mine && !abort.signal.aborted)
+            setQuoteError(errorWords(t, e, { advanced, fallback: "screen.swap.quoteFailed", beforeCommit: true }));
         } finally {
           if (seq.current === mine) setQuoting(false);
         }
@@ -385,6 +405,10 @@ export function SwapScreen(p: SwapScreenProps) {
       return null;
     }
   })();
+  // the steps' time in all, from the plan (the eleventh review round, 2026-11-04, E11-15): "Estimated time" had been the one order's minutes for
+  // hours of steps, and the Review had stated no time
+  const stepsTime =
+    stepsPlan && stepsPlan.n > 1 && protectionPlan && quote ? { n: stepsPlan.n, seconds: stepsSeconds(protectionPlan, stepsPlan.n, quote.etaSeconds) } : null;
   const lintItems =
     quotes && chosen && fromAsset
       ? walletLint({
@@ -456,7 +480,8 @@ export function SwapScreen(p: SwapScreenProps) {
                 ? t("op.error.insufficient_balance.reason")
                 : quoteError
           : null,
-        privacy: recentFunds ? { recent: true, delay: delayOn, older: !!older } : null,
+        privacy: recentFunds ? { recent: true, delay: delayOn, older: !!older, graceMinutes: DELAY_GRACE_MINUTES } : null,
+        steps: stepsTime,
         notice: assessment && tier !== "standard" ? (assessment.failSafe ? t("swap.largeFailSafe") + t("swap.largeNotice") : t("swap.largeNotice")) : null,
         details: advanced && routeQuotes ? routeDetails(routeQuotes, to, privacy, chosen ? riskWord(chosen.components.security) : "—") : null,
         // V7 Stage 13: the Advanced gate over $100K, the band's exposure limit and the route's qualification close Review Swap
@@ -534,7 +559,8 @@ export function SwapScreen(p: SwapScreenProps) {
       // the confirmed Review is not shown again (c48, audit round 2 r15): Back had re-shown it, one hold from a second campaign
       navigate(`/swap/steps/${c.id}`, { replace: true });
     } catch (e) {
-      setStatus(classify(e).detail || String(e));
+      // the catalog's words, the raw text after them under Advanced only (the eleventh review round, 2026-11-04, E11-10)
+      setStatus(errorWords(t, e, { advanced, fallback: "screen.swap.notConfirmed", beforeCommit: true }));
     } finally {
       setBusy(false);
     }
@@ -613,15 +639,14 @@ export function SwapScreen(p: SwapScreenProps) {
       // the confirmed Review is not shown again (c48); the URL names the record by its handle, never the order id (c41)
       navigate(`/swap/progress/${routeHandle(swapRecordId(r.stored.orderId))}`, { replace: true });
     } catch (e) {
-      const c = classify(e);
-      // the tip the Review showed and today's parted (the eighth review round, H1): the wallet's words, not the service's figures — and an order
-      // the service committed otherwise than reviewed (the eleventh review round, D11-4), its field and provider ids for Advanced only
+      // the tip the Review showed and today's parted (the eighth review round, H1): the wallet's words, not the service's figures, under
+      // Advanced too. Any other refusal in the catalog's words, its raw text after them under Advanced only (the eleventh review round,
+      // 2026-11-04, E11-10): the service's own English — "no quote from thorchain" — had been shown to every reader, a Korean one too; an
+      // order the service committed otherwise than reviewed (D11-4) keeps its field and provider ids for Advanced that way
       setStatus(
-        c.code === "tip_moved"
+        classify(e).code === "tip_moved"
           ? t("op.error.tip_moved.reason")
-          : c.code === "order_mismatch" && !advanced
-            ? t("op.error.order_mismatch.reason")
-            : c.detail || String(e),
+          : errorWords(t, e, { advanced, fallback: "screen.swap.notConfirmed", beforeCommit: true }),
       );
     } finally {
       setBusy(false);
@@ -920,6 +945,8 @@ export function SwapScreen(p: SwapScreenProps) {
       protection: privacy?.level ?? "medium",
       large,
       steps: stepsPlan?.n ?? null, // V7 Stage 13: the card says "One order" or the steps planned
+      routeHealthy: health.ok, // the card's route check, from the route's health (the eleventh review round, 2026-11-04, E11-12)
+      stepsSeconds: stepsTime?.seconds ?? null, // and, since the eleventh review round (E11-15), their time in all
       hold: controls.hold,
       confirmDisabled: busy || lintBlocked || destinationLocked || (needsDestAck && !destAck) || !health.ok || !net.online,
       blocked,
@@ -929,7 +956,9 @@ export function SwapScreen(p: SwapScreenProps) {
         {lintItems && (controls.lint || edited) ? <PrivacyLint items={lintItems} compact onAcknowledge={(id) => setAcknowledged((a) => [...a, id])} /> : null}
         {needsDestAck ? (
           <Card padding="md" testId="swap-destination-ack">
-            <h2 className="ds-card-title">{t("screen.swap.destinationVerified")}</h2>
+            {/* titled for its action until the address is confirmed (the third critique of E11-12: "Destination verified" had sat beside the
+                Protected execution card's "Destination not re-confirmed yet") */}
+            <h2 className="ds-card-title">{t(destAck ? "screen.swap.destinationVerified" : "screen.swap.destinationCheck")}</h2>
             <p className="ds-mono-break" data-testid="swap-destination-full">
               {destination}
             </p>
@@ -949,11 +978,12 @@ export function SwapScreen(p: SwapScreenProps) {
         ) : null}
         {delayOn ? (
           <p className="ds-note" data-testid="swap-review-delay">
-            {t(older ? "screen.swap.delayOlderNote" : "screen.swap.delayNote")}
+            {older ? t("screen.swap.delayOlderNote") : t("screen.swap.delayNote", { minutes: DELAY_GRACE_MINUTES })}
           </p>
         ) : null}
+        {/* an alert, read out the moment a confirmation fails (the eleventh review round, 2026-11-04, E11-6: it had appeared in silence) */}
         {status ? (
-          <p className="ds-note-warn" data-testid="swap-status">
+          <p className="ds-note-warn" role="alert" data-testid="swap-status">
             {status}
           </p>
         ) : null}
@@ -1020,34 +1050,95 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
   const t = useT();
   const navigate = useNavigate();
   const { campaignId } = useParams();
+  const { protection } = useSettings();
   const c = useCampaigns().find((x) => x.id.toLowerCase() === (campaignId ?? "").toLowerCase());
   if (!c) return <Navigate to="/swap" replace />;
   const model = campaignProgressModel(c);
   const total = model.large ? formatUsd(Number(model.large.totalUsdCents) / 100) : `${c.request.from.symbol}`;
   const pair = `${c.request.from.symbol} → ${c.request.to.symbol}`;
+  // what did not arrive as asked (exposure().notDelivered), in dollars at the confirmation's valuation (else in the asset), and where each
+  // step not delivered as asked went (the eleventh review round, 2026-11-04, E11-1: the Simple screens never read it); what returned steps
+  // did not bring back is their fees, said as such — never "did not arrive as you asked" (its critique: a "Return the rest" read so)
+  const e = exposure(c);
+  const inAsset = (u: bigint) =>
+    `${displayAmount(amountOf(u, c.request.from.symbol, c.request.from.decimals, c.request.from.chain), "down")} ${c.request.from.symbol}`;
+  const endedAmount = model.large?.notDeliveredUsdCents !== undefined ? formatUsdCents(model.large.notDeliveredUsdCents) : inAsset(e.notDelivered);
+  const costs =
+    e.returnCosts > 0n ? (
+      <p data-testid="swap-steps-return-costs">
+        {t("screen.swap.stepsReturnCosts", {
+          amount: model.large?.returnCostsUsdCents !== undefined ? formatUsdCents(model.large.returnCostsUsdCents) : inAsset(e.returnCosts),
+        })}
+      </p>
+    ) : null;
+  const where = notDeliveredWords(t, c);
+  const notDelivered = (
+    <>
+      <p data-testid="swap-steps-ended">{t("screen.swap.stepsEnded", { amount: endedAmount })}</p>
+      {where.map((w) => (
+        <p key={w}>{w}</p>
+      ))}
+      {costs}
+    </>
+  );
   if (c.state === "completed" || c.state === "cancelled") {
+    const finish = (
+      <>
+        <Button onClick={p.onDone} data-testid="swap-finish">
+          {t("send.doneButton")}
+        </Button>
+        <Button variant="secondary" onClick={p.onNew} data-testid="swap-again">
+          {t("screen.swap.again")}
+        </Button>
+      </>
+    );
+    // part of it not delivered as asked is never "complete" nor "Returned to your protected balance" (E11-1): the result says how much
+    // did not arrive and where it went — it had read "Your $80,000 ETH → BTC swap is complete." with a quarter of it refunded at a fresh
+    // address in another asset, or gone
+    if (e.notDelivered > 0n)
+      return (
+        <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
+          <WarningCard
+            role="status"
+            testId="swap-steps-not-all"
+            title={
+              c.state === "completed"
+                ? t("screen.swap.stepsNotAll", { usd: total, pair })
+                : e.completed > 0n
+                  ? t("screen.swap.stepsPartlyNotAll", { pair })
+                  : t("screen.swap.stepsReturnedNotAll", { pair })
+            }
+            body={notDelivered}
+            action={finish}
+          />
+        </Page>
+      );
     return (
       <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
         <SuccessCard
           testId="swap-steps-done"
           title={
-            c.state === "completed"
+            c.state === "completed" || swappedInFull(e)
               ? t("screen.swap.stepsDone", { usd: total, pair })
-              : // steps delivered before it was cancelled: part of it is complete, never "Returned" alone (the audit's unverified m58)
-                exposure(c).completed > 0n
+              : // steps delivered before it was cancelled: part of it is complete, never "Returned" alone (the audit's unverified m58); a
+                // cancel that returned nothing completed it (the third critique)
+                e.completed > 0n
                 ? t("screen.swap.stepsPartly", { pair })
                 : t("screen.swap.returned")
           }
-          actions={
-            <>
-              <Button onClick={p.onDone} data-testid="swap-finish">
-                {t("send.doneButton")}
-              </Button>
-              <Button variant="secondary" onClick={p.onNew} data-testid="swap-again">
-                {t("screen.swap.again")}
-              </Button>
-            </>
+          body={
+            // a last remainder too small to swap on its own stays in the protected balance, as the runner's own alert says (E11-1); a
+            // returned step's fees are said as such (the critique of E11-1)
+            c.state === "completed" && e.kept > 0n ? (
+              <>
+                {t("screen.swap.stepsKept")}
+                {costs}
+              </>
+            ) : (
+              (costs ?? undefined)
+            )
           }
+          actions={finish}
         />
       </Page>
     );
@@ -1056,11 +1147,21 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
   if (c.state === "paused" || c.state === "rerouting") {
     // the pause in the catalog's words (audit round 2, n87): its code's title and reason — the runner's own English detail under
     // Advanced; a step that runs longer than expected reads as a delay, not an anomaly
-    const code = c.pause ? (c.pause.reason === "user" ? "user_pause" : c.pause.reason.replace(/-/g, "_")) : null;
+    // the cause's own code when the runner knows it (the third critique of slice 4: a step the relayer cannot fund had blamed the provider)
+    const code = c.pause
+      ? c.pause.code && CATALOG[c.pause.code]
+        ? c.pause.code
+        : c.pause.reason === "user"
+          ? "user_pause"
+          : c.pause.reason.replace(/-/g, "_")
+      : null;
     const delayed = c.pause?.reason === "anomaly" && /longer than expected/i.test(c.pause.detail);
     // a pause whose funds class is unknown (a funding sent and not confirmed, an anomaly, an unexpected destination) never says the
     // funds are safe (audit round 2, p05): the funding may be on its way to its escrow
     const unknownFunds = code !== null && CATALOG[code]?.fundsClass === "unknown";
+    // paused by the user's own "Pause large operations" (the eleventh review round, 2026-11-04, E11-2): the page had said the wallet was
+    // locked and offered a Resume the next tick paused again on the same switch — the switch itself is offered, and Resume once it is off
+    const bySwitch = c.state === "paused" && c.pause?.reason === "wallet-pause";
     return (
       <Page title={t("screen.swap.title")} back={p.onNew} testId="swap-view">
         <Card padding="md" testId="swap-steps-paused">
@@ -1075,6 +1176,13 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
               {c.pause.detail}
             </p>
           ) : null}
+          {/* a step not delivered as asked: how much and where it went, and never "Your funds are safe" beside it (the eleventh review
+              round, 2026-11-04, E11-1: the card had said so while the step's value was at its destination in another asset, or gone) */}
+          {where.length ? (
+            <div className="ds-note-warn" data-testid="swap-steps-not-delivered">
+              {notDelivered}
+            </div>
+          ) : null}
           {/* a step funded and not handed over waits for its swap or its refund time, never in the protected balance (the audit
               round of 2026-10-16, c51) */}
           <p className="ds-note" data-testid="swap-steps-safe">
@@ -1082,16 +1190,31 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
               unknownFunds
                 ? "op.funds.unknown"
                 : c.tranches.some((x) => ["funded", "signed", "failed", "refunding"].includes(x.state))
-                  ? "screen.swap.stepsSafeHeld"
-                  : "screen.swap.stepsSafe",
+                  ? where.length
+                    ? "screen.swap.stepsRestHeld"
+                    : "screen.swap.stepsSafeHeld"
+                  : where.length
+                    ? "screen.swap.stepsRest"
+                    : "screen.swap.stepsSafe",
             )}
           </p>
+          {bySwitch ? (
+            <label className="ds-switch-row ds-native-row">
+              <span>{t("home.pauseLarge")}</span>
+              <input
+                type="checkbox"
+                checked={protection.pauseLargeOperations}
+                onChange={(e) => settings.set({ protection: { ...settings.get().protection, pauseLargeOperations: e.target.checked } })}
+                data-testid="swap-steps-pause-switch"
+              />
+            </label>
+          ) : null}
           <div className="ds-actions">
             {c.state === "rerouting" ? (
               <Button onClick={() => navigate("/swap/protected", { state: { campaignId: c.id } })} data-testid="swap-steps-review-route">
                 {t("screen.swap.stepsReviewRoute")}
               </Button>
-            ) : (
+            ) : bySwitch && protection.pauseLargeOperations ? null : (
               <Button onClick={() => resumeCampaign(c.id)} data-testid="swap-steps-resume">
                 {t("campaign.resume")}
               </Button>
@@ -1124,52 +1247,96 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
   );
 }
 
-/**
- * The tracker's settlement label (its English code, journaled with the track as a string) in the reader's words (audit round 2,
- * n86); every label the tracker writes has its words, a label it does not know is shown as it is.
- */
-const SETTLEMENT_WORDS: Record<string, MessageKey | undefined> = {
-  Preparing: "settlement.preparing",
-  "Waiting for source": "settlement.waitingSource",
-  Executing: "settlement.executing",
-  "Waiting for destination": "settlement.waitingDestination",
-  Partial: "settlement.partial",
-  Refunding: "settlement.refunding",
-  Refunded: "settlement.refunded",
-  Completed: "settlement.completed",
-  "Not started": "settlement.notStarted",
-  "Needs attention": "settlement.needsAttention",
-} satisfies Record<SettlementLabel, MessageKey>;
-
 /** /swap/progress/:opId — the operation's lines while it runs, the paused order's choice, the result. */
 function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null; onDone: () => void; onNew: () => void }) {
   const t = useT();
+  const { advanced } = useSettings();
   const { opId } = useParams();
   const record = useOperation(opId ? idOfRoute(opId) : null);
   useSession();
   const [furthest, setFurthest] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // the cancel's own result, apart from Return funds' (the third critique of E11-4: the drawn time can pass while a cancel runs — its waiting
+  // block, and its line with it, gone — and its words had come back later under the paused order's card): what failed, its words chosen as
+  // the page is drawn (its fourth critique: "still scheduled; try again" had stayed once the drawn time passed and the Cancel with it)
+  const [cancelFailure, setCancelFailure] = useState<{ e: unknown } | null>(null);
   useEffect(() => {
     if (record) setFurthest((f) => furthestLine(f, record));
   }, [record]);
+  // the card the page draws — the running page, a minimum-moved pause, a recovery, an end —: a failure line belongs to the card it was given
+  // on. Another card clears it, and an answer that comes once another card is drawn is dropped (the fourth and fifth critiques of slice 4: a
+  // line mounted again is read out again, and a cancel or a Return funds that failed under one card had come back under a later one)
+  const pausedCode =
+    record?.refs.orderId && session.isUnlocked()
+      ? session.journal().swaps.find((x) => x.orderId.toLowerCase() === record.refs.orderId!.toLowerCase())?.paused?.code
+      : undefined;
+  const card = !record
+    ? ""
+    : record.state === "COMPLETED" || record.state === "REFUNDED" || record.state === "CANCELLED"
+      ? `end:${record.state}`
+      : pausedCode === "minimum_moved"
+        ? "minimum"
+        : record.state === "RECOVERY_REQUIRED" || record.reason
+          ? `recovery:${record.reason?.code ?? ""}`
+          : "running";
+  // counted as the card is committed, before its buttons can be pressed: a passive effect ran after a press on the new card, and the press's
+  // own answer was dropped as another card's
+  const cardShown = useRef(0);
+  useLayoutEffect(() => {
+    cardShown.current++;
+    setError("");
+    setCancelFailure(null);
+  }, [card]);
   if (!record) return <Navigate to="/swap" replace />;
   const orderId = record.refs.orderId;
   const stored = orderId && session.isUnlocked() ? session.journal().swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase()) : undefined;
   const sym = record.amounts.outputAsset ?? "";
   const outDecimals = record.amounts.outputDecimals ?? 18;
-  const act = (f: () => Promise<unknown> | unknown) => async () => {
+  // what did not go through in the catalog's words, the runner's English after them under Advanced only (the eleventh review round,
+  // 2026-11-04, E11-10); `fallback`: the words of a failure the catalog has no code for, by what was asked
+  const act = (f: () => Promise<unknown> | unknown, words: (e: unknown) => string, set: (s: string) => void) => async () => {
+    const shown = cardShown.current;
     setBusy(true);
-    setError("");
+    set("");
     try {
       await f();
     } catch (e) {
-      setError(classify(e).detail || String(e));
+      if (shown === cardShown.current) set(words(e));
     } finally {
       setBusy(false);
     }
   };
-  const giveBack = act(() => returnFunds(orderId!, { masterSeed: p.masterSeed, deployment: p.deployment }));
+  const funded = !!stored && (fundedOf(stored) || !!stored.fundingAttempt);
+  const giveBack = act(
+    () => returnFunds(orderId!, { masterSeed: p.masterSeed, deployment: p.deployment }),
+    // an order not funded is stopped, nothing sent back (the fifth critique: its card says nothing was sent)
+    (e) => returnFundsWords(t, e, advanced, funded ? "screen.swap.returnFailed" : "screen.swap.stopFailed"),
+    setError,
+  );
+  // a delayed swap's cancel that does not go through says it is still scheduled, while it is (the eleventh review round, 2026-11-04, E11-4) —
+  // and once its funding is on its way or its funding time has come, the Cancel gone with the waiting block, that it goes ahead, never "try
+  // again" (the third critique: the next tick signs it, and a running order's page has no cancel; its fourth: whatever failed)
+  // a scheduled order's cancel asks no relayer: what fails it fails before anything is sent, said in the cancel's own words (the fifth
+  // critique: the return's words for a relayer had been pinned for a state the page cannot reach)
+  const cancelWords = (e: unknown, scheduled: boolean): string => {
+    const late = e instanceof FundingAlreadySent || e instanceof FundingUnderWay;
+    const words = t(late ? "screen.swap.cancelTooLate" : scheduled ? "screen.swap.cancelFailed" : "screen.swap.cancelPassed");
+    const detail = e instanceof Error ? e.message : String(e);
+    return advanced && detail ? `${words} (${detail})` : words;
+  };
+  const cancelDelayed = async () => {
+    const shown = cardShown.current;
+    setBusy(true);
+    setCancelFailure(null);
+    try {
+      await returnFunds(orderId!, { masterSeed: p.masterSeed, deployment: p.deployment });
+    } catch (e) {
+      if (shown === cardShown.current) setCancelFailure({ e });
+    } finally {
+      setBusy(false);
+    }
+  };
   const intoProtected = !!stored?.shield;
   // an order the runner stopped before anything was swapped says why, with "Review again" (2026-10-14: an expired order's
   // and an unconfirmed funding's reasons had been hidden behind the plain cancelled card; a V6 follow-up of 2026-10-16: a
@@ -1245,7 +1412,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
     if (record.state === "COMPLETED" && record.outcome === "refunded-at-destination")
       return (
         <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
-          <WarningCard testId="swap-not-delivered" title={t("screen.swap.notDelivered", { symbol: sym })} action={finish} />
+          <WarningCard role="status" testId="swap-not-delivered" title={t("screen.swap.notDelivered", { symbol: sym })} action={finish} />
         </Page>
       );
     // the rest did not come back, or the order came in another token (the tenth review round, A10-2): "the rest came back" had been said of both
@@ -1253,6 +1420,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       return (
         <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
           <WarningCard
+            role="status"
             testId={record.outcome === "other-token" ? "swap-other-token" : "swap-partial-unreturned"}
             title={
               record.outcome === "other-token"
@@ -1299,16 +1467,30 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
               symbol: sym,
             })}
           </p>
-          <p className="ds-note">{t("screen.swap.minimumMovedSafe")}</p>
+          {/* a delayed order asks a fresh minimum before its funding: paused so, nothing was sent (the fourth critique of slice 4) */}
+          <p className="ds-note">{t(funded ? "screen.swap.minimumMovedSafe" : "screen.swap.minimumMovedUnfunded")}</p>
           <div className="ds-actions">
-            <Button onClick={() => acceptNewMinimum(orderId!)} disabled={busy} data-testid="swap-accept-minimum">
+            <Button
+              onClick={() => {
+                setError("");
+                void acceptNewMinimum(orderId!);
+              }}
+              disabled={busy}
+              data-testid="swap-accept-minimum"
+            >
               {t("screen.swap.acceptMinimum")}
             </Button>
+            {/* an order not funded is cancelled, nothing to return (the fifth critique of slice 4) */}
             <Button variant="secondary" onClick={() => void giveBack()} disabled={busy} data-testid="swap-return-funds">
-              {t("screen.swap.returnFunds")}
+              {t(funded ? "screen.swap.returnFunds" : "screen.swap.cancelBeforeFunding")}
             </Button>
           </div>
-          {error ? <p className="ds-note-warn">{error}</p> : null}
+          {/* an alert: a Return funds that failed is read out (the eleventh review round, 2026-11-04, E11-6) */}
+          {error ? (
+            <p className="ds-note-warn" role="alert" data-testid="swap-progress-error">
+              {error}
+            </p>
+          ) : null}
         </Card>
       </Page>
     );
@@ -1325,7 +1507,14 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
             paused && paused.code !== "reconcile" ? (
               <>
                 {paused.code === "execution_unavailable" ? (
-                  <Button onClick={() => retryOrder(orderId!)} disabled={busy} data-testid="swap-try-again">
+                  <Button
+                    onClick={() => {
+                      setError("");
+                      void retryOrder(orderId!);
+                    }}
+                    disabled={busy}
+                    data-testid="swap-try-again"
+                  >
                     {t("screen.swap.tryAgain")}
                   </Button>
                 ) : null}
@@ -1340,11 +1529,19 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
             ) : undefined
           }
         />
-        {error ? <p className="ds-note-warn">{error}</p> : null}
+        {/* an alert: a Return funds that failed is read out (the eleventh review round, 2026-11-04, E11-6) */}
+        {error ? (
+          <p className="ds-note-warn" role="alert" data-testid="swap-progress-error">
+            {error}
+          </p>
+        ) : null}
       </Page>
     );
   }
   const waiting = stored?.runner?.delayUntil && !fundedOf(stored) && stored.runner.delayUntil > Date.now();
+  // the last moment the runner still funds a delayed order — its window's end less the funding's margin; opened later, the wallet stops it
+  // unfunded (`order_expired`). The eleventh review round (2026-11-04, E11-9): the line had promised the funding at the drawn time alone
+  const fundBy = stored ? windowEndOf(stored) - FUNDING_MARGIN_MS : NaN;
   const shielding =
     intoProtected && !stored?.shield?.leaves?.length && (stored?.shield?.job?.state === "shielding" || stored?.shield?.job?.state === "shielded");
   return (
@@ -1359,6 +1556,7 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       {waiting ? (
         <p className="ds-note" data-testid="swap-funding-at">
           {t("screen.swap.fundingAt", { time: formatDateTime(stored!.runner!.delayUntil!) })}
+          {Number.isFinite(fundBy) ? ` ${t("screen.swap.fundingBy", { until: formatDateTime(fundBy) })}` : null}
         </p>
       ) : null}
       {stored?.track?.label ? (
@@ -1367,9 +1565,17 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
         </p>
       ) : null}
       {waiting ? (
-        <TextButton onClick={() => void giveBack()} data-testid="swap-cancel">
+        // never twice at once (the eleventh review round, 2026-11-04, E11-4)
+        <TextButton onClick={() => void cancelDelayed()} disabled={busy} data-testid="swap-cancel">
           {t("screen.swap.cancelBeforeFunding")}
         </TextButton>
+      ) : null}
+      {/* a cancel that did not go through says so (E11-4: its error had been set and never shown — the swap stayed scheduled while the page said
+          nothing), on this running page, the waiting block or not (its third and fourth critiques) */}
+      {cancelFailure ? (
+        <p className="ds-note-warn" role="alert" data-testid="swap-cancel-error">
+          {cancelWords(cancelFailure.e, !!waiting)}
+        </p>
       ) : null}
     </div>
   );

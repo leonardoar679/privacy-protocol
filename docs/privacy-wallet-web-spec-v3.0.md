@@ -180,7 +180,7 @@ check becomes "one order, hold, the exposure limit, the verified destination, no
 
 Code (Stage 13, as landed): `apps/web/src/features/swap/SwapScreen.tsx` (`protectedSteps` only when the plan is `staged` or
 the user asked — `ProtectionSettings.stepsAtBand`, the Advanced page's "Protected steps" switch —; the Review's card says "One
-order — no automatic split" or the steps planned; the Advanced gate card over $100K with its switch; the band's exposure limit
+order — no automatic split" or the steps planned (and, since the eleventh review round, E11-15, their time in all from the plan, which the Swap page's "Estimated time" states too — it had stated the one order's minutes); the Advanced gate card over $100K with its switch; the band's exposure limit
 and the route's qualification close Review Swap and block a confirmation), `apps/web/src/features/swap/Swap.tsx` (the same rule
 on the protected screen), `packages/sdk/src/wallet/inFlight.ts` (`protectedInFlight`: the band's open orders and running
 campaigns; `MAX_IN_FLIGHT` enforced), `packages/sdk/src/wallet/campaigns.ts` (no exact quarters; one seed per quote draws the

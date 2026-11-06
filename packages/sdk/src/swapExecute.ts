@@ -376,15 +376,32 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
 export { shieldJobView };
 
 /**
+ * A return the wallet cannot make itself, with the catalog's code that says what to do (the eleventh review round's critique of E11-10): the
+ * screens show a code's words in place of the thrown text, and these had fallen to "try again in a moment" — a retry never succeeds.
+ */
+export class RefundRefusal extends Error {
+  readonly code: "refund_needs_relayer" | "refund_not_watched" | "refund_payload_missing";
+  constructor(message: string, code: RefundRefusal["code"]) {
+    super(message);
+    this.name = "RefundRefusal";
+    this.code = code;
+  }
+}
+
+/**
  * Return a funded order to the private balance without executing it: a refund-only job (the journaled params and
  * refund payload, no signature) re-shields the escrow's balance as the committed note once the window opens.
  */
 export async function returnOrderToBalance(i: { deployment: Deployment | null; session?: WalletSession; stored: StoredSwap; submission: Submission }): Promise<SwapJob> {
   const s = i.session ?? defaultSession;
   const { stored } = i;
-  if (i.submission.kind !== "relayer") throw new Error(`Switch to relayer submission (Settings), or call deployAndRefund on the factory yourself after ${new Date((stored.params as { refundAfter: number }).refundAfter * 1000).toLocaleString()}.`);
+  if (i.submission.kind !== "relayer")
+    throw new RefundRefusal(
+      `Switch to relayer submission (Settings), or call deployAndRefund on the factory yourself after ${new Date((stored.params as { refundAfter: number }).refundAfter * 1000).toLocaleString()}.`,
+      "refund_needs_relayer",
+    );
   const refundNoteData = stored.refundNoteData as Hex | undefined;
-  if (!refundNoteData) throw new Error("this order has no refund payload in the journal");
+  if (!refundNoteData) throw new RefundRefusal("this order has no refund payload in the journal", "refund_payload_missing");
   const job = await relayerSwapRefund(i.submission.url, {
     factory: swapFactoryOf(i.deployment),
     params: stored.params as any,
@@ -395,7 +412,10 @@ export async function returnOrderToBalance(i: { deployment: Deployment | null; s
   // a relayer that keeps a completed job closed (one from before audit round 2, r36) re-shields nothing: said, never journaled
   // as closed — the order stays open, its escrow read
   if (job.state === "completed")
-    throw new Error("The executor no longer watches this order's escrow and re-shields nothing there now. Anyone can call deployAndRefund on the factory to return it to your private balance; the wallet keeps reading the escrow.");
+    throw new RefundRefusal(
+      "The executor no longer watches this order's escrow and re-shields nothing there now. Anyone can call deployAndRefund on the factory to return it to your private balance; the wallet keeps reading the escrow.",
+      "refund_not_watched",
+    );
   patchSwap(stored.orderId, { jobId: job.id, state: job.state, relayerUrl: i.submission.url }, s);
   return job;
 }

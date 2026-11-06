@@ -9,11 +9,12 @@
 // failure before anything was sent is thrown to the scheduler's backoff (§9: no automatic retry on money movement).
 import type { Hex } from "viem";
 import {
-  canRelease, detectPause, exposure, nextAction, settledBy, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
+  canRelease, detectPause, exposure, nextAction, settledBy, swappedInFull, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
   FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, STALL_FACTOR, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import { velocityExceeded } from "@privacy-wallet/protocol/wallet/exposurePolicy";
+
 import { incidentSpan } from "@privacy-wallet/protocol/wallet/riskClasses";
 import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
@@ -439,8 +440,19 @@ const refusalWords = (reason: string | undefined): string =>
 const lastSmallStep = (c: Campaign, t: Tranche): boolean =>
   !c.tranches.some((x) => x.index !== t.index && ["planned", "ready", "committed", "funded", "signed", "failed"].includes(x.state)) && BigInt(t.amount) < (BigInt(c.request.amount) * BigInt(c.plan.bandBps[0])) / 10000n;
 
-const pauseWith = (c: Campaign, reason: PauseReason, detail: string, now: number, index?: number): Campaign =>
-  withAlert(withCampaignState(c, "paused", now, detail, { pause: { reason, detail, at: now, ...(index !== undefined ? { trancheIndex: index } : {}) } }), alertKindFor(reason, detail), detail, now, index);
+// the pause's alert carries its code too, so the alert reads by the cause as the pause does (the fourth critique of slice 4: under "Paused —
+// The relayer is not set up for this swap" the last alerts had said "Provider degraded (step 1)")
+const pauseWith = (c: Campaign, reason: PauseReason, detail: string, now: number, index?: number, code?: string): Campaign =>
+  withAlert(
+    withCampaignState(c, "paused", now, detail, {
+      pause: { reason, detail, at: now, ...(index !== undefined ? { trancheIndex: index } : {}), ...(code ? { code } : {}) },
+    }),
+    alertKindFor(reason, detail),
+    detail,
+    now,
+    index,
+    code,
+  );
 
 /** One tick: reconcile, track, decide, perform one action, plan the next tick. Returns null when the campaign is gone or finished. */
 export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promise<TickResult | null> {
@@ -552,7 +564,13 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           // balance and the campaign completes without it (the seventh review round, D14): it had paused at every Resume for good
           if (code === "amount_too_small" && lastSmallStep(c, t)) { c = withTrancheState(c, t.index, "skipped", now, { outcome: { ...t.outcome, kept: true } }, `too small to swap on its own (${m}): it stays in your private balance`); nextAt = now + 1000; break; }
           c = withTrancheState(c, t.index, "planned", now, {}, `commit failed: ${m}`);
-          c = pauseWith(c, /no quote|filtered|refus/i.test(m) ? "route-degraded" : "provider-error", `Step ${t.index + 1} could not be committed: ${m}`, now, t.index);
+          // whatever the service answered, a step whose commit failed committed and sent nothing, and Resume commits it again: its pause
+          // says so, the service's own words in the detail under Advanced (the fourth critique of slice 4: the third had carried the
+          // service's code onto the pause, and its catalog rows speak of another moment — "the wallet tries again on its own", "we are
+          // checking where your funds are", "try a larger amount"); the wallet's own refusals before it asks — its journal not kept, or not
+          // read — keep their rows, which hold at any moment and name the remedy (the fifth critique)
+          const own = code === "journal_not_kept" || code === "journal_unreadable" ? code : "commit_failed";
+          c = pauseWith(c, /no quote|filtered|refus/i.test(m) ? "route-degraded" : "provider-error", `Step ${t.index + 1} could not be committed: ${m}`, now, t.index, own);
           break;
         }
         const q = r.order.quote;
@@ -709,7 +727,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           // round of 2026-11-03, E4): to the backoff, the window closing, the step abandoned and committed again — a fresh order,
           // destination and refund counter — every window for good, while the campaign read "running". Paused for the user instead
           if (!sent && (e as { code?: unknown })?.code === "relayer_not_ready") {
-            c = pauseWith(c, "provider-error", `Step ${t.index + 1} cannot be funded: ${m} Resume once the relayer runs swaps, or return the rest.`, now, t.index);
+            // in a protected execution's words, with the way to a relayer that runs swaps (the fourth critique of slice 4: the one-order row
+            // said nothing had left the protected balance, earlier steps swapped, and named a Settings relayer Simple does not show)
+            c = pauseWith(c, "provider-error", `Step ${t.index + 1} cannot be funded: ${m} Resume once the relayer runs swaps, or return the rest.`, now, t.index, "step_relayer_not_ready");
             break;
           }
           if (!sent) { c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw e; } // nothing was sent: the scheduler's backoff retries the tick
@@ -915,17 +935,25 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         break;
       }
       case "complete": {
-        const cancelled = c.state === "winding-down";
+        // a cancel whose last step had already been handed over and settled returned nothing: the campaign completed (the third critique)
+        const cancelled = c.state === "winding-down" && !swappedInFull(exposure(c));
         const fin = exposure(c);
-        const finished = fin.ended > 0n ? "Every step finished; part of the amount did not arrive as you asked (see the steps)." : fin.kept > 0n ? "Every step settled; a remainder too small to swap on its own stays in your private balance." : "Every step settled.";
-        c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : fin.ended > 0n ? "every step finished" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? "The rest returned to your private balance." : finished, now);
-        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : "Protected swap completed", body: cancelled ? "The rest returned to your private balance." : finished, campaignId: c.id, words: { key: cancelled ? "cancelled" : "completed" } });
+        // what did not arrive as asked, never a returned step's fees (the eleventh review round's critique of E11-1)
+        const finished = fin.notDelivered > 0n ? "Every step finished; part of the amount did not arrive as you asked (see the steps)." : fin.kept > 0n ? "Every step settled; a remainder too small to swap on its own stays in your private balance." : "Every step settled.";
+        // a return after a step not delivered as asked says so too, and the notification carries the distinction in its own key, a
+        // warning (the eleventh review round, 2026-11-04, E11-1): the app's words for "completed" and "cancelled" had replaced the runner's —
+        // "Every step settled.", "The rest returned to your private balance." — while a step's value was at its destination in another
+        // asset, or gone
+        const returned = fin.notDelivered > 0n ? "The rest returned to your private balance; part of the amount did not arrive as you asked (see the steps)." : "The rest returned to your private balance.";
+        const key = cancelled ? (fin.notDelivered > 0n ? "cancelled-not-all" : "cancelled") : fin.notDelivered > 0n ? "completed-not-all" : fin.kept > 0n ? "completed-kept" : "completed";
+        c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : fin.notDelivered > 0n ? "every step finished" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? returned : finished, now);
+        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : fin.notDelivered > 0n ? "Protected swap finished" : "Protected swap completed", body: cancelled ? returned : finished, campaignId: c.id, words: { key }, ...(fin.notDelivered > 0n ? { tone: "warn" as const } : {}) });
         stop();
         break;
       }
     }
     if (c.state === "paused" && action.kind !== "pause" && c0.state !== "paused") {
-      send({ kind: c.pause ? alertKindFor(c.pause.reason, c.pause.detail) : "paused", title: "Protected swap paused", body: c.pause?.detail ?? "Paused.", campaignId: c.id, words: { key: "paused" } });
+      send({ kind: c.pause ? alertKindFor(c.pause.reason, c.pause.detail) : "paused", title: "Protected swap paused", body: c.pause?.detail ?? "Paused.", campaignId: c.id, words: { key: "paused", ...(c.pause?.code ? { vars: { code: c.pause.code } } : {}) } });
       nextAt = now + PAUSED_TRACK_INTERVAL_MS;
     }
     c = putCampaign(c, s);

@@ -47,18 +47,26 @@ export function HoldButton({ label, holdingLabel, hint, holdMs, onConfirm, disab
   const start = useRef<number | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const fired = useRef(false);
+  // whether the button can confirm right now, read at every tick (the eleventh review round's local run): a hold whose button turned disabled
+  // midway had filled its ring and confirmed nothing, without a word — it is cancelled, the ring empty again, to be held once more
+  const disabledNow = useRef(disabled);
+  disabledNow.current = disabled;
   const stop = (reset = true) => { if (timer.current) clearInterval(timer.current); timer.current = null; start.current = null; if (reset) setProgress(0); };
   const begin = () => {
     if (disabled || start.current !== null) return;
     fired.current = false;
     start.current = Date.now();
     timer.current = setInterval(() => {
+      if (disabledNow.current) return stop();
       const p = Math.min(1, (Date.now() - (start.current ?? Date.now())) / holdMs);
       setProgress(p);
       if (p >= 1 && !fired.current) { fired.current = true; stop(false); onConfirm(); }
     }, 16);
   };
   useEffect(() => () => stop(), []);
+  useEffect(() => {
+    if (disabled && timer.current) stop();
+  }, [disabled]);
   const deg = Math.round(progress * 360);
   const holdingNow = progress > 0 && progress < 1;
   // The button keeps its size while holding: the full label stays in place (hidden) under the holding words. A label that

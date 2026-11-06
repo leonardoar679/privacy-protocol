@@ -10,7 +10,7 @@ import type { Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { SwapPrivacy } from "@privacy-wallet/protocol/wallet/privacyAssessment";
 import { assessRisk, BLOCKER_CODES, type BlockerCode } from "@privacy-wallet/risk-engine";
 import type { CheckState } from "@privacy-wallet/ui";
-import { feeSummary, type QuoteSet, type ServiceQuote } from "@privacy-wallet/sdk/swapService";
+import { feeSummary, type Protection, type QuoteSet, type ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { DestinationCheck } from "@privacy-wallet/sdk/wallet/addressBook";
 import { amountOf, centsOf } from "../amounts";
 import { hours, type Target } from "./targets";
@@ -28,6 +28,20 @@ export function fundingSeconds(proofMs: number | null | undefined): [number, num
   if (proofMs === null || proofMs === undefined || !Number.isFinite(proofMs) || proofMs <= 0) return FUNDING_SECONDS;
   const s = Math.ceil(proofMs / 1000);
   return [s + 15, 2 * s + 120];
+}
+
+/**
+ * A protected execution's time in all (the eleventh review round, 2026-11-04, E11-15): the plan states it for its own count of steps — each
+ * the route's time, the destination's finality margin and the cadence (packages/swap-engine/src/risk/protection.ts) —, so its time per step
+ * for the steps this wallet runs, one at a time at the band (the SDK's wallet/campaigns.ts routeRules), never less than their swaps alone.
+ * The Swap page had stated the one order's minutes for hours of steps, and the Review no time at all.
+ */
+export function stepsSeconds(plan: Pick<Protection, "estimatedSeconds" | "estimatedTranches" | "concurrency">, steps: number, etaSeconds: number): number {
+  const n = Math.max(1, Math.floor(steps));
+  const planned = Number.isFinite(plan.estimatedTranches) && plan.estimatedTranches >= 1 ? plan.estimatedTranches : n;
+  const total = Number.isFinite(plan.estimatedSeconds) && plan.estimatedSeconds > 0 ? plan.estimatedSeconds : 0;
+  const perStep = (total * (plan.concurrency === "parallel" ? 2 : 1)) / planned;
+  return Math.max(Math.round(perStep * n), Math.round((Number.isFinite(etaSeconds) ? Math.max(0, etaSeconds) : 0) * n));
 }
 
 export interface SwapDestinationFacts {

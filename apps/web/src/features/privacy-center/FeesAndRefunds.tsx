@@ -1,5 +1,6 @@
 // "Fees & refunds" (spec v3.0 §3; doc §6; V7 Stage 12): the published policy's statements, in the app and in the user's
-// language — the same words as docs/fee-policy.md. Reached from the Privacy Center and from Settings. Nothing here is
+// language — docs/fee-policy.md's statements in a Simple screen's words: the page had said escrow, gas, nullifier and proof (the
+// eleventh review round, 2026-11-04, E11-3). Reached from the Privacy Center and from Settings. Nothing here is
 // computed: the Review carries the figures; this page says the rules.
 import { Card, Page } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";

@@ -9,6 +9,7 @@ import { API_FIELD_GROUPS, NEVER_STORED, type ApiFieldGroup, type NeverStored } 
 import { PURPOSES, type Purpose } from "@privacy-wallet/privacy-engine/transport/http";
 import type { MessageKey } from "../../app/i18n/en";
 import type { CenterLevel, CenterRow, CenterSection, PostureView, PrivacyCenterModel, Tone } from "./View";
+import { protectionLevelOf } from "../protectionLevel";
 
 export interface CenterFacts {
   posture: PostureView;
@@ -20,16 +21,19 @@ export interface CenterFacts {
   /** no entered destination used in the last 30 days (the address book) */
   freshDestinations: boolean;
   /** the encrypted journal's counts */
-  stored: { notes: number; operations: number; addressBook: number };
+  /** `privateAi`: this build bundles Private AI, whose credit wallet keeps its secret unencrypted on the device (the third critique of E11-8) */
+  stored: { notes: number; operations: number; addressBook: number; privateAi?: boolean };
   /** the purposes this build can use (Private AI only where the build has it) */
   purposes: readonly Purpose[];
   /** the pool's size at the last sync, for the Advanced note */
   poolNotes: number | null;
 }
 
-/** The posture's V4 word as the V6 level (spec v2.0 §14.1: the V4 words leave the UI). */
-export const levelOf = (overall: PostureView["overall"]): CenterLevel | null =>
-  overall === "Excellent" ? "high" : overall === "Good" ? "medium" : overall === "Reduced" ? "low" : null;
+/**
+ * The posture's V4 word as the V6 level (spec v2.0 §14.1: the V4 words leave the UI) — the one rule, which Home's badge reads too
+ * (../protectionLevel.ts; the eleventh review round, 2026-11-04, E11-11: Home had kept its own, one level higher).
+ */
+export const levelOf = (overall: PostureView["overall"]): CenterLevel | null => protectionLevelOf(overall);
 
 /** The purposes a build lists: every named one; `other` is only the transport's default and nothing in the wallet uses it. */
 export const listedPurposes = (privateAi: boolean): Purpose[] => PURPOSES.filter((p) => p !== "other" && (privateAi || (p !== "zkapi" && p !== "inference")));
@@ -100,7 +104,7 @@ export function privacyCenterModel(f: CenterFacts): PrivacyCenterModel {
         },
         { id: "settings", label: "privacyCenter.stored.settings", value: "privacyCenter.value.thisDevice", tone: "neutral" },
       ],
-      note: "privacyCenter.storedNote",
+      note: f.stored.privateAi ? "privacyCenter.storedNoteAi" : "privacyCenter.storedNote",
     },
     {
       id: "sent",

@@ -16,6 +16,7 @@ import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
 import { applyEvent, finishedOperations, getOperation, newOperation, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import { t } from "../src/app/i18n/messages";
 import { SendScreen, type SendScreenProps } from "../src/features/send/SendScreen";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -55,6 +56,19 @@ function emit(onEvent: ((e: EngineEvent) => void) | undefined, hash: `0x${string
   onEvent?.({ type: "waiting-receipt", txHash: hash });
   onEvent?.({ type: "mined", txHash: hash, ...(leafIndex !== undefined ? { leafIndex } : {}) });
 }
+// a fresh address the journal cannot keep, when asked (the critique of E11-6: the Send Review's status line)
+const freshFail = vi.hoisted(() => ({ on: false }));
+vi.mock("@privacy-wallet/sdk/keys/chainKeys", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@privacy-wallet/sdk/keys/chainKeys")>();
+  const { JournalNotKept } = await import("@privacy-wallet/sdk/wallet/session");
+  return {
+    ...orig,
+    consumeFreshAddress: (...a: Parameters<typeof orig.consumeFreshAddress>) => {
+      if (freshFail.on) throw new JournalNotKept();
+      return orig.consumeFreshAddress(...a);
+    },
+  };
+});
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>();
   return {
@@ -143,6 +157,7 @@ beforeAll(() => {
 });
 let closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  freshFail.on = false;
   cleanup();
   for (const c of closers) await c();
   closers = [];
@@ -222,6 +237,25 @@ describe("Send (spec v2.0 §7.4)", () => {
     expect(getOperation(waiting.id)?.state).toBe("PREPARING_PROOF");
   });
 
+  it("a confirmation the page refuses is read out (E11-6; the critique: no test referred to send-status): a fresh address this browser cannot keep — an alert in the catalog's words, nothing sent", async () => {
+    await unlocked();
+    mount();
+    const [first] = screen.getAllByTestId("address-book-entry");
+    fireEvent.click(first); // a fresh address of this wallet: reserved at the confirmation
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    freshFail.on = true; // the journal cannot keep the address it would hand out
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    const line = await screen.findByTestId("send-status");
+    expect(line).toHaveAttribute("role", "alert");
+    expect(line.textContent).toBe(t("fresh.notKept"));
+    expect(calls.withdraw, "nothing was sent").toEqual([]);
+    expect(calls.transfer).toEqual([]);
+  });
+
   it("the private path: a privacy address passes the four checks; 'Recipient receives' is exact input by default and the switch turns it into exact output with what leaves the balance; the Review, a tap, the record to COMPLETED", async () => {
     await unlocked();
     const to = otherWallet();
@@ -230,7 +264,9 @@ describe("Send (spec v2.0 §7.4)", () => {
     expect(reviewButton().disabled).toBe(true);
     typeTo(to);
     expect(checks()).toEqual(["ok", "ok", "ok", "ok"]);
-    expect(screen.getByTestId("send-kind").textContent).toBe("Nothing about this transfer is public.");
+    expect(screen.getByTestId("send-kind").textContent).toBe(
+      "The recipient and amount stay private; only that a transfer took place, when, and the account that submitted it are public.",
+    );
     type(screen.getByTestId("amount-input"), "1");
     // spec v2.0 §3: 1 % of what is sent and the relayer's 0.001 on top, one fee note — 0.989 arrives
     await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));

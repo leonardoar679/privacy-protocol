@@ -15,6 +15,7 @@ import { PrivacyCenter } from "../src/features/privacy-center/PrivacyCenter";
 import { WhatStaysPrivate } from "../src/features/privacy-center/WhatStaysPrivate";
 import { FRESH_WINDOW_MS, freshDestinations } from "../src/features/privacy-center/status";
 import { listedPurposes, privacyCenterModel } from "../src/features/privacy-center/model";
+import { en } from "../src/app/i18n/en";
 import { addAddress, findEntry, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { defaultSettings, settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -175,6 +176,11 @@ describe("the Privacy Center (spec §3.13, §15)", () => {
     expect(center.querySelector('[data-row="freshDestination"]')!.getAttribute("data-tone")).toBe("warn");
     expect(center.querySelector('[data-row="privateTransport"]')!.getAttribute("data-tone")).toBe("ok");
     expect(center.querySelector('[data-row="walletData"]')!.textContent).toContain("Encrypted locally");
+    // the stored-data note follows the build: Private AI's credit wallet is named only where the build carries it (the mutation check of
+    // the eleventh review round's third pass: the page's flag had no test). vite.config.ts defines the flag: true with the zkAPI clone
+    // beside the repository (this workstation), false without it (CI), so each environment checks its own side
+    if (__ZKAPI__) expect(center.textContent).toContain(en["privacyCenter.storedNoteAi"]);
+    else expect(center.textContent).not.toContain("its credit wallet");
     expect(screen.getByTestId("privacy-limits").querySelectorAll("li")).toHaveLength(LIMITS.length);
     // the six categories are not rendered until asked (a section title — "Network privacy" — may share a category's name)
     expect(screen.queryByTestId("privacy-categories"), "collapsed until asked").toBeNull();

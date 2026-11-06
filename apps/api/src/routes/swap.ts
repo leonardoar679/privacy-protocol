@@ -921,7 +921,13 @@ export class SwapApi {
   // ---- walletless / guest mode (plan §49): no pool, no escrow, no keys — a quote and a one-time deposit instruction
   async guestQuote(body: unknown): Promise<Answer> {
     const b = body as Record<string, unknown>;
-    const set = await this.engine.quoteAll(request(b), b?.policy === undefined ? "best-price" : policyOf(b), { tier: tierHint(b), mode: modeOf(b) });
+    // no escrow, so no executor tip (the eleventh review round's third critique of slice 4): the engine had priced one for every quote, and a
+    // native source's units were read as wei — a BTC guest's satoshis held to an ETH gas cost, every guest quote refused `amount_too_small`
+    const set = await this.engine.quoteAll(request(b), b?.policy === undefined ? "best-price" : policyOf(b), {
+      tier: tierHint(b),
+      mode: modeOf(b),
+      executorTip: 0n,
+    });
     return { status: 200, body: wire(scrubSet(set)) };
   }
   /** Only providers whose deposit address and memo the browser verifies against an independent gateway quorum (THORChain). */

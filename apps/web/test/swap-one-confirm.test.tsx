@@ -289,6 +289,8 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect((await screen.findByTestId("swap-partial-unreturned")).textContent).toContain(
       "Delivered in part: 0.015 BTC arrived; the rest did not come back to your protected balance.",
     );
+    // a result read out as a status, as a success is (the eleventh review round's critique of E11-6)
+    expect(screen.getByTestId("swap-partial-unreturned")).toHaveAttribute("role", "status");
     expect(screen.queryByTestId("swap-done")).toBeNull();
     cleanup();
     // the rest's refund found in the pool: delivered in part, the rest back
@@ -315,6 +317,7 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     mount(`/swap/progress/${swapRecordId(orderId)}`);
     const card = await screen.findByTestId("swap-not-delivered");
     expect(card.textContent).toMatch(/Not delivered: the provider could not deliver/);
+    expect(card, "a result read out as a status (the critique of E11-6)").toHaveAttribute("role", "status");
     expect(screen.queryByTestId("swap-done")).toBeNull();
   }, 60_000);
 
@@ -693,7 +696,10 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     expect(screen.getByTestId("swap-recent").textContent).toContain("You protected these funds recently; waiting makes this swap harder to link.");
     // no older notes: the funding waits a random 1–24 h; the card stays while the choice is on, and it can be turned off
     fireEvent.click(screen.getByTestId("swap-delay"));
-    expect(screen.getByTestId("swap-delay-note").textContent).toBe("The swap is funded at a random time within 1–24 hours.");
+    // only while the wallet is open and unlocked, and how late the funding may still run (the eleventh review round, 2026-11-04, E11-9)
+    expect(screen.getByTestId("swap-delay-note").textContent).toBe(
+      "The swap is funded at a random time within 1–24 hours, shown once you confirm — and only while this wallet is open and unlocked. If it is not open and unlocked then or within the next 25 minutes, the swap may be cancelled, with nothing sent.",
+    );
     fireEvent.click(screen.getByTestId("swap-delay"));
     expect(screen.queryByTestId("swap-delay-note")).toBeNull();
     cleanup();

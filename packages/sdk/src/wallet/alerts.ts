@@ -36,9 +36,9 @@ export function alertKindFor(reason: PauseReason, detail = ""): AlertKind {
 
 export const MAX_ALERTS = 200;
 
-/** The campaign with one more alert (newest last; the oldest beyond MAX_ALERTS are dropped). */
-export function withAlert(c: Campaign, kind: AlertKind, text: string, at: number, trancheIndex?: number): Campaign {
-  const alert: CampaignAlert = { kind, at, text, ...(trancheIndex !== undefined ? { trancheIndex } : {}) };
+/** The campaign with one more alert (newest last; the oldest beyond MAX_ALERTS are dropped); `code`: a pause's catalog code. */
+export function withAlert(c: Campaign, kind: AlertKind, text: string, at: number, trancheIndex?: number, code?: string): Campaign {
+  const alert: CampaignAlert = { kind, at, text, ...(trancheIndex !== undefined ? { trancheIndex } : {}), ...(code ? { code } : {}) };
   return { ...c, alerts: [...(c.alerts ?? []), alert].slice(-MAX_ALERTS) };
 }
 

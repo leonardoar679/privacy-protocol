@@ -59,7 +59,8 @@ describe("operation notifications (doc §76)", () => {
       );
       expect(shown).toEqual([["프라이버시 지갑", "비공개 작업이 업데이트되었습니다"]]);
       expect(shownWords(notifications.all()[0])).toEqual({ title: "보호된 스왑이 취소되었습니다", body: "나머지는 비공개 잔액으로 돌아갔습니다." });
-      // a route change names its provider; a pause keeps the runner's own reason
+      // a route change names its provider; a pause says its kind's words, the runner's own reason under Advanced only (the eleventh review
+      // round, 2026-11-04, E11-10: that English had been a Korean reader's too)
       expect(
         shownWords({
           id: "x",
@@ -72,8 +73,34 @@ describe("operation notifications (doc §76)", () => {
       ).toBe("경로가 chainflip(으)로 바뀌었습니다.");
       expect(shownWords({ id: "y", at: 0, kind: "paused", title: "Protected swap paused", body: "the provider failed", words: { key: "paused" } })).toEqual({
         title: "보호된 스왑이 일시 중지되었습니다",
-        body: "the provider failed",
+        body: "보호된 스왑을 열어 이유와 다음에 할 수 있는 일을 확인하세요.",
       });
+      off();
+    } finally {
+      setLocale("en");
+    }
+  });
+
+  it("with generic text off, the system notification's body is the toast's — a pause in Korean, never the runner's English (the eleventh review round's second critique of E11-10)", async () => {
+    await loadCatalog("ko");
+    setLocale("ko");
+    try {
+      await session.create("pw");
+      session.acknowledgePhrase();
+      const off = startOperationNotifications();
+      const shown: [string, string][] = [];
+      notify(
+        {
+          kind: "paused",
+          title: "Protected swap paused",
+          body: "Step 2 cannot be funded: the relayer refused the payload. Resume once the relayer runs swaps again.",
+          campaignId: "c1",
+          words: { key: "paused" },
+        },
+        { settings: { inApp: true, system: true, generic: false }, hidden: true, system: (title, body) => void shown.push([title, body]) },
+      );
+      expect(shown).toEqual([["프라이버시 지갑", "보호된 스왑을 열어 이유와 다음에 할 수 있는 일을 확인하세요."]]);
+      expect(shown[0][1]).not.toMatch(/relayer|Step 2/);
       off();
     } finally {
       setLocale("en");

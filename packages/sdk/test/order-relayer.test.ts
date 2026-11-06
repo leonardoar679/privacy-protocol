@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { StoredSwap } from "../src/wallet/journal";
 
 const asked = vi.hoisted(() => [] as string[]);
-const refunds = vi.hoisted(() => ({ asked: [] as string[], down: new Set<string>(), refusing: new Set<string>() }));
+const refunds = vi.hoisted(() => ({ asked: [] as string[], down: new Set<string>(), refusing: new Set<string>(), noSwaps: new Set<string>() }));
 vi.mock("../src/relayer", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/relayer")>();
   return {
@@ -18,6 +18,7 @@ vi.mock("../src/relayer", async (importOriginal) => {
       refunds.asked.push(url);
       if (refunds.down.has(url)) throw new TypeError("fetch failed");
       if (refunds.refusing.has(url)) throw new real.RelayerRefusal("this order is not refundable here", "not_refundable", 400);
+      if (refunds.noSwaps.has(url)) throw new real.RelayerRefusal(`the relayer at ${url} runs no swap executor`, "swap_unavailable", 503);
       return { id: "0x" + "ab".repeat(32), escrow: "0x00000000000000000000000000000000000e5c00", state: "refunding", updatedAt: 1 };
     },
   };
@@ -40,7 +41,7 @@ describe("a handed-over order's relayer (audit round 2, r38)", () => {
     expect(asked, "an order from before: today's relayer").toEqual(["http://new.relayer"]);
   });
 
-  it("its refund goes where it was handed over; today's relayer takes it only when that one cannot be reached", async () => {
+  it("its refund goes where it was handed over; today's relayer takes it only when that one cannot be reached or runs no swaps", async () => {
     const deployment = { swapFactory: "0x00000000000000000000000000000000000000f1" } as never;
     const io = orderIo({ masterSeed: new Uint8Array(32), deployment, session, submission: { kind: "relayer", url: "http://new.relayer" } });
     const stored = { orderId: "0x" + "ab".repeat(32), relayerUrl: "http://old.relayer", params: {}, refundNoteData: "0x01" } as unknown as StoredSwap;
@@ -55,5 +56,15 @@ describe("a handed-over order's relayer (audit round 2, r38)", () => {
     refunds.refusing.add("http://old.relayer");
     await expect(io.refund(stored)).rejects.toThrow(/not refundable/);
     expect(refunds.asked, "a refusal is an answer: never asked elsewhere").toEqual(["http://old.relayer"]);
+    // one that runs no swaps now (restarted without its executor) holds no job it could carry out: today's relayer takes the refund (the
+    // eleventh review round's third critique of slice 4) — and when today's runs none either, its answer is the one shown
+    refunds.asked.length = 0;
+    refunds.refusing.clear();
+    refunds.noSwaps.add("http://old.relayer");
+    await io.refund(stored);
+    expect(refunds.asked, "no swaps there: today's relayer").toEqual(["http://old.relayer", "http://new.relayer"]);
+    refunds.asked.length = 0;
+    refunds.noSwaps.add("http://new.relayer");
+    await expect(io.refund(stored)).rejects.toThrow(/http:\/\/new\.relayer runs no swap executor/);
   });
 });

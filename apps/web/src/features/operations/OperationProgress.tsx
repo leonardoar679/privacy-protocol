@@ -30,9 +30,13 @@ export function timelineOf(rec: OperationRecord, t: ReturnType<typeof useT>): Ti
   ];
 }
 
-/** The §3.11 headline for the step in progress. */
+/**
+ * The §3.11 headline for the step in progress — none once the record needs recovery: its card says what happens next (the eleventh
+ * review round, 2026-11-04, E11-7: a swap whose window closed before its hand-over, or whose provider failed with nothing back, had
+ * drawn a busy "Confirming on the network…" bar above the card that asks the user to act).
+ */
 export function headlineOf(rec: OperationRecord, t: ReturnType<typeof useT>): string | null {
-  if (!isOpen(rec.state)) return null;
+  if (!isOpen(rec.state) || rec.state === "RECOVERY_REQUIRED") return null;
   if (rec.state === "SUBMITTING" && rec.progress?.step !== "submitting") return t("progress.submitted");
   if (rec.state !== "AWAITING_AUTHORIZATION" && rec.state !== "PREPARING_PROOF" && rec.state !== "SUBMITTING") return t("progress.confirming");
   const step = rec.progress?.step;

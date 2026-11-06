@@ -54,6 +54,19 @@ describe("Data sent to services: generated, never written by hand", () => {
   });
 });
 
+describe("Data stored locally names Private AI's credit wallet where the build has it (the eleventh review round's third critique of E11-8)", () => {
+  it("the note with the credit wallet's unencrypted secret only when Private AI is bundled", () => {
+    const stored = (privateAi: boolean) => privacyCenterModel({ ...facts, stored: { ...facts.stored, privateAi } }).sections.find((s) => s.id === "stored")!;
+    expect(stored(false).note).toBe("privacyCenter.storedNote");
+    expect(stored(true).note).toBe("privacyCenter.storedNoteAi");
+    expect(en["privacyCenter.storedNoteAi"].startsWith(en["privacyCenter.storedNote"])).toBe(true);
+    // once it is used: the SDK keeps nothing before Private AI is opened and a credit note funded (the fourth critique of slice 4)
+    expect(en["privacyCenter.storedNoteAi"]).toContain(
+      "Once you use Private AI, its credit wallet keeps its secret here too, unencrypted and outside your backup.",
+    );
+  });
+});
+
 describe("the fixtures are the real model (the harness shows what the screen computes)", () => {
   // the facts behind each fixture: a pool of 1,284 notes, a relayer, the light client; two read endpoints and fresh
   // destinations (protected), or one endpoint and destinations typed by hand (entered)

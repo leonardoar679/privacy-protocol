@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
-import { api } from "@privacy-wallet/sdk/api/client";
+import { api, ApiError, ApiTimeout } from "@privacy-wallet/sdk/api/client";
 import type { AssetRef, QuoteSet } from "@privacy-wallet/sdk/swapService";
-import { checkGuestInstruction, type CheckedGuest } from "@privacy-wallet/sdk/guestGuard";
-import { MinimumMoved } from "@privacy-wallet/sdk/providerCall";
+import { checkGuestInstruction, GuestInstructionMismatch, type CheckedGuest } from "@privacy-wallet/sdk/guestGuard";
+import { MinimumMoved, ProviderCallMismatch, ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
+import { TransportRefusal } from "@privacy-wallet/privacy-engine/transport/http";
 import { fmtUnits, parseUnitsSafe } from "@privacy-wallet/sdk/format";
 import { parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
 import { DestinationCard } from "./DestinationCard";
@@ -20,6 +21,45 @@ const SOURCES: Record<string, AssetRef> = { BTC: { chain: "bitcoin", asset: "nat
 const TARGETS: Record<string, AssetRef> = { ETH: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, "USDC on Ethereum": { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" } };
 interface Instruction { provider: string; quote: { toAmount: string; toAmountMin: string; etaSeconds: number }; ingress: { to: string; memo?: string; amount: string; expiresAt: number; verified: string[] }; status: string }
 const fmt = (units: string, decimals: number) => fmtUnits(units, decimals); // from base units, never through a float
+/** A track's status in the plan's words (§33); anything else the service answers reads as Pending. */
+const STATUSES: readonly string[] = ["Pending", "Executing", "Completed", "Partial", "Refunding", "Refunded", "Failed"];
+const statusOf = (s: unknown): string => (typeof s === "string" && STATUSES.includes(s) ? s : "Pending");
+/**
+ * What a refusal says here: this screen's own fixed words, never a message that carries a service's or a gateway's text (the eleventh review
+ * round, 2026-11-04, E11-10). THORChain's quote error is the first THORNode gateway's to answer, and one answering with an `error` of its
+ * choosing ("… send BTC to bc1q… instead") had been shown as "No verifiable deposit route right now (THORChain: …)"; the swap service's 502
+ * carries the provider's words, and a refused instruction's own message repeats the service's memo, provider and vault — on the one screen
+ * whose design is that nothing reaches a guest about to pay by hand before this browser has checked it against a quorum of gateways.
+ */
+const MISMATCH: Record<string, string> = {
+  provider: "it is not THORChain's, the one route whose deposit address this browser can verify",
+  source: "it is not for a coin this screen sells (BTC, LTC or DOGE)",
+  amount: "it is for another amount than the one you typed",
+  expiry: "it had already expired",
+  vault: "the address it names is not one of THORChain's vaults as its public gateways list them",
+  memo: "its memo is not one this browser can read and check",
+  "memo asset": "its memo swaps into another asset than the one you chose",
+  receiver: "its memo pays another address than the one you typed",
+};
+function refusalWords(e: unknown): string {
+  if (e instanceof GuestInstructionMismatch) return `The deposit instruction does not match what you asked for${MISMATCH[e.field] ? `: ${MISMATCH[e.field]}` : ""}. It is not shown.`;
+  if (e instanceof ProviderCallMismatch) return "THORChain's public gateways do not agree on its deposit details, so nothing is shown. Try again later.";
+  if (e instanceof ProviderCallUnverified)
+    return "THORChain's deposit address cannot be confirmed right now: too few of its public gateways agree, or it has paused deposits of this coin. Nothing is shown; try again in a moment.";
+  if (e instanceof ApiTimeout) return "The swap service did not answer in time. Try again in a moment.";
+  if (e instanceof ApiError)
+    return e.code === "provider_unavailable"
+      ? "THORChain gave no deposit instruction for this swap right now. Try again later, or with another amount."
+      : e.code === "rate_limited"
+        ? "Too many requests from this connection in a minute. Wait a moment, then try again."
+        : e.code === "invalid_request"
+          ? "The swap service could not take this request. Check the amount and the destination."
+          : e.code === "amount_too_small"
+            ? "This amount is too small for this swap. Try a larger amount." // never "try again in a moment" (the third critique of slice 4)
+            : "The swap service could not answer this request right now. Try again in a moment.";
+  if (e instanceof TransportRefusal) return "This browser refused a request to a host this screen does not use. Nothing was sent.";
+  return "This could not be done right now. Check your connection and try again.";
+}
 
 export function Guest({ onBack, freshDestination }: { onBack: () => void; freshDestination?: (chain: string) => string }) {
   const [source, setSource] = useState("BTC");
@@ -47,7 +87,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
 
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(label); setError("");
-    try { return await fn(); } catch (e: any) { setError(e?.message ?? String(e)); } finally { setBusy(""); }
+    try { return await fn(); } catch (e) { setError(refusalWords(e)); } finally { setBusy(""); }
   }
   async function getQuote() {
     setInstruction(null); setChecked(null); setMoved(null); setStatus(null);
@@ -72,7 +112,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   }
   useEffect(() => {
     if (!instruction || !txid.trim()) return;
-    const tick = () => api.guestTrack<{ status?: string }>(instruction.provider, txid.trim()).then((j) => setStatus(j.status ?? "Pending")).catch(() => {});
+    const tick = () => api.guestTrack<{ status?: string }>(instruction.provider, txid.trim()).then((j) => setStatus(statusOf(j.status))).catch(() => {});
     tick();
     const t = setInterval(tick, 20_000);
     return () => clearInterval(t);
@@ -117,7 +157,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
               <button className="primary" onClick={() => getInstruction()} disabled={!!busy || !!destError}>Show my deposit instruction</button>
               <p className="muted" style={{ fontSize: 12 }}>The instruction comes from THORChain, the native-chain route whose deposit address this browser verifies against independent gateways before showing it.</p>
             </>
-          ) : <p className="muted">No verifiable deposit route right now{quotes.errors.thorchain ? ` (THORChain: ${quotes.errors.thorchain})` : ""}.</p>}
+          ) : <p className="muted" data-testid="guest-no-route">{quotes.errors.thorchain ? "No verifiable deposit route right now: THORChain gave no quote for this swap. Try again later, or with another amount." : "No verifiable deposit route right now."}</p>}
           {moved && (
             <div style={{ marginTop: 8, padding: 8, border: "1px solid var(--warn)", borderRadius: 6 }}>
               <p style={{ fontSize: 13, margin: 0 }}>The price moved. The deposit instruction now guarantees at least <b>{fmt(moved.minOut.toString(), to.decimals)} {to.symbol}</b>; the quote showed {fmt(moved.approved.toString(), to.decimals)} {to.symbol}. Nothing has been shown to pay yet.</p>
@@ -143,7 +183,7 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
           </div>
           <label>Your transaction id, once sent</label>
           <input value={txid} onChange={(e: any) => setTxid(e.target.value)} placeholder="txid" />
-          <p className="muted" style={{ fontSize: 12 }}>Status: <b>{status ?? instruction.status}</b>{txid ? " — refreshed every 20 s" : ""}. A swap is not atomic: it can end Partial or Refunded; this screen says which.</p>
+          <p className="muted" style={{ fontSize: 12 }}>Status: <b>{status ?? statusOf(instruction.status)}</b>{txid ? " — refreshed every 20 s" : ""}. A swap is not atomic: it can end Partial or Refunded; this screen says which.</p>
         </div>
       )}
     </div>

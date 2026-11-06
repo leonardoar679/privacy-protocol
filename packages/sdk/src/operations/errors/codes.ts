@@ -120,6 +120,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   older_notes_unavailable: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // a V6 follow-up of 2026-10-16: the relayer that would execute the order does not run it, so it is stopped before funding
   relayer_not_ready: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings", "new-quote"] },
+  // a protected execution's step the relayer cannot fund (the fourth critique of slice 4): earlier steps may have swapped
+  step_relayer_not_ready: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   // a V6 follow-up of 2026-10-16: a withdrawal to the zero or a burn address, or to a contract of the deployment or a token
   recipient_refused: { source: "wallet", fundsClass: "not-moved", actions: ["edit"] },
   // a V6 follow-up of 2026-10-16: the order was confirmed under a key the swap service no longer takes; stopped before funding
@@ -130,6 +132,19 @@ export const CATALOG: Record<string, CatalogRow> = {
   call_refused: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // the order's funding is being proved or sent in this tab (the ninth review round, C-04; its row: the tenth, A10-8): nothing was changed
   funding_under_way: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // a protected execution's step whose commit failed, whatever the swap service answered (the third and fourth critiques of slice 4): nothing
+  // of it was sent, and Resume commits it again; the wallet's own refusals before it asks keep their rows (journal_not_kept, journal_unreadable)
+  commit_failed: { source: "service", fundsClass: "not-moved", actions: ["wait"] },
+  // the swap service's tip codes (packages/swap-engine tips.ts; the eleventh review round's third critique of slice 4: without a row a swap below
+  // the tip floor read "try again in a moment"): an amount too small for its execution's gas, gas prices or fees that could not be read
+  amount_too_small: { source: "service", fundsClass: "not-moved", actions: ["edit"] },
+  tip_unpriced: { source: "service", fundsClass: "not-moved", actions: ["wait"] },
+  fee_history_unavailable: { source: "service", fundsClass: "not-moved", actions: ["wait"] },
+  // a return the wallet cannot make itself (the eleventh review round's critique of E11-10; swapExecute.ts RefundRefusal): words that say what
+  // to do — a wallet set to send its own transactions, a relayer that closed the order's job, a record without the refund's payload
+  refund_needs_relayer: { source: "wallet", fundsClass: "still-protected", actions: ["check-settings"] },
+  refund_not_watched: { source: "relayer", fundsClass: "still-protected", actions: ["continue-monitoring"] },
+  refund_payload_missing: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
   // the order was closed while its funding was proved (C-04; A10-8): read again at the send, nothing was sent
   order_closed: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },
   // its refund note or signer is not this seed's (the tenth review round, D-1): never funded

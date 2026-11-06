@@ -32,7 +32,8 @@ export function legsOf(rec: OperationRecord): RecoveryLegs {
   return { source: sourceDone ? "done" : s === "FAILED" || (!!rec.declined && isDraft(s)) ? "failed" : "active", swap, destination };
 }
 
-export function Recovery({ record, onMonitor, onRefund, onNewQuote, onReview, testId = "recovery" }: { record: OperationRecord; onMonitor?: () => void; onRefund?: () => void; onNewQuote?: () => void; onReview?: () => void; testId?: string }) {
+/** `onOpenSwap`: a funded order's own page, offered in place of a new quote (the eleventh review round, 2026-11-04, E11-14). */
+export function Recovery({ record, onMonitor, onRefund, onNewQuote, onOpenSwap, onReview, testId = "recovery" }: { record: OperationRecord; onMonitor?: () => void; onRefund?: () => void; onNewQuote?: () => void; onOpenSwap?: () => void; onReview?: () => void; testId?: string }) {
   const t = useT();
   const v = verdict(record, t);
   const legs = legsOf(record);
@@ -51,7 +52,7 @@ export function Recovery({ record, onMonitor, onRefund, onNewQuote, onReview, te
         <div className="ds-actions">
           {offerMonitor ? <Button variant="secondary" onClick={onMonitor} data-testid={`${testId}-monitor`}>{t("op.action.continue-monitoring")}</Button> : null}
           {offerRefund ? <Button onClick={onRefund} data-testid={`${testId}-refund`}>{t("op.action.start-refund")}</Button> : null}
-          {actions.includes("new-quote") && onNewQuote ? <Button variant="secondary" onClick={onNewQuote} data-testid={`${testId}-new-quote`}>{t("op.action.new-quote")}</Button> : null}
+          {actions.includes("new-quote") && onOpenSwap ? <Button variant="secondary" onClick={onOpenSwap} data-testid={`${testId}-open-swap`}>{t("recovery.openSwap")}</Button> : actions.includes("new-quote") && onNewQuote ? <Button variant="secondary" onClick={onNewQuote} data-testid={`${testId}-new-quote`}>{t("op.action.new-quote")}</Button> : null}
           {actions.includes("review") && onReview ? <Button variant="secondary" onClick={onReview} data-testid={`${testId}-review`}>{t("op.action.review")}</Button> : null}
         </div>
         <p className="ds-note">{v.neverResend}</p>

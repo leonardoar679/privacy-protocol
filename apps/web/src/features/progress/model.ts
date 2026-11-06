@@ -61,6 +61,12 @@ export function campaignProgressModel(c: Campaign): ProgressModel {
   const totalCents = usd !== null ? BigInt(Math.round(usd * 100)) : null;
   const cents = (u: bigint) => (totalCents !== null && e.total > 0n ? (totalCents * u) / e.total : 0n);
   const executing = e.inFlight + e.prepared;
+  // the rest of the dollars once completed, executing, not delivered as asked and the returned steps' fees are counted: the lines always add
+  // up to the total
+  const rest = (all: bigint): bigint => {
+    const r = all - cents(e.completed) - cents(executing) - cents(e.notDelivered) - cents(e.returnCosts);
+    return r > 0n ? r : 0n;
+  };
   const at = done ? PROGRESS_LINES.length : e.completed > 0n || e.inFlight > 0n ? 3 : e.prepared > 0n ? 2 : 1;
   const steps = PROGRESS_LINES.map((kind, i): { kind: ProgressStepKind; state: StepState } => ({
     kind,
@@ -73,8 +79,15 @@ export function campaignProgressModel(c: Campaign): ProgressModel {
           totalUsdCents: totalCents,
           completedUsdCents: cents(e.completed),
           executingUsdCents: cents(executing),
-          // the rest of the dollars: the three lines always add up to the total
-          remainingUsdCents: totalCents - cents(e.completed) - cents(executing),
+          // what did not arrive as asked (exposure().notDelivered: a step refunded at its destination in the provider's own asset,
+          // delivered in another token, failed with nothing back, or a partial fill's rest that never came back) is a line of its own, never
+          // Remaining — what is still to swap (the eleventh review round, 2026-11-04, VE-1: "the three lines always add up to the total" had
+          // counted it as Remaining) —, and what returned steps did not bring back (their fees) another, never "not delivered" (its critique)
+          notDeliveredUsdCents: cents(e.notDelivered),
+          returnCostsUsdCents: cents(e.returnCosts),
+          // exposure().remaining, and a last remainder too small to swap kept in the balance (exposure().kept: never handed over; one
+          // step at a time, the campaign completes on the tick that keeps it)
+          remainingUsdCents: rest(totalCents),
         }
       : null;
   return { steps, fraction: done ? 1 : e.total > 0n ? Number(((e.completed * 2n + executing) * 1000n) / (e.total * 2n)) / 1000 : 0, large };

@@ -23,6 +23,7 @@ export function Card({
   children,
   testId,
   as: Tag = "div",
+  role,
 }: {
   elevation?: 0 | 1 | 2;
   padding?: "none" | "sm" | "md" | "lg";
@@ -30,9 +31,11 @@ export function Card({
   children: ReactNode;
   testId?: string;
   as?: "div" | "section" | "article";
+  /** a card that arrives as news, read out when it appears (the eleventh review round, 2026-11-04, E11-6): an error an alert, a result a status */
+  role?: "alert" | "status";
 }) {
   return (
-    <Tag className={cx("ds-card", `ds-elev-${elevation}`, `ds-pad-${padding}`, className)} data-testid={testId}>
+    <Tag className={cx("ds-card", `ds-elev-${elevation}`, `ds-pad-${padding}`, className)} data-testid={testId} role={role}>
       {children}
     </Tag>
   );

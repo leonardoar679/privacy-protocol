@@ -20,8 +20,16 @@ export interface WalletNotification {
   words?: AlertWords;
 }
 
-/** A protected execution's alerts, named for the app's catalog (`notification.campaign.<key>.title/.body`, with `vars`). */
-export interface AlertWords { key: "paused" | "route-changed" | "route-review" | "cancelled" | "completed"; vars?: Record<string, string> }
+/**
+ * A protected execution's alerts, named for the app's catalog (`notification.campaign.<key>.title/.body`, with `vars`). A finished
+ * one carries the runner's distinction in its key (the eleventh review round, 2026-11-04, E11-1): part of the amount not delivered as
+ * asked (`-not-all`), a remainder too small to swap kept in the private balance (`completed-kept`) — the app's words for "completed"
+ * had replaced the runner's own, and "Every step settled." was shown for a step refunded at its destination or lost.
+ */
+export interface AlertWords {
+  key: "paused" | "route-changed" | "route-review" | "cancelled" | "cancelled-not-all" | "completed" | "completed-kept" | "completed-not-all";
+  vars?: Record<string, string>;
+}
 
 export const GENERIC_TEXT = "Your private operation has updated";
 /**
@@ -29,6 +37,15 @@ export const GENERIC_TEXT = "Your private operation has updated";
  * Your private operation has updated", in English, whatever the language the reader chose.
  */
 let systemWords = (): { app: string; generic: string } => ({ app: "Privacy Wallet", generic: GENERIC_TEXT });
+let systemBody = (n: { kind: AlertKind | "info"; title: string; body: string; words?: AlertWords }): string => n.body;
+/**
+ * The system notification's body in the app's words, when the user allows more than the generic text (the eleventh review round's second
+ * critique of E11-10): a protected execution's pause had shown the runner's English action — a relayer's own text in it — in the OS
+ * notification, whatever the reader's language and experience, while the toast showed the catalog's.
+ */
+export function setSystemNotificationBody(body: (n: { kind: AlertKind | "info"; title: string; body: string; words?: AlertWords }) => string): void {
+  systemBody = body;
+}
 export function setSystemNotificationWords(words: () => { app: string; generic: string }): void {
   systemWords = words;
 }
@@ -78,7 +95,7 @@ export function notify(n: { kind: AlertKind | "info"; title: string; body: strin
   if (s.inApp) shown = notifications.push({ kind: n.kind, title: n.title, body: n.body, campaignId: n.campaignId, ...(n.operationId ? { operationId: n.operationId } : {}), ...(n.tone ? { tone: n.tone } : {}), ...(n.words ? { words: n.words } : {}), at: deps.now });
   if (s.system && hidden) {
     const w = systemWords();
-    (deps.system ?? browserSystem)(w.app, s.generic ? w.generic : n.body);
+    (deps.system ?? browserSystem)(w.app, s.generic ? w.generic : systemBody(n));
   }
   return shown;
 }

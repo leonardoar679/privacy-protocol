@@ -10,6 +10,7 @@ import type { ReactNode } from "react";
 import { Button, HoldButton, Page, ReviewLayout, StateScreen, TextButton, Card, formatAmount, formatUsdCents, type ReviewSection } from "@privacy-wallet/ui";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { useT } from "../../app/i18n/useT";
+import { durationText } from "../../app/i18n/duration";
 import type { MessageKey } from "../../app/i18n/en";
 import type { Vars } from "../../app/i18n/messages";
 import { Amt, Usd, type Amount } from "../viewKit";
@@ -47,6 +48,10 @@ export interface ReviewModel {
   blocked?: BlockerCode | null;
   /** V7 Stage 13 (spec v3.0 §4): the protected steps planned (the plan staged, or asked under Advanced); absent or 1 = one order */
   steps?: number | null;
+  /** the eleventh review round (2026-11-04, E11-12): the route's health as the Review read it — the card ticks "Route health checked" only when true */
+  routeHealthy?: boolean;
+  /** the steps' time in all, from the plan (the eleventh review round, 2026-11-04, E11-15: the Review had stated no time for hours of steps) */
+  stepsSeconds?: number | null;
   /** the fee section's statement when the default does not hold (W5: a send the connected wallet submits pays no privacy fee) */
   feeStatement?: string;
 }
@@ -107,6 +112,17 @@ export const BLOCKER_WORDS: Record<BlockerCode, MessageKey> = {
   one_at_a_time: "screen.review.blocker.oneAtATime",
 };
 const LARGE_CHECKS: MessageKey[] = ["screen.review.large.destination", "screen.review.large.quote", "screen.review.large.route", "screen.review.large.limits"];
+/**
+ * A protected execution check as the Review's own facts have it (the eleventh review round, 2026-11-04, E11-12): the card had drawn its four
+ * ✓ whatever they said — "Destination verified" over a typed-in address not yet re-confirmed (its row without the ✓, the hold disabled),
+ * "Route health checked" over the Review's own warning that the route is not healthy. The destination check follows the row, the route
+ * check the health read (not read is not passed); the quote is locked and the limits are on at every Review of the band.
+ */
+function largeCheck(k: MessageKey, m: ReviewModel): { words: MessageKey; state: "ok" | "open" | "fail"; mark: string } {
+  if (k === "screen.review.large.destination" && !m.destination.verified) return { words: "screen.review.large.destinationOpen", state: "open", mark: "○" };
+  if (k === "screen.review.large.route" && m.routeHealthy !== true) return { words: "screen.review.large.routeOpen", state: "fail", mark: "⚠" };
+  return { words: k, state: "ok", mark: "✓" };
+}
 
 export function ReviewView({
   model: m,
@@ -226,16 +242,24 @@ export function ReviewView({
                   {(m.steps && m.steps > 1
                     ? LARGE_CHECKS.map((k) => (k === "screen.review.large.quote" ? ("screen.review.large.quoteSteps" as MessageKey) : k))
                     : LARGE_CHECKS
-                  ).map((k) => (
-                    <li key={k} data-state="ok">
-                      ✓ {t(k)}
-                    </li>
-                  ))}
+                  ).map((k) => {
+                    const c = largeCheck(k, m);
+                    return (
+                      <li key={k} data-state={c.state}>
+                        {c.mark} {t(c.words)}
+                      </li>
+                    );
+                  })}
                   <li data-state="ok" data-testid="review-large-order">
                     ✓ {m.steps && m.steps > 1 ? t("screen.review.large.steps", { n: m.steps }) : t("screen.review.large.oneOrder")}
                   </li>
                 </ul>
               </Card>
+            ) : null}
+            {m.large && m.steps && m.steps > 1 && m.stepsSeconds ? (
+              <p className="ds-note" data-testid="review-steps-time">
+                {t("screen.review.large.stepsTime", { duration: durationText(t, m.stepsSeconds) })}
+              </p>
             ) : null}
             {m.kind === "cross-chain" ? (
               <p className="ds-note" data-testid="review-not-atomic">

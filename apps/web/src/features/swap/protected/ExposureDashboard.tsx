@@ -7,7 +7,7 @@ import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { useT } from "../../../app/i18n/useT";
 import { formatTime } from "../../../app/i18n/intl";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
-import { ALERT_TITLES } from "@privacy-wallet/sdk/wallet/alerts";
+import { alertWordsOf } from "./alertWords"; // the alerts in the reader's words (the eleventh review round, 2026-11-04, E11-10; a pause's by its code)
 import { TRANCHE_WORDS } from "./words";
 
 const IN_FLIGHT_STATES = new Set<Tranche["state"]>(["executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial"]);
@@ -78,7 +78,7 @@ export function ExposureDashboard({ campaign: c, now = Date.now() }: { campaign:
         <div data-testid="pause-history">
           <div>{t("dashboard.pausesTitle")}</div>
           {pauses.map((h, i) => <div key={`h${i}`} className="ds-kv"><span>{time(h.at)} · {h.state}</span><b>{h.note ?? ""}</b></div>)}
-          {(c.alerts ?? []).map((a, i) => <div key={`a${i}`} className="ds-kv"><span>{time(a.at)} · {ALERT_TITLES[a.kind]}</span><b>{a.text}</b></div>)}
+          {(c.alerts ?? []).map((a, i) => <div key={`a${i}`} className="ds-kv"><span>{time(a.at)} · {t(alertWordsOf(a))}</span><b>{a.text}</b></div>)}
         </div>
       ) : null}
     </div>

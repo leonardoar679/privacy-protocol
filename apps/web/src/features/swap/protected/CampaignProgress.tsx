@@ -4,22 +4,31 @@
 // ✓ Protected / ⚠ Review / ● Processing, the §3.8 checks, the pause with its reason and the Resume, the reroute
 // waiting for its Review, Pause and "Return the rest", the per-step lines (Advanced only: "Tranche #1/40" and
 // "Step k of n" never appear outside Advanced), the last alerts, and the one sentence about leaving the screen.
-import { exposure, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, swappedInFull, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { levelOf, type Level } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { Button, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../../app/i18n/useT";
 import { formatTime } from "../../../app/i18n/intl";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
-import { ALERT_TITLES, alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
+import { alertKindFor } from "@privacy-wallet/sdk/wallet/alerts";
+import { hasCode, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/codes";
 import { ExposureDashboard } from "./ExposureDashboard";
+import { ALERT_WORDS, alertWordsOf, pauseCode, UNDELIVERED_WORDS } from "./alertWords";
+import type { MessageKey } from "../../../app/i18n/en";
 import { campaignStatusWords } from "./words";
 
-export type CampaignStatus = { mark: "✓" | "⚠" | "●"; word: "Protected" | "Review" | "Processing" | "Completed" | "Returned" };
+export type CampaignStatus = { mark: "✓" | "⚠" | "●"; word: "Protected" | "Review" | "Processing" | "Completed" | "Returned" | "PartNotDelivered" };
 
 export function campaignStatus(c: Campaign): CampaignStatus {
+  // a finished one with part of its amount not delivered as asked (exposure().notDelivered) is a warning, never "✓ Completed" nor
+  // "✓ Returned" (the eleventh review round, 2026-11-04, E11-1): a step refunded at its destination in the provider's own asset, delivered
+  // in another token, or failed with nothing back had read as either, here and on the Activity detail's campaign line — and a returned
+  // step's fees are no such part (its critique)
+  if ((c.state === "completed" || c.state === "cancelled") && exposure(c).notDelivered > 0n) return { mark: "⚠", word: "PartNotDelivered" };
   if (c.state === "completed") return { mark: "✓", word: "Completed" };
-  if (c.state === "cancelled") return { mark: "✓", word: "Returned" };
+  // a cancel that returned nothing — its last step already on its way — completed the swap (the third critique)
+  if (c.state === "cancelled") return swappedInFull(exposure(c)) ? { mark: "✓", word: "Completed" } : { mark: "✓", word: "Returned" };
   if (c.state === "paused" || c.state === "rerouting") return { mark: "⚠", word: "Review" };
   const e = exposure(c);
   if (e.inFlight > 0n || e.preparedCount > 0 || c.state === "requoting" || c.state === "reassessing" || c.state === "winding-down" || c.state === "preparing-notes") return { mark: "●", word: "Processing" };
@@ -55,7 +64,13 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
   const routeHealthy = c.state === "running" || c.state === "user-confirmed" || c.state === "preparing-notes" || terminal;
   const destinationVerified = c.bounds.destination.kind === "fresh-per-tranche" || !!c.confirmations.destinationVerified;
   const statusClass = status.mark === "✓" ? "ds-level ds-level-Excellent" : status.mark === "⚠" ? "ds-level ds-level-Reduced" : "ds-level ds-level-Good";
-  const pauseTitle = c.pause ? ALERT_TITLES[alertKindFor(c.pause.reason, c.pause.detail)] : "";
+  // the pause and the alerts in the catalog's words, the runner's own sentences under Advanced only (the eleventh review round, 2026-11-04,
+  // E11-10): the SDK's English titles and the runner's detail had been every reader's, a Korean one's too
+  // by the cause's own code when the runner knows it (the third critique of slice 4: a coarse reason had blamed the provider)
+  const pauseByCode = c.pause?.code && hasCode(c.pause.code) ? c.pause.code : null;
+  const pauseTitle = c.pause ? t(pauseByCode ? (titleKey(pauseByCode) as MessageKey) : ALERT_WORDS[alertKindFor(c.pause.reason, c.pause.detail)]) : "";
+  // where an undelivered step's value went, by how it ended: the runner's English detail had been the only words for it
+  const undelivered = [...new Set(c.tranches.flatMap((x) => (x.state === "undelivered" ? [x.outcome?.undelivered ?? ("lost" as const)] : [])))];
   const segments: { key: string; width: number; cls: string }[] = [
     { key: "completed", width: pct(e.completed), cls: "ds-bar-completed" },
     { key: "in-flight", width: pct(e.inFlight), cls: "ds-bar-inflight" },
@@ -71,7 +86,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
       </div>
       <div className="ds-review-amount-v5" data-testid="campaign-step" data-step={step} data-steps={total}>{advanced ? t("campaign.stepOf", { step, total }) : t("campaign.executing")}</div>
       {valued !== null && !terminal ? <p className="ds-note" data-testid="campaign-headline">{t("campaign.headline", { usd: formatUsd(valued) })}</p> : null}
-      <p className="ds-note">{terminal ? (c.state === "completed" ? (e.ended > 0n ? t("campaign.finishedNotAll") : t("campaign.everySettled")) : t("campaign.restReturned")) : `${t("campaign.counts", { settled, executing: e.inFlightCount, remaining })}${unknown ? ` · ${t("campaign.unknownCount", { n: unknown })}` : ""}${privacy ? ` · ${t("campaign.privacyLevel", { level: privacy })}` : ""}`}</p>
+      <p className="ds-note">{terminal ? (c.state === "completed" || swappedInFull(e) ? (e.notDelivered > 0n ? t("campaign.finishedNotAll") : t("campaign.everySettled")) : e.notDelivered > 0n ? t("campaign.restReturnedNotAll") : t("campaign.restReturned")) : `${t("campaign.counts", { settled, executing: e.inFlightCount, remaining })}${unknown ? ` · ${t("campaign.unknownCount", { n: unknown })}` : ""}${privacy ? ` · ${t("campaign.privacyLevel", { level: privacy })}` : ""}`}</p>
       <svg className="ds-protection-bar" data-testid="protection-bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label={t("campaign.barLabel")}>
         {segments.map((s) => { const el = <rect key={s.key} className={s.cls} x={x} y={0} width={s.width} height={8} data-segment={s.key} data-width={`${s.width}%`} />; x += s.width; return el; })}
       </svg>
@@ -80,7 +95,8 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
         <span className="ds-kv-label">{t("campaign.inProgress")}</span><b data-amount="in-flight">{amt(e.inFlight + e.prepared)}</b>
         <span className="ds-kv-label">{t("campaign.protected")}</span><b data-amount="protected">{amt(e.protected)}</b>
         <span className="ds-kv-label">{t("campaign.remaining")}</span><b data-amount="remaining">{amt(e.remaining)}</b>
-        {e.ended > 0n ? <><span className="ds-kv-label">{t("campaign.notDelivered")}</span><b data-amount="ended">{amt(e.ended)}</b></> : null}
+        {e.notDelivered > 0n ? <><span className="ds-kv-label">{t("campaign.notDelivered")}</span><b data-amount="ended">{amt(e.notDelivered)}</b></> : null}
+        {e.returnCosts > 0n ? <><span className="ds-kv-label">{t("campaign.returnCosts")}</span><b data-amount="return-costs">{amt(e.returnCosts)}</b></> : null}
         {e.kept > 0n ? <><span className="ds-kv-label">{t("campaign.keptInBalance")}</span><b data-amount="kept">{amt(e.kept)}</b></> : null}
       </div>
       <p className="ds-note">{t("campaign.capSentence", { cap: amt(e.cap), percent: c.plan.capBps / 100, concurrency: c.plan.concurrency === "sequential" ? t("campaign.oneAtATime") : t("campaign.upTo", { n: c.plan.maxParallel }) })}</p>
@@ -89,7 +105,9 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
       {c.state === "paused" && c.pause ? (
         <div className="ds-review-block" data-testid="campaign-pause">
           <b>{t("campaign.pausedTitle", { title: pauseTitle })}</b>
-          <div className="ds-note">{c.pause.detail}{c.pause.trancheIndex !== undefined ? ` (${t("campaign.stepWord", { n: c.pause.trancheIndex + 1 })})` : ""}</div>
+          <div className="ds-note" data-testid="campaign-pause-reason">{t(reasonKey(pauseByCode ?? pauseCode(c.pause.reason)) as MessageKey)}{c.pause.trancheIndex !== undefined ? ` (${t("campaign.stepWord", { n: c.pause.trancheIndex + 1 })})` : ""}</div>
+          {undelivered.map((k) => <div key={k} className="ds-note" data-testid="campaign-pause-undelivered">{t(UNDELIVERED_WORDS[k])}</div>)}
+          {advanced ? <div className="ds-note" data-testid="campaign-pause-detail">{c.pause.detail}</div> : null}
           <div className="ds-note">{t("campaign.resumeNote")}</div>
         </div>
       ) : null}
@@ -111,7 +129,7 @@ export function CampaignProgress({ campaign: c, advanced, onPause, onResume, onC
 
       {alerts.length > 0 ? (
         <ul className="ds-plain-list ds-note" data-testid="campaign-alerts">
-          {alerts.map((a, i) => <li key={`${a.at}:${i}`}><span>{formatTime(a.at)} · {ALERT_TITLES[a.kind]}</span> — {a.text}</li>)}
+          {alerts.map((a, i) => <li key={`${a.at}:${i}`}><span>{formatTime(a.at)} · {t(alertWordsOf(a))}{!advanced && a.trancheIndex !== undefined ? ` (${t("campaign.stepWord", { n: a.trancheIndex + 1 })})` : ""}</span>{advanced ? <> — {a.text}</> : null}</li>)}
         </ul>
       ) : null}
 

@@ -3,7 +3,7 @@
 // line is matched through the record's transaction hashes), never two rows for one movement; a protected execution
 // is one row unless Advanced; the status word from the record's state where there is one, else the line's own
 // label; the groups by day in the user's locale. Pure.
-import { exposure } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { levelOf } from "@privacy-wallet/protocol/wallet/privacyCenter";
 import { formatUsd } from "@privacy-wallet/protocol/wallet/valuation";
 import { formatUnits } from "viem";
@@ -40,6 +40,8 @@ export interface ActivityRow {
   /** V6 (spec v2.0 §7.8): a protected execution's target asset and the USD value it was confirmed at */
   target?: string;
   quotedUsd?: number;
+  /** a protected execution's campaign: the word its row reads once it has ended (the eleventh review round, 2026-11-04, E11-1) */
+  campaign?: Campaign;
 }
 
 export const KIND_ICON: Record<RowKind, IconName> = { shield: "shield", protect: "shield", transfer: "send", send: "send", withdraw: "upload", swap: "swap", "cross-chain": "swap", refund: "recovery", housekeeping: "refresh", campaign: "shield", "classic-deposit": "lock", "classic-withdraw": "unlock", receive: "receive" };
@@ -78,12 +80,12 @@ export function campaignLine(ref: string, decimals: number, asset: string, now =
 }
 
 /** A protected execution's row facts: its summary line, the asset it buys, the USD value confirmed at its Review. */
-function campaignFacts(line: ActivityRecord, now: number): Pick<ActivityRow, "campaignLine" | "target" | "quotedUsd"> {
+function campaignFacts(line: ActivityRecord, now: number): Pick<ActivityRow, "campaignLine" | "target" | "quotedUsd" | "campaign"> {
   const c = campaignById(line.ref);
   if (!c) return {};
   const l = campaignLine(line.ref, line.decimals, line.asset, now);
   const usd = (c.value as { usd?: unknown } | undefined)?.usd;
-  return { ...(l ? { campaignLine: l } : {}), target: c.request.to.symbol, ...(typeof usd === "number" && Number.isFinite(usd) ? { quotedUsd: usd } : {}) };
+  return { ...(l ? { campaignLine: l } : {}), target: c.request.to.symbol, campaign: c, ...(typeof usd === "number" && Number.isFinite(usd) ? { quotedUsd: usd } : {}) };
 }
 
 /** The record that belongs to an activity line: the same id (a swap), the line's id in the refs, or the line's reference among the hashes. */

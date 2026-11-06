@@ -4,7 +4,7 @@
 // the settlement comes from the tracker (kept when a read could not tell), and a terminal record keeps its state (I-O1).
 import type { Tracked } from "../orderTracker";
 import type { SwapJob } from "../relayer";
-import type { StoredSwap } from "../wallet/journal";
+import { fundedOf, type StoredSwap } from "../wallet/journal";
 import {
   isTerminal,
   PRE_SUBMISSION_STATES,
@@ -177,8 +177,14 @@ export function syncSwapRecord(
         : {}),
     history: prev && prev.state === state ? prev.history : [...(prev?.history ?? []), { state, at: now, ...(tracked ? { note: tracked.label } : {}) }],
   };
-  // the recovery follows where the money is (spec v2.0 §12.4); a delay is watched
-  if (!terminal && state === "RECOVERY_REQUIRED" && reason) rec = { ...rec, recovery: recoveryFor(rec, reason.code, now) };
+  // the recovery follows where the money is (spec v2.0 §12.4); a delay is watched. An order stopped for the user's choice before any funding
+  // has nothing in an escrow: its funds were not moved, and no refund is offered or watched (the fifth critique of slice 4: a delayed order
+  // whose fresh minimum moved had read "A refund can be started" for funds that never left)
+  const unfunded = !fundedOf(stored) && !stored.fundingAttempt;
+  if (!terminal && state === "RECOVERY_REQUIRED" && reason && unfunded) {
+    const { recovery: _none, ...rest } = rec;
+    rec = { ...rest, reason: { ...reason, fundsClass: "not-moved" } };
+  } else if (!terminal && state === "RECOVERY_REQUIRED" && reason) rec = { ...rec, recovery: recoveryFor(rec, reason.code, now) };
   else if (!terminal && delayed)
     rec = { ...rec, recovery: { ...(rec.recovery ?? {}), state: rec.recovery?.state ?? "monitoring", since: rec.recovery?.since ?? now, lastCheckedAt: now } };
   putOperation(rec, s);

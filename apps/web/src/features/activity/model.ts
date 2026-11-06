@@ -115,7 +115,9 @@ function quotedCents(r: ActivityRow): bigint | null {
   return typeof usd === "number" && Number.isFinite(usd) ? BigInt(Math.round(usd * 100)) : null;
 }
 
-const rowStatus = (r: ActivityRow): Status => (r.record ? statusOf(r.record) : r.activity ? activityStatus(r.kind, r.activity.status) : "executing");
+// a protected execution's ended line by its campaign (the eleventh review round, 2026-11-04, E11-1)
+const rowStatus = (r: ActivityRow): Status =>
+  r.record ? statusOf(r.record) : r.activity ? activityStatus(r.kind, r.activity.status, r.campaign) : "executing";
 
 function rowTitle(r: ActivityRow, t: T): string {
   const asset = r.record?.amounts.asset ?? r.activity?.asset ?? "";
@@ -147,9 +149,18 @@ function costRows(c: OperationCosts, t: T): { label: string; value: string }[] {
   return rows;
 }
 
-/** The execution timeline (spec §7.8) of a record's state: what is done, what runs now, what waits. */
+/**
+ * The execution timeline (spec §7.8) of a record's state: what is done, what runs now, what waits. A record that ended without its
+ * settlement ends where it did (the eleventh review round, 2026-11-04, E11-7: the steps it would never reach had stayed "waiting" for
+ * good — a returned swap's "Destination settlement" and "Complete"): a refund with "Returning to your balance" while it returns and
+ * "Returned to your balance" once back (its critique: the past tense had been said of funds still on their way), a cancellation with
+ * "Cancelled", a final failure at the step it failed; and a submission is "Submitted" — the band's "Protected execution submitted" only
+ * for a swap at the band or above (its critique: every swap's timeline had read it, a $200 one's too).
+ */
 export function stepsOf(r: OperationRecord, t: T): DetailStep[] {
   const swap = r.kind === "swap" || r.kind === "cross-chain";
+  const protectedRun =
+    r.tier === "large-protected" || r.tier === "enhanced" || r.tier === "high-value" || r.tier === "high-value-secondary" || r.tier === "institutional";
   const ORDER: OperationState[] = [
     "DRAFT",
     "QUOTING",
@@ -168,27 +179,43 @@ export function stepsOf(r: OperationRecord, t: T): DetailStep[] {
     ? [
         ["activity.step.quote", "READY_TO_REVIEW"],
         ["activity.step.authorized", "SUBMITTING"],
-        ["activity.step.submitted", "SOURCE_CONFIRMING"],
+        [protectedRun ? "activity.step.submitted" : "progress.stepSubmitted", "SOURCE_CONFIRMING"],
         ["activity.step.settlement", "DESTINATION_CONFIRMING"],
         ["activity.step.complete", "COMPLETED"],
       ]
     : [
         ["activity.step.prepared", "READY_TO_REVIEW"],
         ["activity.step.authorized", "PREPARING_PROOF"],
-        ["activity.step.submitted", "SUBMITTING"],
+        ["progress.stepSubmitted", "SUBMITTING"],
         ["activity.step.confirming", "SOURCE_CONFIRMING"],
         ["activity.step.complete", "COMPLETED"],
       ];
+  // a refund or a cancellation: the steps it passed, then its end — a refund was funded first, so its steps to the funding's
+  // submission are behind it whatever the history kept
+  const refund = r.state === "REFUNDED" || r.state === "REFUNDING";
+  if (refund || r.state === "CANCELLED") {
+    // a refund's steps end at its funding's submission: a settlement that failed is never ✓ beside the refund (the third critique)
+    const behind = labels.filter(([, s]) => (refund ? ORDER.indexOf(s) <= ORDER.indexOf("SOURCE_CONFIRMING") : reached(s)));
+    const end: DetailStep =
+      r.state === "CANCELLED"
+        ? { label: t("op.state.CANCELLED"), state: "failed" }
+        : r.state === "REFUNDED"
+          ? { label: t("progress.stepRefunded"), state: "done" }
+          : { label: t("op.state.REFUNDING"), state: "active" };
+    return [...behind.map(([key]): DetailStep => ({ label: t(key), state: "done" })), end];
+  }
   let activeGiven = false;
-  return labels.map(([key, s]) => {
+  const steps = labels.map(([key, s]): DetailStep => {
     const done = r.state === "COMPLETED" || reached(s);
     let state: DetailStep["state"] = done ? "done" : "waiting";
-    if (!done && !activeGiven && r.state !== "CANCELLED" && r.state !== "REFUNDED") {
+    if (!done && !activeGiven) {
       state = failed ? "failed" : "active";
       activeGiven = true;
     }
     return { label: t(key), state };
   });
+  // a final failure ends at the step it failed: nothing after it is still to come
+  return r.state === "FAILED" ? steps.filter((s) => s.state !== "waiting") : steps;
 }
 
 export function detailModel(r: ActivityRow, t: T): DetailModel {

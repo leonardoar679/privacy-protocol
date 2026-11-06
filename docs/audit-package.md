@@ -132,7 +132,13 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     fallback), not threshold signing across devices; the wallet still holds every key.
 15. **V3 — no push notifications and no background execution**: a campaign runs while the web wallet is
     unlocked on any tab and resumes at unlock; in-app alerts always, the browser's Notification API only when
-    enabled and the tab is hidden (generic text by default).
+    enabled and the tab is hidden (generic text by default). A swap's funding delayed for privacy also runs only while the wallet
+    is unlocked, but it does not resume at any later unlock as a campaign does: its order's window ends 30 minutes after the drawn
+    time and the commit's quote lifetime later (the escrow's deadline encodes the planned funding, the sixth review round), and an
+    order not funded in it — 25 minutes after that time at the least, on every route — stops unfunded at the next unlock
+    (`order_expired`, nothing sent). Since the eleventh review round (2026-11-04, E11-9) the Swap page and the Review say so where
+    the delay is chosen, the progress page names the drawn time and the last moment the wallet can be opened for it, and Home reads
+    the order "Scheduled", never "Executing"; they had promised the funding at the drawn time.
 16. **V3 — destination finality is an elapsed-time margin** after the provider's delivered state (Bitcoin
     60 min, Solana 1 min, EVM 15 min, lab-calibrated), never a third-party explorer query (it would leak the
     destination); a provider lying about delivery can at most delay the next release (I3 fails closed) until
@@ -456,9 +462,12 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     The Privacy Center scored Timing privacy for the preference's random funding window (1–24 h, 6–72 h) and the Home badge
     read "Protected" on it, while the one-confirmation runner (spec v2.0 §7.6) funds a swap as soon as it is confirmed — only
     "Delay for more privacy", chosen on a swap, adds a random 1–24 h. The posture now scores the funding as immediate, so the
-    Timing category reads Reduced and the badge — the lowest category — reads "Low protection" for every wallet. The words are
-    true; whether the overall level should be the lowest category, or weight timing differently, or offer the delay as a
-    setting, is the owner's product decision.
+    Timing category reads Reduced and the badge — the lowest category — reads "Low protection" for every wallet, as the Privacy
+    Center it opens reads "🛡 Low protection": one rule maps the posture's word to the level for both
+    (`apps/web/src/features/protectionLevel.ts`). Until the eleventh review round (2026-11-04, E11-11) Home kept a rule of its own
+    and read one level more — "Medium protection" for Reduced, "Protected" for Good —, so this gap had not said what the screen
+    showed. The words are true; whether the overall level should be the lowest category, or weight timing differently, or offer
+    the delay as a setting, is the owner's product decision.
 66. **V7 — a campaign's merges are bounded, not named per step (a stated limit).** A swap's funding bounds the merges it needs
     by the Review's F (`reviewedMergeFee`, the second review round), and the Swap Review names them for a one-order swap;
     a protected execution's steps bound theirs by the same F (`bounds.maxRelayerFee`) but the Review shows no per-step merge

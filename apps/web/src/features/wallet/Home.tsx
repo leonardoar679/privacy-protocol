@@ -1,7 +1,7 @@
 // Home (spec v2.0 §7.1): the route — the stores read here, the view-model built by ../home/model.ts and drawn by
 // ../home/View.tsx. The USD read happens only once there are notes to value (never at first launch, sdk/prices.ts).
-// After a return to the app an open swap that predates this session says it is still executing; the Advanced
-// experience adds the maintenance and core lines.
+// After a return to the app an open swap that predates this session says it is still executing — or, delayed for more privacy and not
+// funded yet, when it is funded (the eleventh review round) —; the Advanced experience adds the maintenance and core lines.
 import { useEffect, useState } from "react";
 import { routeHandle } from "@privacy-wallet/sdk/wallet/routeHandles";
 import { shortAccount } from "@privacy-wallet/wallet-engine/connection";
@@ -14,7 +14,7 @@ import { campaignById } from "@privacy-wallet/sdk/wallet/campaigns";
 import { useT } from "../../app/i18n/useT";
 import { useDeployment } from "../../app/deployment";
 import { HomeView, type HomeModel } from "../home/View";
-import { homeModel } from "../home/model";
+import { homeModel, scheduledFundingOf } from "../home/model";
 import { titleOf } from "../amounts";
 import { buildRows } from "../activity/rows";
 import type { ShellContext } from "../../app/Shell";
@@ -100,8 +100,10 @@ export function Home() {
     if (hasNotes) void import("@privacy-wallet/sdk/prices").then((m) => m.priceStore.refresh(deployment));
   }, [deployment, hasNotes]);
 
-  // Activity's own rows (Simple): Home's cards and recent lines say exactly what Activity says
-  const rows = buildRows(s.status === "unlocked" ? session.journal() : null, operations, false, t);
+  // Activity's own rows (Simple): Home's cards and recent lines say what Activity says — a delayed order before its time excepted, which
+  // Home's card calls Scheduled (E11-9) and Activity's row Preparing
+  const journal = s.status === "unlocked" ? session.journal() : null;
+  const rows = buildRows(journal, operations, false, t);
   const advancedLines = useAdvancedLines(deployment, advanced, hasNotes, housekeeping.enabled, t);
   // "still executing" only for a swap that is (the ninth review round, 2026-11-04, C-03): one that needs attention had said so for good
   const returningSwap = operations.find(
@@ -113,6 +115,15 @@ export function Home() {
       (r.kind === "swap" || r.kind === "cross-chain") &&
       r.createdAt < OPENED_AT,
   );
+  // a swap delayed for more privacy and not funded yet is scheduled, never "still executing" (the eleventh review round, 2026-11-04, E11-9): it
+  // funds only while the wallet is unlocked, so the line says when
+  const now = Date.now();
+  const returningWords = (r: (typeof operations)[number]): string => {
+    const title = titleOf(r.kind, r.amounts.asset, r.amounts.outputAsset ?? null, t);
+    const order = r.refs.orderId?.toLowerCase();
+    const at = scheduledFundingOf(order ? journal?.swaps.find((x) => x.orderId.toLowerCase() === order) : undefined, now);
+    return at !== null ? t("home.stillScheduled", { title, time: formatDateTime(at) }) : t("home.stillExecuting", { title });
+  };
   const model = homeModel(
     {
       assets: assetsOf(deployment),
@@ -121,9 +132,8 @@ export function Home() {
       overall: posture.overall,
       rows,
       advanced: advancedLines,
-      returning: returningSwap
-        ? t("home.stillExecuting", { title: titleOf(returningSwap.kind, returningSwap.amounts.asset, returningSwap.amounts.outputAsset ?? null, t) })
-        : null,
+      returning: returningSwap ? returningWords(returningSwap) : null,
+      now,
     },
     t,
   );
