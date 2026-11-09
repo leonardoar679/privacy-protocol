@@ -803,7 +803,7 @@ export const en = {
     "The wallet locked before the next step, so nothing more was sent: at most an approval already confirmed, never the funds. Unlock and start again.",
   "op.error.deposit_unconfirmed.title": "Sent — your wallet did not report the result",
   "op.error.deposit_unconfirmed.reason":
-    "The deposit went out. Your wallet did not report its result here, so this wallet looks for it in the pool and adds it to your protected balance once it is on the chain — usually within minutes. Do not protect it again: nothing more is sent. If it never reaches the chain, nothing moved, and a day on this says so.",
+    "The deposit went out. Your wallet did not report its result here, so this wallet looks for it in the pool and adds it to your protected balance once it is on the chain — usually within the hour. Do not protect it again: nothing more is sent. If it never reaches the chain, nothing moved, and a day on this says so.",
   "op.error.approval_unconfirmed.title": "Stopped: your wallet did not report the approval",
   "op.error.approval_unconfirmed.reason":
     "Nothing was deposited. Your wallet did not report the approval's result here (it may be on another network now, or the approval is still waiting). If it goes through, no more than this amount stays approved; until then any approval you had already given stays as it was. Protect again once it has gone through.",
@@ -822,6 +822,9 @@ export const en = {
   "op.error.journal_unreadable.title": "Swaps wait for your activity record",
   "op.error.journal_unreadable.reason":
     "This wallet's record of its activity could not be read, so a new swap's record would be lost at the next lock. Nothing was sent: restore a backup, or set the record aside, first.",
+  "op.error.deposit_dropped.title": "Not added: your wallet no longer knows the deposit",
+  "op.error.deposit_dropped.reason":
+    "The wallet that sent the deposit no longer knows it, and no note of it is in the pool, so nothing moved as far as this wallet can tell. If you sped it up or replaced it in your wallet app, check there before you protect again. If it lands after all, the amount is added to your protected balance; this line stays as it is.",
   "op.error.transaction_dropped.title": "The transaction was never confirmed",
   "op.error.transaction_dropped.reason": "The transaction was sent but dropped before it was mined, so nothing moved. Send it again.",
   "op.error.payout_held.title": "The recipient's address did not take the payment",

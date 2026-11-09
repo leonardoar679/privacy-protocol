@@ -25,8 +25,9 @@ import { decodeFunctionData, parseEventLogs, TransactionNotFoundError, Transacti
 import { clientFor, clientsFor, outcomeReads, walletTxStatus, type Deployment } from "../chain";
 import { coreAbi, transactInputsDigest } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
-import { noteStore } from "../wallet/notes";
-import { isDraft, isOpen, type OperationKind, type OperationRecord } from "../wallet/operationRecord";
+import { noteStore, type OwnedNote } from "../wallet/notes";
+import { isDraft, isOpen, recoverySince, type OperationKind, type OperationRecord } from "../wallet/operationRecord";
+import type { AwaitedNote } from "../privateTx";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { spendIndexOf, type SpendIndex } from "../wallet/spends";
 import { allOperations, applyEvent, isLiveOperation } from "./store";
@@ -81,22 +82,36 @@ export interface StaleReads {
 
 /** While a deposit its wallet reported nothing for is this young, the scan runs each minute (../wallet/discovery.ts; the critique of F11-10). */
 export const DEPOSIT_RESCAN_WINDOW_MS = 15 * 60_000;
+/** The live flow's deposit its wallet reported nothing for (`deposit_unconfirmed`, marked `noteAwaited` by its page: VA-N1). */
+const awaitsNote = (r: OperationRecord): boolean =>
+  r.kind === "protect" &&
+  r.state === "RECOVERY_REQUIRED" &&
+  r.reason?.code === "deposit_unconfirmed" &&
+  r.refs.noteAwaited === true &&
+  r.refs.noteCounter !== undefined;
 /**
- * The note counters of this wallet's Protects whose wallet reported nothing for their deposit (`deposit_unconfirmed`): the scan records
- * such a note from the endpoints' agreed view at once (privateTx.ts scanNotes `awaited`; the eleventh review round's critique of F11-10) —
- * the case the receipt's fallback to the endpoints had covered, never wider: a page closed after its send, or a lock, leaves its note to
- * the proof, as before (its record completes from the wallet that sent it, or from the note once proven).
+ * This wallet's Protects whose live flow ended with no word from the wallet that sent the deposit (`deposit_unconfirmed`, `noteAwaited`): the
+ * scan records such a note from the endpoints' agreed view at once (privateTx.ts scanNotes `awaited`; the eleventh review round's critique of
+ * F11-10) — the case the receipt's fallback to the endpoints had covered, never wider (the twelfth review round, VA-N1: any such record had
+ * been, the stale mover's too): a page closed after its send, or a lock, leaves its note to the proof, as before (its record completes from the
+ * wallet that sent it, or from the note once proven). Each with its note's body when the record kept it (A12-4): the counter alone had taken
+ * another device's deposit at the same counter (gap 51) for this one.
  */
-export function awaitedDeposits(s: WalletSession = defaultSession): number[] {
+export function awaitedDeposits(s: WalletSession = defaultSession): AwaitedNote[] {
   return allOperations(s)
-    .filter((r) => r.kind === "protect" && r.state === "RECOVERY_REQUIRED" && r.reason?.code === "deposit_unconfirmed" && r.refs.noteCounter !== undefined)
-    .map((r) => r.refs.noteCounter!);
+    .filter(awaitsNote)
+    .map((r) => ({
+      counter: r.refs.noteCounter!,
+      ...(r.refs.noteBody ? { vaultId: BigInt(r.refs.noteBody.vault), amount: BigInt(r.refs.noteBody.amount) } : {}),
+    }));
 }
-/** A deposit its wallet reported nothing for (`deposit_unconfirmed`), younger than DEPOSIT_RESCAN_WINDOW_MS. */
+/**
+ * Such a deposit younger than DEPOSIT_RESCAN_WINDOW_MS, from the moment its record read so (the twelfth review round, A12-3: from its creation —
+ * the Review's confirmation, before the wallet's prompts and its receipt's ten minutes — a deposit confirmed a quarter hour before had had no
+ * minute rescan at all).
+ */
 export function depositAwaited(s: WalletSession = defaultSession, now = Date.now()): boolean {
-  return allOperations(s).some(
-    (r) => r.kind === "protect" && r.state === "RECOVERY_REQUIRED" && r.reason?.code === "deposit_unconfirmed" && now - r.createdAt < DEPOSIT_RESCAN_WINDOW_MS,
-  );
+  return allOperations(s).some((r) => awaitsNote(r) && now - recoverySince(r) < DEPOSIT_RESCAN_WINDOW_MS);
 }
 
 /**
@@ -210,8 +225,22 @@ async function ownCall(r: OperationRecord, hash: Hex, reads: StaleReads): Promis
   return d === null ? null : d.toLowerCase() === r.refs.inputsDigest.toLowerCase();
 }
 
+/** The note's body is the record's when it kept one (a Protect's: the twelfth review round, A12-4); a record that kept none (a Send's change) is told by its counter. */
+const ofBody = (r: OperationRecord, n: { vaultId: bigint; amount: bigint }): boolean =>
+  !r.refs.noteBody || (n.vaultId === BigInt(r.refs.noteBody.vault) && n.amount === BigInt(r.refs.noteBody.amount));
+/**
+ * The note the record's submission made, in the store: at its counter and of its body (A12-4: the counter alone had completed a Protect from
+ * another device's deposit at the same counter, gap 51, "Added" at that deposit's leaf while its own never landed).
+ */
+const ownNoteOf = (r: OperationRecord): OwnedNote | undefined =>
+  r.refs.noteCounter === undefined ? undefined : noteStore.all().find((n) => n.counter === r.refs.noteCounter && ofBody(r, n.note));
 /** What the record's submission made shows: the note it makes found by the scan (a Protect's deposit, a Send's change; n66). */
-const noteFound = (r: OperationRecord): boolean => r.refs.noteCounter !== undefined && noteStore.all().some((n) => n.counter === r.refs.noteCounter);
+const noteFound = (r: OperationRecord): boolean => ownNoteOf(r) !== undefined;
+/**
+ * The latest scan's agreed view holds the record's note, recorded or waiting for the proof of its leaf (the twelfth review round, A12-1): it
+ * landed — sped up in the wallet app, under another hash, which the wallet that sent it is never asked about —, and it is recorded once proven.
+ */
+const inScanView = (r: OperationRecord): boolean => r.refs.noteCounter !== undefined && noteStore.scanView(r.refs.noteCounter).some((n) => ofBody(r, n));
 
 /** Whether any note the record spends is spent on chain: a record whose notes are gone never reads "nothing moved" (r23). */
 async function notesSpent(r: OperationRecord, reads: StaleReads): Promise<boolean> {
@@ -233,11 +262,25 @@ const DEPOSIT_UNCONFIRMED: OperationEvent = {
   code: "deposit_unconfirmed",
   detail: "sent; neither its note nor its wallet's word has come",
 };
-/** ... and a day after it last moved: it never reached the chain — nothing moved. The record stays so; a note found later enters the balance alone (the critique of F11-10). */
+/**
+ * ... and a day after it read deposit_unconfirmed (the twelfth review round, A12-3), or after it last moved for a record that never read so: it
+ * never reached the chain — nothing moved. The record stays so; a note found later enters the balance alone (the critique of F11-10).
+ */
 const depositNeverLanded = (hash: string): OperationEvent => ({
   type: "submission-failed",
   code: "deposit_never_landed",
   detail: `transaction ${hash}: no note of it in the pool a day on, and no word from the wallet that sent it`,
+});
+/**
+ * A Protect past the drop limit that the wallet which sent it no longer knows, no note of it in the latest scan's view (the twelfth review round,
+ * A12-1): nothing moved as far as the wallet can tell — in its own words, never a Send's "Send it again": one the wallet app replaced (sped up)
+ * lands under another hash, and is never dropped once its replacement's note is in the latest scan's view (a replacement still pending at that
+ * scan is not seen: stated).
+ */
+const depositDropped = (hash: string): OperationEvent => ({
+  type: "submission-failed",
+  code: "deposit_dropped",
+  detail: `transaction ${hash}: the wallet that sent it no longer knows it, and no note of it is in the pool`,
 });
 /** Past the drop limit, its notes unspent, the transaction the record holds never landed for it: nothing moved (the tenth review round, A10-1). */
 const droppedEvent = (hash: string): OperationEvent => ({
@@ -258,7 +301,7 @@ async function replacedBy(r: OperationRecord, hash: Hex, reads: StaleReads): Pro
     const own = await ownCall(r, seen.txHash, reads);
     return own === true ? seen.txHash : own === false ? [SPENT_ELSEWHERE] : null;
   }
-  const note = r.refs.noteCounter !== undefined ? noteStore.all().find((n) => n.counter === r.refs.noteCounter) : undefined;
+  const note = ownNoteOf(r);
   return note ? [{ type: "completed", ref: { leafIndex: note.leafIndex, ...(note.txHash ? { txHash: note.txHash } : {}) } }] : null;
 }
 
@@ -266,7 +309,7 @@ async function replacedBy(r: OperationRecord, hash: Hex, reads: StaleReads): Pro
 async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolean, gone = false): Promise<OperationEvent[] | Hex | null> {
   // the note this submission makes for the wallet (a Protect's deposit, a Send's change): found by the scan, it landed
   if (r.refs.noteCounter !== undefined) {
-    const note = noteStore.all().find((n) => n.counter === r.refs.noteCounter);
+    const note = ownNoteOf(r);
     if (note) {
       const tx = note.txHash ? { txHash: note.txHash } : {};
       return [
@@ -350,14 +393,22 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
       // mined, reverted, pending (waited for) or unknown (past the drop limit: dropped). With no word at all, past the drop limit it waits as a
       // deposit not reported, and a day after it last moved it never reached the chain — nothing moved: the record stays so, and a note
       // found later enters the balance alone
+      // ... A Protect's note is its own by its counter and body (the twelfth review round, A12-4). Its note in the latest scan's view, its leaf not
+      // proven yet, says it landed (A12-1): the wallet's node does not know a hash the wallet app replaced (sped up), and "unknown" had failed it
+      // "dropped — send it again" while its replacement landed; it waits for its note. A deposit its wallet did not report keeps one clock, the
+      // moment it read so (A12-3): its "never landed" is a day from then, as its hold
       if (hash && r.kind === "protect") {
-        const note = r.refs.noteCounter !== undefined ? noteStore.all().find((n) => n.counter === r.refs.noteCounter) : undefined;
-        const seen = note ? null : reads.walletTx ? await reads.walletTx(hash, r.refs.sender) : null;
+        const note = ownNoteOf(r);
+        const landed = !note && inScanView(r);
+        const seen = note || landed ? null : reads.walletTx ? await reads.walletTx(hash, r.refs.sender) : null;
+        const goneFor = r.state === "RECOVERY_REQUIRED" && r.reason?.code === "deposit_unconfirmed" ? now - recoverySince(r) > RELAYER_GONE_MS : gone;
         if (note) apply({ type: "completed", ref: { leafIndex: note.leafIndex, txHash: (note.txHash as Hex | undefined) ?? hash } });
-        else if (seen === "success") apply({ type: "completed", ref: { txHash: hash } });
+        else if (landed) {
+          // landed, its note recorded once proven: no verdict meanwhile
+        } else if (seen === "success") apply({ type: "completed", ref: { txHash: hash } });
         else if (seen === "reverted") apply({ type: "submission-failed", code: "receipt_reverted", detail: `transaction ${hash} reverted` });
-        else if (old && seen === "unknown") apply(droppedEvent(hash));
-        else if (gone && seen === null) apply(depositNeverLanded(hash));
+        else if (old && seen === "unknown") apply(depositDropped(hash));
+        else if (goneFor && seen === null) apply(depositNeverLanded(hash));
         else if (old && seen === null && r.state !== "RECOVERY_REQUIRED") apply(DEPOSIT_UNCONFIRMED);
       } else if (hash) {
         let status = await reads.receipt(hash);

@@ -43,6 +43,8 @@ export interface EventRefs {
   quoteId?: string;
   provider?: string;
   activityId?: string;
+  /** the live flow's deposit its wallet reported nothing for (VA-N1): its note is taken from the endpoints' agreed view at once */
+  noteAwaited?: true;
 }
 
 /** What moves a record (the reducer's input); every failure event names a catalog code or gets the event's default. */
@@ -61,6 +63,8 @@ export type OperationEvent =
       noteCounter?: number;
       /** the account a Protect's prompts come from (the eleventh review round's critique of F11-10) */
       sender?: string;
+      /** a Protect's note body (the twelfth review round, A12-4) */
+      noteBody?: { vault: string; amount: string };
       nullifiers?: [string, string];
       relayerUrl?: string;
       /** the digest of the call's public inputs (`transactInputsDigest`; the sixth review round, 2026-11-03): what a lost answer is settled by */

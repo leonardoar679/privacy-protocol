@@ -39,8 +39,9 @@ export function kindFor(prev: OperationRecord, next: OperationRecord): Operation
   if (next.state === "READY_TO_REVIEW" && prev.state === "QUOTING") return "quote-ready";
   if (next.state === "PROVIDER_EXECUTING" && prev.state === "SOURCE_CONFIRMING") return next.kind === "cross-chain" ? "cross-chain-executing" : "confirmed";
   if (next.state === "COMPLETED") return "completed";
-  // a deposit its wallet did not report (the eleventh review round's critique of F11-10): the scan settles it within minutes, and nothing is
-  // asked of the user — no "needs your attention" for it; its completion is notified
+  // a deposit its wallet did not report (the eleventh review round's critique of F11-10): the scan settles it — within minutes for the live
+  // flow's record, once proven for a page-gone one (the twelfth review round, VA-N1) — and nothing is asked of the user — no "needs your
+  // attention" for it; its completion is notified
   if (next.state === "RECOVERY_REQUIRED") return next.reason?.code === "deposit_unconfirmed" ? null : "recovery-required";
   return null;
 }

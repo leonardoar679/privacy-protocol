@@ -347,6 +347,8 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({
       state: "RECOVERY_REQUIRED",
       reason: { code: "deposit_unconfirmed", fundsClass: "unknown" },
+      // this flow's own: its note taken from the endpoints' agreed view at once (the twelfth review round, VA-N1 — never a page-gone record's)
+      refs: { noteAwaited: true },
     });
     const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
     expect(scan?.dueAt, "the scan half a minute on").toBeGreaterThanOrEqual(before + DEPOSIT_SCAN_DELAY_MS);

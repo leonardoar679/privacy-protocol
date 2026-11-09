@@ -74,7 +74,7 @@ export const PROGRESS_STEP_STATE: Partial<Record<ProgressStep, OperationState>> 
 /** The states a progress step belongs to: the step is kept on the record there and dropped elsewhere. */
 export const PROGRESS_STEP_STATES: readonly OperationState[] = ["AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING"];
 
-const REFS: (keyof EventRefs)[] = ["txHash", "jobId", "orderId", "campaignId", "executionTx", "executionRef", "quoteId", "provider", "activityId"];
+const REFS: (keyof EventRefs)[] = ["txHash", "jobId", "orderId", "campaignId", "executionTx", "executionRef", "quoteId", "provider", "activityId", "noteAwaited"];
 
 function mergeRefs(r: OperationRecord["refs"], e: EventRefs): OperationRecord["refs"] {
   const next = { ...r, txHashes: [...r.txHashes] };
@@ -82,7 +82,7 @@ function mergeRefs(r: OperationRecord["refs"], e: EventRefs): OperationRecord["r
     const v = e[k];
     if (v === undefined) continue;
     if (k === "txHash") {
-      if (!next.txHashes.includes(v)) next.txHashes.push(v);
+      if (typeof v === "string" && !next.txHashes.includes(v)) next.txHashes.push(v);
     } else (next as Record<string, unknown>)[k] = v;
   }
   return next;
@@ -96,7 +96,8 @@ const hasRefs = (ev: OperationEvent): boolean => REFS.some((k) => k in ev);
  */
 // `deposit_never_landed` (the eleventh review round's critique of F11-10): a Protect with no note in the pool a day on is the chain's verdict
 // too — rewritten as "outcome unknown", it had read a Send's words and waited a second day
-const CHAIN_VERDICTS: ReadonlySet<string> = new Set(["receipt_reverted", "transaction_dropped", "not_this_spend", "spent_elsewhere", "deposit_never_landed"]);
+// `deposit_dropped` (the twelfth review round, A12-1): a Protect the wallet that sent it no longer knows, with no note of it in the pool's view
+const CHAIN_VERDICTS: ReadonlySet<string> = new Set(["receipt_reverted", "transaction_dropped", "not_this_spend", "spent_elsewhere", "deposit_never_landed", "deposit_dropped"]);
 
 /** The catalog reason of a code (I-O3): an unknown code becomes `unknown` with the original kept in the detail. */
 export function reasonOf(code: string | undefined, fallback: string, detail?: string): OperationReason {
@@ -144,6 +145,7 @@ function fieldEvent(rec: OperationRecord, ev: OperationEvent, at: number): Trans
       const kept = {
         ...(ev.noteCounter !== undefined ? { noteCounter: ev.noteCounter } : {}),
         ...(ev.sender ? { sender: ev.sender } : {}),
+        ...(ev.noteBody ? { noteBody: ev.noteBody } : {}),
         ...(ev.nullifiers ? { nullifiers: ev.nullifiers } : {}),
         ...(ev.relayerUrl ? { relayerUrl: ev.relayerUrl } : {}),
         ...(ev.inputsDigest ? { inputsDigest: ev.inputsDigest } : {}),

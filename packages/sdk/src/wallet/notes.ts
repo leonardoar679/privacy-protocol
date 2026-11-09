@@ -94,8 +94,22 @@ function onePerLeaf(notes: OwnedNote[]): OwnedNote[] {
   return [...byLeaf.values()];
 }
 
+/**
+ * A note of this wallet in the latest scan's agreed view (the twelfth review round, A12-1): recorded, or waiting there for the proof of its leaf.
+ * The stale mover tells by it a deposit that landed under another hash — a speed-up, the same call under a new hash — from one that never
+ * did, before its note is in the store.
+ */
+export interface ViewNote {
+  counter: number;
+  vaultId: bigint;
+  amount: bigint;
+  leafIndex: number;
+}
+
 export class NoteStore {
   private notes: OwnedNote[] = [];
+  /** the latest scan's agreed view of this wallet's notes with a counter (A12-1): never journaled, gone at a lock */
+  private view: ViewNote[] = [];
   private snapshot: OwnedNote[] = [];
   private listeners = new Set<Listener>();
   private counter = 0;
@@ -163,6 +177,15 @@ export class NoteStore {
   }
   all(): OwnedNote[] {
     return this.snapshot;
+  }
+  /** The latest scan's agreed view of this wallet's notes (A12-1); ignored once a lock closed the store. */
+  setScanView(view: readonly ViewNote[]): void {
+    if (this.closed) return;
+    this.view = [...view];
+  }
+  /** This wallet's notes the latest scan saw at `counter`, recorded or waiting for the proof of their leaf. */
+  scanView(counter: number): readonly ViewNote[] {
+    return this.view.filter((n) => n.counter === counter);
   }
   /** The counter allocateCounter() would hand out next (read-only). */
   nextCounter(): number {
@@ -269,6 +292,7 @@ export class NoteStore {
     this.loadedCounter = this.counter;
     this.stale = false;
     this.held = !!data.countersHeld;
+    this.view = [];
     this.closed = false;
     this.emit();
   }
@@ -287,6 +311,7 @@ export class NoteStore {
   /** Forget everything. */
   clear(): void {
     this.notes = [];
+    this.view = [];
     this.counter = 0;
     this.held = false;
     this.scanHold = false;

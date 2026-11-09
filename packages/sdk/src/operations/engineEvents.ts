@@ -13,7 +13,7 @@ export type EngineEvent =
   | { type: "proved"; ms: number; verifiedLocally: boolean }
   /** `noteCounter`: the deposit's note (a Protect), so a record its page left can be matched to the note the scan finds; `sender`: the account
    *  its prompts come from — only that account's wallet is asked about its transactions (the eleventh review round's critique of F11-10) */
-  | { type: "wallet-prompt"; step: "approve" | "deposit" | "transact"; i: number; n: number; noteCounter?: number; sender?: string }
+  | { type: "wallet-prompt"; step: "approve" | "deposit" | "transact"; i: number; n: number; noteCounter?: number; sender?: string; /** the deposit's note's vault and amount (A12-4) */ noteBody?: { vault: string; amount: string } }
   | { type: "approved"; txHash: Hex }
   /** `nullifiers` (decimal) and, through a relayer, its `relayerUrl`: what an order journals before its funding is sent;
    *  `noteCounter`: the change note this spend makes for the wallet, which the note scan finds once it is mined */
@@ -72,6 +72,7 @@ export function fromEngineEvent(e: EngineEvent, opts: { nested?: boolean } = {})
             n: e.n,
             ...(e.noteCounter !== undefined ? { noteCounter: e.noteCounter } : {}),
             ...(e.sender ? { sender: e.sender } : {}),
+            ...(e.noteBody ? { noteBody: e.noteBody } : {}),
           };
     case "approved":
       return opts.nested ? null : { type: "note", note: `approval ${e.txHash}` };

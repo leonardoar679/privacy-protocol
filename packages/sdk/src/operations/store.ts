@@ -4,7 +4,7 @@
 // V6 vocabulary (./upgrade.ts; idempotent), a record that goes back to a draft state (a declined prompt) leaves the
 // journal, and §89 Step 8's names — OperationStore, OperationRepository, OperationService — group the functions.
 import type { JournalData } from "../wallet/journal";
-import { isDraft, isOpen, isTerminal, type OperationKind, type OperationRecord, type OperationState } from "../wallet/operationRecord";
+import { isDraft, isOpen, isTerminal, recoverySince, type OperationKind, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { spentInAnyIndex } from "../wallet/spends";
 import { replay, transition } from "./reducer";
@@ -168,7 +168,9 @@ const mayStillLand = (r: OperationRecord, now = Date.now()): boolean =>
     now - r.createdAt < MAY_STILL_LAND_MS &&
     !!r.refs.nullifiers &&
     !r.refs.nullifiers.some((n) => spentInAnyIndex(BigInt(n)))) ||
-    (r.kind === "protect" && r.reason?.code === "deposit_unconfirmed" && now - r.createdAt < MAY_STILL_LAND_MS));
+    // from the moment it read so (the twelfth review round, A12-3: from its creation, the hold had ended while the record still said not to
+    // protect again — a page gone a day before its first stale pass), to the day after which it reads never landed: one clock
+    (r.kind === "protect" && r.reason?.code === "deposit_unconfirmed" && now - recoverySince(r) < MAY_STILL_LAND_MS));
 /** The record of `kind` still before the chain among `records` (or one that may still land), or null. */
 export const unresolvedOf = (records: readonly OperationRecord[], kind: OperationKind): OperationRecord | null =>
   records.find((r) => r.kind === kind && (UNRESOLVED_STATES.includes(r.state) || mayStillLand(r))) ?? null;

@@ -80,7 +80,10 @@ function protectRecord(p: PreparedShield, hash: Hex, code: "deposit_unconfirmed"
   else
     applyEvent(
       r.id,
-      code === "receipt_reverted" ? { type: "submission-failed", code, detail: "reverted" } : { type: "recovery-required", code, detail: "no receipt" },
+      // the live flow's deposit_unconfirmed carries its page's marker (the twelfth review round, VA-N1): its note is awaited, a page-gone one's never
+      code === "receipt_reverted"
+        ? { type: "submission-failed", code, detail: "reverted" }
+        : { type: "recovery-required", code, detail: "no receipt", ...(code === "deposit_unconfirmed" ? { noteAwaited: true as const } : {}) },
       session,
       at,
     );

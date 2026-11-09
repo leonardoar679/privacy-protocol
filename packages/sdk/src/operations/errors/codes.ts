@@ -182,7 +182,8 @@ export const CATALOG: Record<string, CatalogRow> = {
   // ... nor for an approval before the deposit (another network, no provider, ten minutes): nothing was deposited — WalletConnect's
   // approvals excepted, whose receipt is read from the first endpoint (audit gap 100)
   approval_unconfirmed: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
-  // a Protect with no note in the pool a day after it last moved and no word from the wallet that sent it: it never reached the chain
+  // a Protect with no note in the pool a day after it read deposit_unconfirmed (the twelfth review round, A12-3), or after it last moved for a
+  // record that never read so, and no word from the wallet that sent it: it never reached the chain
   // (the critique of F11-10: it had read "We are checking where your funds are" for good); a note found later still enters the balance
   deposit_never_landed: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // a Send whose answer was lost and whose notes another operation of this wallet then spent (the sixth review round, 2026-11-03): the
@@ -191,6 +192,11 @@ export const CATALOG: Record<string, CatalogRow> = {
   journal_unreadable: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   journal_not_kept: { source: "wallet", fundsClass: "not-moved", actions: ["check-settings"] },
   transaction_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // a Protect past the drop limit that the wallet which sent it no longer knows, with no note of it in the pool's view (the twelfth review
+  // round, A12-1): nothing moved as far as the wallet can tell — its own words, never a Send's "Send it again": a deposit replaced in the
+  // wallet app (sped up) lands under another hash, its note found once in the scan's view; one still pending at that scan reaches this
+  // verdict too, its card saying "Your funds were not moved" beside its reason's "as far as this wallet can tell" (ZG's critique; stated)
+  deposit_dropped: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // a V6 follow-up of 2026-10-17 (audit c31/c42): the transaction a spend was handed back spends other notes
   not_this_spend: { source: "wallet", fundsClass: "unknown", actions: ["resume-tracking"] },
   // sent as far as the chain can tell (the notes spent), the transaction not known here yet (the review round of 2026-11-02)

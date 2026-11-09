@@ -293,7 +293,8 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
   else if (p.approve) o.onStatus?.(`The approval already open for exactly this amount is used; submitting the shield (a shield is public by design)…`);
   else o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
   assertStillUnlocked(p.epoch);
-  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter, ...(account ? { sender: account } : {}) });
+  // ... and the note's body, which tells it from another device's note at the same counter (the twelfth review round, A12-4)
+  o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: n, n, noteCounter: p.counter, noteBody: { vault: p.vault, amount: p.note.amount.toString() }, ...(account ? { sender: account } : {}) });
   const txHash = await sendViaInjectedWallet(p.deposit, p.deployment.chainId, account);
   o.onEvent?.({ type: "submitted", txHash, by: "wallet" });
   o.onStatus?.("Waiting for the deposit to be mined…");
@@ -1173,8 +1174,8 @@ export async function scanNotes(
     masterSeed: Uint8Array;
     deployment: Deployment;
     refunds?: RefundClaim[];
-    /** the note counters of this wallet's deposits whose records await their note (operations/stale.ts awaitedDeposits) */
-    awaited?: readonly number[];
+    /** this wallet's deposits whose records await their note: the counter, and the body when known (operations/stale.ts awaitedDeposits) */
+    awaited?: readonly (number | AwaitedNote)[];
   } & Progress,
 ): Promise<ScanResult> {
   // a lock during the scan empties the store: nothing found afterwards goes into it, nor raises the next wallet's counter
@@ -1189,7 +1190,16 @@ export async function scanNotes(
   }
 }
 
-async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[]; awaited?: readonly number[] } & Progress, locked: () => boolean): Promise<ScanResult> {
+/** A deposit whose record awaits its note: its counter, and its body — vault and amount — when the record kept it (the twelfth review round, A12-4). */
+export interface AwaitedNote {
+  counter: number;
+  vaultId?: bigint;
+  amount?: bigint;
+}
+/** The note is the awaited deposit's: its counter, and its body when known — never another device's note at the same counter (A12-4, gap 51). */
+const isAwaitedBody = (a: AwaitedNote, n: { counter?: number; note: Note }): boolean =>
+  n.counter === a.counter && (a.vaultId === undefined || n.note.vaultId === a.vaultId) && (a.amount === undefined || n.note.amount === a.amount);
+async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deployment; refunds?: RefundClaim[]; awaited?: readonly (number | AwaitedNote)[] } & Progress, locked: () => boolean): Promise<ScanResult> {
   const keys = deriveKeys(o.masterSeed);
   o.onStatus?.("Scanning the core's payloads for notes encrypted to this wallet…");
   const { tree, logs, spends, block } = await syncPoolQuorum(o.deployment);
@@ -1225,11 +1235,17 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   // invent a note made out to a published privacy address, and it entered the balance as received for good; the third review round,
   // 2026-11-03: every note new to the store, not only a transfer received — a protect's opening is public calldata, so the quorum
   // could replay this wallet's own note at a leaf in the tail just as well). This wallet's own flows record their notes from a receipt, so
-  // nothing of theirs waits — and a deposit its wallet reported nothing for (a Protect through WalletConnect, a page gone before its receipt:
-  // its record awaits the note, `o.awaited`) is recorded from the endpoints' agreed view at once, the trust its receipt had (the eleventh
+  // nothing of theirs waits — and a deposit its wallet reported nothing for (a Protect through WalletConnect whose live flow ended without its
+  // receipt, its record marked by its page: `o.awaited`; a page gone before its receipt leaves its note to finality — the twelfth review
+  // round, VA-N1) is recorded from the endpoints' agreed view at once, the trust its receipt had (the eleventh
   // review round's critique of F11-10: it had waited for finality — about half an hour on mainnet — its record reading "checking"), when
   // that view holds it at one leaf alone and the store none of its counter; the proven pool still drops it if it contradicts (r24, below)
-  const awaitedAt = (f: FoundNote) => f.counter !== undefined && (o.awaited ?? []).includes(f.counter) && found.filter((g) => g.counter === f.counter).length === 1 && !noteStore.all().some((n) => n.counter === f.counter);
+  // ... matched by counter and body (the twelfth review round, A12-4): another device's deposit at the same counter (gap 51) is never this record's
+  const awaitedList = (o.awaited ?? []).map((a): AwaitedNote => (typeof a === "number" ? { counter: a } : a));
+  const awaitedAt = (f: FoundNote) =>
+    awaitedList.some((a) => isAwaitedBody(a, f) && found.filter((g) => isAwaitedBody(a, g)).length === 1 && !noteStore.all().some((n) => isAwaitedBody(a, n)));
+  // the agreed view of this wallet's notes, recorded or waiting (A12-1): the stale mover tells a deposit that landed under another hash by it
+  if (!locked()) noteStore.setScanView(found.flatMap((f) => (f.counter !== undefined ? [{ counter: f.counter, vaultId: f.note.vaultId, amount: f.note.amount, leafIndex: f.leafIndex }] : [])));
   const waiting = proven === null ? [] : found.filter((f) => f.leafIndex >= proven && !awaitedAt(f) && !noteStore.all().some((n) => n.leafIndex === f.leafIndex));
   const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, index, locked);
   // only the refunds and deliveries recorded: one waiting past the proven pool is journaled once a proof covers it, as recoverSwapRefunds
@@ -1256,15 +1272,23 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
     // one note at two leaves — a deposit's public opening replayed into the endpoints' tail beside its real leaf, an awaited note recorded
     // from the tail before the proof reached the real one (the eleventh review round's critique of F11-10): once a copy stands at a proven
     // leaf, the unproven copies go; a counter is one note's alone
-    const provenCounters = new Set(
+    // ... the same note — its whole body —, never another note that only shares its counter (the twelfth review round, A12-4: another device's
+    // deposit at the counter, proven first, had dropped this device's own until the proof reached it). A copy from this wallet's own receipt goes
+    // too, as D-1 keeps it (a provider naming a far leaf); two devices depositing the very same body at one counter (gap 51) hide this one's
+    // until the proof reaches its leaf — stated
+    const bodyKey = (n: { note: Note }) => `${n.note.vaultId}:${n.note.amount}:${n.note.ownerCommitment}:${n.note.noteSecret}`;
+    const provenBodies = new Set(
       proven === null
         ? []
         : noteStore
             .all()
             .filter((n) => n.counter !== undefined && n.leafIndex < proven && tree.leaves[n.leafIndex] === noteCommitment(noteBody(n.note), BigInt(n.leafIndex)))
-            .map((n) => n.counter),
+            .map(bodyKey),
     );
-    const replayed = proven === null ? [] : noteStore.all().filter((n) => !n.spent && n.counter !== undefined && n.leafIndex >= proven && provenCounters.has(n.counter));
+    const replayed =
+      proven === null
+        ? []
+        : noteStore.all().filter((n) => !n.spent && n.counter !== undefined && n.leafIndex >= proven && provenBodies.has(bodyKey(n)));
     if (contradicted.length || pastPool.length || replayed.length) noteStore.drop([...contradicted, ...pastPool, ...replayed].map((n) => n.leafIndex));
   }
   const asReceived = (f: FoundNote): ReceivedNote => ({ leafIndex: f.leafIndex, vaultId: f.note.vaultId, amount: f.note.amount, txHash: f.txHash });

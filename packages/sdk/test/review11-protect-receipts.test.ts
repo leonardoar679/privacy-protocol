@@ -264,7 +264,7 @@ describe("the stale mover settles a Protect without the endpoints (F11-10)", () 
     const cases = [
       ["read", "COMPLETED", undefined],
       ["reverted", "FAILED", "receipt_reverted"],
-      ["unknown", "FAILED", "transaction_dropped"],
+      ["unknown", "FAILED", "deposit_dropped"], // the Protect's own words since the twelfth review round (A12-1), never a Send's "Send it again"
       ["pending", "SOURCE_CONFIRMING", undefined], // held pending by its wallet: waited for
     ] as const;
     for (const [k, [answer, state, code]] of cases.entries()) {

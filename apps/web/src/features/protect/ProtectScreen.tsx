@@ -269,7 +269,14 @@ export function ProtectScreen(p: ProtectScreenProps) {
       if (!first || !first.ok) {
         const second =
           c.fundsClass === "unknown"
-            ? applyEvent(rec.id, { type: "recovery-required", code: c.code, detail: c.detail })
+            ? // a deposit its wallet reported nothing for: this flow's, its note taken from the endpoints' agreed view at once (the twelfth review round,
+              // VA-N1 — never a page-gone record's)
+              applyEvent(rec.id, {
+                type: "recovery-required",
+                code: c.code,
+                detail: c.detail,
+                ...(c.code === "deposit_unconfirmed" ? { noteAwaited: true as const } : {}),
+              })
             : applyEvent(rec.id, { type: "submission-failed", code: c.code, detail: c.detail });
         if (!second || !second.ok) applyEvent(rec.id, { type: "submission-failed", code: c.code, detail: c.detail });
       }

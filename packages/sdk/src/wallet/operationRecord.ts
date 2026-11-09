@@ -30,6 +30,17 @@ export const FAILURE_STATES: readonly OperationState[] = ["FAILED", "RECOVERY_RE
 export const DRAFT_STATES: readonly OperationState[] = CONTRACT_DRAFT_STATES;
 /** I-O7 (V7: from SUBMITTING on): the states before a submission — a record that reached SUBMITTING never returns to one of them (nothing is re-sent). */
 export const PRE_SUBMISSION_STATES: readonly OperationState[] = ["DRAFT", "QUOTING", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF"];
+/**
+ * When the record last entered RECOVERY_REQUIRED — its history line's time, which nothing moves after (a note or a monitoring read moves
+ * `updatedAt`) —, else its last move (the twelfth review round, A12-3): one clock for a deposit its wallet did not report — its minute
+ * rescans, the hold on a second Protect and the day after which it reads never landed.
+ */
+export function recoverySince(r: Pick<OperationRecord, "state" | "history" | "updatedAt">): number {
+  if (r.state !== "RECOVERY_REQUIRED") return r.updatedAt;
+  for (let i = r.history.length - 1; i >= 0; i--) if (r.history[i].state === "RECOVERY_REQUIRED") return r.history[i].at;
+  return r.updatedAt;
+}
+
 /** Reached only once something was handed to the relayer or the network (I-O7 reads the history for them). */
 export const SUBMITTED_STATES: readonly OperationState[] = ["SUBMITTING", "SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING"];
 /** The states after the send itself reached the chain or the relayer accepted it: SUBMITTING is the send in progress, not yet one (the review round of 2026-11-02). */
@@ -145,6 +156,13 @@ export interface OperationRecord {
     relayerUrl?: string;
     /** the digest of its call's public inputs (the sixth review round, 2026-11-03): a lost answer is settled only by that call */
     inputsDigest?: string;
+    /**
+     * a Protect's note body — its vault and its amount (the twelfth review round, A12-4): its note is told by its counter AND its body, never by
+     * the counter alone — another device of the same wallet hands out the same counters (gap 51)
+     */
+    noteBody?: { vault: string; amount: string };
+    /** the live flow's deposit its wallet reported nothing for (VA-N1): only its note is taken from the endpoints' agreed view at once */
+    noteAwaited?: true;
   };
   tier: Tier;
   /** spec §3.8 at the `large-protected` band and above */

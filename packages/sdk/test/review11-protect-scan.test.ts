@@ -102,9 +102,12 @@ describe("a WalletConnect Protect, its deposit past the proven pool (the critiqu
     );
     const c = classify(err);
     expect(c.code).toBe("deposit_unconfirmed");
-    applyEvent(rec.id, { type: "recovery-required", code: c.code, detail: c.detail });
-    expect(getOperation(rec.id)?.refs, "the record keeps the note's counter and the sending account").toMatchObject({
+    // as ProtectScreen applies it: the live flow's marker (the twelfth review round, VA-N1)
+    applyEvent(rec.id, { type: "recovery-required", code: c.code, detail: c.detail, noteAwaited: true });
+    expect(getOperation(rec.id)?.refs, "the record keeps the note's counter, its body and the sending account").toMatchObject({
       noteCounter: p.counter,
+      // the deposit's note body, from the wallet's prompt (the twelfth review round, A12-4): its note is told by counter and body
+      noteBody: { vault: p.vault, amount: p.note.amount.toString() },
       sender: ACCOUNT,
     });
     const action = { id: DISCOVERY_ID, kind: "discovery", orderId: "pool", dueAt: Date.now() } as never;
@@ -165,7 +168,8 @@ describe("a WalletConnect Protect, its deposit past the proven pool (the critiqu
     applyEvent(rec.id, { type: "confirm" });
     applyEvent(rec.id, { type: "progress", step: "submitting", noteCounter: p3.counter, sender: ACCOUNT } as never);
     applyEvent(rec.id, { type: "submitted", by: "wallet", txHash: ("0x" + "77".repeat(32)) as Hex } as never);
-    applyEvent(rec.id, { type: "recovery-required", code: "deposit_unconfirmed", detail: "no receipt" });
+    // as ProtectScreen leaves it: the live flow's marker (the twelfth review round, VA-N1)
+    applyEvent(rec.id, { type: "recovery-required", code: "deposit_unconfirmed", detail: "no receipt", noteAwaited: true });
     const at = (leaf: number) => noteCommitment(noteBody(p3.note), BigInt(leaf));
     const leaves = new Map(pool.state.inserts.map((x) => [x.leafIndex, x.commitment]));
     leaves.set(4, at(4));
@@ -200,7 +204,7 @@ describe("a WalletConnect Protect, its deposit past the proven pool (the critiqu
     applyEvent(rec.id, { type: "confirm" });
     applyEvent(rec.id, { type: "progress", step: "submitting", noteCounter: 999, sender: ACCOUNT } as never);
     applyEvent(rec.id, { type: "submitted", by: "wallet", txHash: ("0x" + "ef".repeat(32)) as Hex } as never);
-    applyEvent(rec.id, { type: "recovery-required", code: "deposit_unconfirmed", detail: "no receipt" });
+    applyEvent(rec.id, { type: "recovery-required", code: "deposit_unconfirmed", detail: "no receipt", noteAwaited: true });
     const action = { id: DISCOVERY_ID, kind: "discovery", orderId: "pool", dueAt: Date.now() } as never;
     const before = Date.now();
     await runDiscovery(action, { masterSeed: seed, deployment: d(), session });
