@@ -597,11 +597,15 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     answering "filled" for an execution that paid nothing completes the order and retires the fresh address. Backstops: the
     relayer's late-refund watch (24 h past `refundAfter`) and `lateRefundHeld` while the record is open. What would close it:
     the API confirming EVM fills from its own RPCs before `completed` reaches the wallet, amounts from Across's fill data.
-82. **V7 — LI.FI → Mayan routes are not pinned at quote time (the sixth review round, 2026-11-03; Fastest policy only).** The
-    engine checks the refund recipient and the minimum of a Mayan facet call, not `mayanProtocol` nor the order inside
-    `protocolData`; the wallet decodes both at signing and refuses a trader other than the escrow or a Fast-MCTP refund at the
-    destination — after the escrow was funded, which then waits for its refund. The route is `minOutVerified: false`, so only
-    the Fastest policy lets it through. Mirroring the wallet's decoding in `verifyLifiTransaction` would close it.
+82. **V7 — LI.FI → Mayan routes are not fully read at quote time (the sixth review round, 2026-11-03; narrowed by the twelfth,
+    2026-11-09; Fastest policy only).** The engine reads a Mayan facet call's refund recipient and minimum, the pinned Mayan
+    protocol, and the order inside `protocolData`: its selector, its whole static part, its token (what the facet hands Mayan),
+    bridged alone its amount, ETH only through a leg into USDC (VZ-2), and no gas drop and no referrer at any rate (the owner's
+    decision, 2026-11-09: every LI.FI → Mayan route named LI.FI's own referrer at 0 bps that day, so none is offered). The rest of
+    the order — its trader, receiver, chain, asset, fees, deadline, auction mode, payload and minimum, and a leg's floor after
+    LI.FI's own swap — only the wallet decodes at signing: a route it refuses for one of them is offered and, `minOutVerified:
+    false` routes going through under Fastest only, funded first; the escrow then waits for its refund. Mirroring the wallet's
+    remaining checks in `verifyLifiTransaction` would close it.
 83. **V7 — a "dead" funding verdict is a verdict (the sixth review round, 2026-11-03; the owner's call).** A sent funding now reads
     dead after an hour — as a spend the wallet's own connection sent does (n66) — never ten minutes, whose relayer could have
     forgotten a transaction other nodes still held. A transaction mined after that hour still leaves the escrow funded with its

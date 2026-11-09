@@ -72,7 +72,11 @@ export function lifiRefundTarget(data: string): "escrow" | "destination" | undef
 }
 /** AcrossFacetV4.MULTIPLIER_BASE: the swap variant hands Across (swap result) × outputAmountMultiplier / 1e18 as the output. */
 export const ACROSS_MULTIPLIER_BASE = 10n ** 18n;
-/** Asked of the API (`allowBridges`) so it routes only through facets this adapter can read; the call is still checked by selector. */
+/**
+ * Asked of the API (`allowBridges`) so it routes only through facets this adapter can read; the call is still checked by selector. Both
+ * at once: when LI.FI's one answer is a Mayan route the adapter refuses — every one naming LI.FI's referrer (the owner's decision,
+ * 2026-11-09) — it is not asked again without Mayan, so an Across route LI.FI might have given for the pair is not asked for (stated).
+ */
 export const LIFI_READABLE_BRIDGES = ["across", "mayan"];
 
 export function lifiToken(a: AssetRef): string {
@@ -199,17 +203,21 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
     // the order inside locks what the forwarder hands Mayan (the twelfth review round, VZ-2), as the wallet checks at signing: the leg's middle
     // token, or the bridged ERC-20 — LI.FI's MayanFacet checks the order's receiver and, for an ERC-20, its amount, but never its tokenIn, and Swift
     // pulls whatever tokenIn names; its amount too where nothing rewrites it on chain (an ERC-20 bridged alone); ETH only through a leg, a leg only
-    // on ETH and only into USDC, as the wallet requires. A route the wallet would refuse at signing for the order's token or amount is never offered
-    // (under Fastest it had been funded first, and the escrow waited for its refund time); the rest of the order — its trader, receiver, chain,
-    // asset, fees, gas drop, referrer, deadline, auction mode, payload (type and custom payload) and minimum, and a leg's floor after LI.FI's own swap —
-    // only the wallet reads (gap 82's residual)
+    // on ETH and only into USDC, as the wallet requires; and it asks for no gas drop and names no referrer, at any rate. A route the wallet would
+    // refuse at signing for the order's token, amount, gas drop or referrer is never offered (under Fastest it had been funded first, and the escrow
+    // waited for its refund time); the rest of the order — its trader, receiver, chain, asset, fees, deadline, auction mode, payload (type and custom
+    // payload) and minimum, and a leg's floor after LI.FI's own swap — only the wallet reads (gap 82's residual)
     {
       const protocol = addr(M(1));
       const off = Number(u(M(2)));
       const pd = d.facetData.subarray(off + 32, off + 32 + Number(u(d.facetData.subarray(off, off + 32))));
       const sel = "0x" + pd.subarray(0, 4).toString("hex");
       const want = protocol === MAYAN_SWIFT_V2 ? SEL_SWIFT_CREATE_ORDER : protocol === MAYAN_FAST_MCTP ? SEL_CREATE_ORDER : null;
-      if (!want || sel !== want || pd.length < 68) throw new Error(`LI.FI/Mayan calldata: the order inside (${sel} for ${protocol}) is not one this adapter reads`);
+      // the whole static part of the order the protocol takes, every word read below among it (createOrderWithToken: two words, OrderParams'
+      // fourteen and the custom payload's offset; createOrder: five words and OrderPayload's ten) — a shorter one neither contract decodes, and
+      // a word cut inside would read as a smaller value: a referrer fee of 5 bps as 0 (a word cut off throws as it is read)
+      const swift = protocol === MAYAN_SWIFT_V2;
+      if (!want || sel !== want || pd.length < 4 + 32 * (swift ? 17 : 15)) throw new Error(`LI.FI/Mayan calldata: the order inside (${sel} for ${protocol}) is not one this adapter reads`);
       // the leg as the facet reads it: by its swap protocol alone (YA's critique) — a middle token or floor named without one is ignored on chain
       const legInside = addr(M(3)) !== ZERO;
       if (!legInside && (addr(M(5)) !== ZERO || u(M(6)) !== 0n)) throw new Error("LI.FI/Mayan calldata: a middle token or floor is named for a swap the facet does not run (no swap protocol)");
@@ -232,6 +240,16 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
       if (!bd.hasSourceSwaps && bd.sendingAssetId !== ZERO && u(pd.subarray(36, 68)) !== bd.minAmount)
         throw new Error(`LI.FI/Mayan calldata: the order inside orders ${u(pd.subarray(36, 68))}, not the ${bd.minAmount} the facet bridges`);
       verified.push("the order inside locks what the facet hands Mayan");
+      // ... and asks for no gas drop and names no referrer — neither its address nor its bps —, as the wallet signs no Mayan order that does: every
+      // live LI.FI → Mayan route names LI.FI's own referrer at 0 bps (2026-11-09), which the owner decided stays refused, so those routes are never
+      // offered (createOrderWithToken: the gas drop in word 9, the referrer in words 6 and 13; createOrder: in words 9, 13 and 14)
+      const W = (i: number) => pd.subarray(4 + i * 32, 36 + i * 32);
+      const gasDrop = u(W(9)), referrer = W(swift ? 6 : 13), referrerBps = u(W(swift ? 13 : 14));
+      if (gasDrop !== 0n) throw new Error(`LI.FI/Mayan calldata: the order inside asks for a gas drop (${gasDrop}), which the wallet never signs`);
+      if (!referrer.every((b) => b === 0))
+        throw new Error(`LI.FI/Mayan calldata: the order inside names a referrer (0x${referrer.toString("hex")}) at ${referrerBps} bps, which the wallet never signs, even at 0 bps`);
+      if (referrerBps !== 0n) throw new Error(`LI.FI/Mayan calldata: the order inside sets a referrer fee of ${referrerBps} bps, which the wallet never signs`);
+      verified.push("the order inside asks for no gas drop and names no referrer");
     }
   }
   let exclusive: number | null = null;

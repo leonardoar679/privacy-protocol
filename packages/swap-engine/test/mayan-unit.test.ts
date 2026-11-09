@@ -58,6 +58,8 @@ describe("Mayan helpers (offline)", () => {
       ["another token", { toToken: { contract: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 } }, /delivers/],
       ["another decimals", { toToken: { contract: "0x0000000000000000000000000000000000000000", decimals: 6 } }, /delivers/],
       ["a gas drop", { gasDrop: 0.1 }, /gas drop/],
+      // the order is built with the quote's referrer bps and no address, which the wallet refuses at signing (the owner's decision, 2026-11-09)
+      ["a referrer fee", { referrerBps: 5 }, /a referrer fee was not asked for/],
       ["a deadline 7 h ahead", { deadline64: String(NOW + 7 * 3600) }, /deadline/],
       ["a deadline too close", { deadline64: String(NOW + 300) }, /deadline/],
       ["the refund fee raised to the order", { refundRelayerFee64: "2400000000" }, /fees/],

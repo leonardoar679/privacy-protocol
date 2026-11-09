@@ -156,7 +156,7 @@ export function encodeCreateOrder(tokenIn: string, amountIn: bigint, circleMaxFe
 
 /**
  * What a Fast-MCTP quote must say before it is ranked (audit 2026-10-16), as SWIFT's: an order from Ethereum to the asked chain and
- * asset, in its decimals; no gas drop (none is asked for); a deadline within FAST_MCTP_MIN_DEADLINE_SECONDS .. SWIFT_MAX_DEADLINE_SECONDS;
+ * asset, in its decimals; no gas drop and no referrer fee (neither is asked for); a deadline within FAST_MCTP_MIN_DEADLINE_SECONDS .. SWIFT_MAX_DEADLINE_SECONDS;
  * redeem + refund fees within FAST_MCTP_MAX_FEES_BPS of the USDC the order carries (or FAST_MCTP_MIN_FEE_CAP), Circle's fee within 1 %.
  */
 export function checkFastMctpQuote(q: MayanQuote, req: Pick<QuoteRequest, "from" | "to" | "amount">, now: number, v: LegPrice = {}): void {
@@ -164,6 +164,9 @@ export function checkFastMctpQuote(q: MayanQuote, req: Pick<QuoteRequest, "from"
   if (q.toChain !== req.to.chain) throw new Error(`Mayan Fast-MCTP: delivers on ${q.toChain}, not ${req.to.chain}`);
   if (String(q.toToken.contract).toLowerCase() !== (req.to.asset === "native" ? ZERO : req.to.asset.toLowerCase()) || Number(q.toToken.decimals) !== req.to.decimals) throw new Error(`Mayan Fast-MCTP: delivers ${q.toToken.contract} (${q.toToken.decimals} decimals), not ${req.to.symbol}`);
   if (Number(q.gasDrop ?? 0) !== 0) throw new Error("Mayan Fast-MCTP: a gas drop was not asked for");
+  // the order is built with no referrer address and the quote's bps, and the wallet signs no order naming either (the owner's decision,
+  // 2026-11-09): a quote reporting a referrer fee is refused here, before it is ranked — Mayan's quotes for this query report none (2026-11-09)
+  if (Number(q.referrerBps ?? 0) !== 0) throw new Error("Mayan Fast-MCTP: a referrer fee was not asked for");
   const deadline = Number(q.deadline64);
   if (!(deadline >= now + FAST_MCTP_MIN_DEADLINE_SECONDS && deadline <= now + SWIFT_MAX_DEADLINE_SECONDS)) throw new Error(`Mayan Fast-MCTP: order deadline ${q.deadline64} is not within ${FAST_MCTP_MIN_DEADLINE_SECONDS} s .. ${SWIFT_MAX_DEADLINE_SECONDS} s from now`);
   if (!q.refundRelayerFee64 || !q.circleMaxFee64) throw new Error("Mayan Fast-MCTP: refund fee / circle fee missing from the quote");

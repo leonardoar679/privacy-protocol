@@ -1,13 +1,15 @@
 // The twelfth review round, 2026-11-06, VZ-2 (HIGH), the engine's side (part of gap 82): a LI.FI route through the MayanFacet whose order locks
-// another token than the one the forwarder hands Mayan is never offered — the engine reads the order's token and, bridged alone, its amount as
-// the wallet does at signing (the rest of the order only the wallet reads: gap 82's residual). LI.FI's MayanFacet checks the order's receiver
+// another token than the one the forwarder hands Mayan is never offered — the engine reads the order's token, bridged alone its amount, its gas
+// drop and its referrer, as the wallet does at signing (the rest of the order only the wallet reads: gap 82's residual). LI.FI's MayanFacet checks the order's receiver
 // and, for an ERC-20, its amount, but never its tokenIn; Mayan's forwarder calls the order as is; Swift V2 pulls whatever its tokenIn names.
-// ETH reaches the order only through a leg, a leg runs only on ETH and only into USDC, as the wallet requires.
+// ETH reaches the order only through a leg, a leg runs only on ETH and only into USDC, as the wallet requires. And, the owner's decision of
+// 2026-11-09, an order asking for a gas drop, naming a referrer or setting a referrer fee — LI.FI's own referrer at 0 bps, as every LI.FI → Mayan
+// route did on 2026-11-09 (USDC, USDT and ETH to SOL) — is never offered either: the wallet signs none.
 import { describe, expect, it } from "vitest";
 import { encodeFunctionData, getAddress, padHex, parseAbi, type Address, type Hex } from "viem";
-import { LIFI_DIAMOND, NON_EVM_RECEIVER, verifyLifiTransaction } from "../src/adapters/lifi";
-import { addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, type SwiftOrder } from "../src/adapters/mayan";
-import type { QuoteRequest } from "../src/types";
+import { LIFI_DIAMOND, LifiAdapter, NON_EVM_RECEIVER, verifyLifiTransaction } from "../src/adapters/lifi";
+import { addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, type OrderPayload, type SwiftOrder } from "../src/adapters/mayan";
+import { AdapterRefusal, type QuoteRequest } from "../src/types";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const USDC = getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
@@ -55,7 +57,7 @@ const swiftOrder = (): SwiftOrder => ({
   auctionMode: 2,
   random: Buffer.alloc(32, 7),
 });
-const fastOrder = (tokenIn: Address, amountIn: bigint) =>
+const fastOrder = (tokenIn: Address, amountIn: bigint, over: Partial<OrderPayload> = {}) =>
   encodeCreateOrder(tokenIn, amountIn, 0n, 5, 1000, {
     destAddr: addressHex32("solana", DEST_SOL),
     tokenOut: Buffer.alloc(32),
@@ -66,6 +68,7 @@ const fastOrder = (tokenIn: Address, amountIn: bigint) =>
     deadline: BigInt(NOW + 1800),
     referrerAddr: Buffer.alloc(32),
     referrerBps: 0,
+    ...over,
   }) as Hex;
 /** the pool's USDC vault (ERC20_VAULTS), which a leg or a source swap into USDC needs: an unfilled order refunds USDC to the escrow */
 const withUsdcVault = <T>(fn: () => T): T => {
@@ -237,5 +240,64 @@ describe("VZ-2: the engine reads the order inside LI.FI's MayanFacet", () => {
 
   it("an order inside this adapter cannot read (another selector): never offered", () => {
     expect(() => verifyLifiTransaction(req, quote(("0xdeadbeef" + "00".repeat(64)) as Hex))).toThrow(/is not one this adapter reads/);
+  });
+});
+
+// LI.FI's own referrer, as every live LI.FI → Mayan route named it on 2026-11-09 (USDC, USDT and ETH to SOL: Swift V2 orders, 0 bps)
+const LIFI_REFERRER = addressHex32("ethereum", "0xa5aa6e2171b416e1d27ec53ca8c13db3f91a89cd");
+const LIFI_NAMED = /names a referrer \(0x000000000000000000000000a5aa6e2171b416e1d27ec53ca8c13db3f91a89cd\) at 0 bps, which the wallet never signs, even at 0 bps/;
+const BPS_ALONE = /sets a referrer fee of 5 bps, which the wallet never signs/;
+
+describe("the owner's decision (2026-11-09): an order inside LI.FI's MayanFacet naming a referrer, at any rate, or asking for a gas drop is never offered", () => {
+  it("a Swift order naming LI.FI's own referrer at 0 bps, as every live route did: never offered", () => {
+    expect(() => verifyLifiTransaction(req, quote(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(), referrerAddr: LIFI_REFERRER }) as Hex))).toThrow(LIFI_NAMED);
+  });
+
+  it("a Swift order with a referrer's bps and no address, or with a gas drop: never offered", () => {
+    expect(() => verifyLifiTransaction(req, quote(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(), referrerBps: 5 }) as Hex))).toThrow(BPS_ALONE);
+    expect(() => verifyLifiTransaction(req, quote(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(), gasDrop: 1n }) as Hex))).toThrow(/asks for a gas drop \(1\), which the wallet never signs/);
+  });
+
+  it("a Fast-MCTP order naming LI.FI's referrer at 0 bps, or a referrer's bps alone, or asking for a gas drop: never offered", () => {
+    const fast = { mayanProtocol: MAYAN_FAST_MCTP };
+    expect(() => verifyLifiTransaction(req, quote(fastOrder(USDC, NET, { referrerAddr: LIFI_REFERRER }), fast))).toThrow(LIFI_NAMED);
+    expect(() => verifyLifiTransaction(req, quote(fastOrder(USDC, NET, { referrerBps: 5 }), fast))).toThrow(BPS_ALONE);
+    expect(() => verifyLifiTransaction(req, quote(fastOrder(USDC, NET, { gasDrop: 1n }), fast))).toThrow(/asks for a gas drop \(1\), which the wallet never signs/);
+  });
+
+  it("the orders offered above name none and ask for none: offered, the fact recorded", () => {
+    const swift = verifyLifiTransaction(req, quote(encodeSwiftCreateOrder(USDC, NET, swiftOrder()) as Hex));
+    const fast = verifyLifiTransaction(req, quote(fastOrder(USDC, NET), { mayanProtocol: MAYAN_FAST_MCTP }));
+    for (const v of [swift, fast]) expect(v.verified).toContain("the order inside asks for no gas drop and names no referrer");
+  });
+
+  it("an order short of its static part — a word cut off, or cut inside: never offered; neither contract decodes it, and a word cut inside would read as a smaller value (ZH's critique)", async () => {
+    const cut = (data: Hex, bytes: number) => data.slice(0, 2 + 2 * bytes) as Hex;
+    // Swift: two words, OrderParams' fourteen and the custom payload's offset (17) — here the offset cut off, LI.FI's referrer still in it
+    const named = encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(), referrerAddr: LIFI_REFERRER }) as Hex;
+    expect(() => verifyLifiTransaction(req, quote(cut(encodeSwiftCreateOrder(USDC, NET, swiftOrder()) as Hex, 4 + 16 * 32)))).toThrow(/is not one this adapter reads/);
+    expect(() => verifyLifiTransaction(req, quote(cut(named, 4 + 16 * 32)))).toThrow(/is not one this adapter reads/);
+    // Fast-MCTP: fifteen words — here the referrer's bps cut off
+    expect(() => verifyLifiTransaction(req, quote(cut(fastOrder(USDC, NET), 4 + 14 * 32), { mayanProtocol: MAYAN_FAST_MCTP }))).toThrow(/is not one this adapter reads/);
+    // ... and cut inside the referrer's bps word, a fee of 5 bps in it — its last byte gone, the word would read 0: offered, before (ZH's critique)
+    const fastInside = quote(cut(fastOrder(USDC, NET, { referrerBps: 5 }), 4 + 15 * 32 - 1), { mayanProtocol: MAYAN_FAST_MCTP });
+    const swiftInside = quote(cut(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(), referrerBps: 5 }) as Hex, 4 + 14 * 32 - 1));
+    for (const [what, q] of [["Fast-MCTP", fastInside], ["Swift", swiftInside]] as const) {
+      expect(() => verifyLifiTransaction(req, q), what).toThrow(/is not one this adapter reads/);
+      const a = new LifiAdapter();
+      a.rawQuote = async () => q;
+      await expect(a.quote(req), `${what}, through the adapter's quote`).rejects.toBeInstanceOf(AdapterRefusal);
+    }
+  });
+
+  it("through the adapter's quote: refused as its answer to this request (an AdapterRefusal: set aside at the competition, never an outage)", async () => {
+    const a = new LifiAdapter();
+    a.rawQuote = async () => quote(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(), referrerAddr: LIFI_REFERRER }) as Hex);
+    const e = await a.quote(req).then(
+      () => null,
+      (x: unknown) => x,
+    );
+    expect(e).toBeInstanceOf(AdapterRefusal);
+    expect((e as Error).message).toMatch(LIFI_NAMED);
   });
 });

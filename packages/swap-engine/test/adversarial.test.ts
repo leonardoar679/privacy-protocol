@@ -21,7 +21,7 @@ import { shareTips } from "./helpers/tips";
 import { priceGuard } from "../src/scoring";
 import { nextState, recoverState } from "../src/order";
 import { executionDigest, orderSignerAddress } from "../src/endpoints";
-import type { AssetRef, Order, OrderState, Quote, QuoteRequest } from "../src/types";
+import { AdapterRefusal, type AssetRef, type Order, type OrderState, type Quote, type QuoteRequest } from "../src/types";
 
 const ETH: AssetRef = { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" };
 const ETH_BASE: AssetRef = { chain: "base", asset: "native", decimals: 18, symbol: "ETH" };
@@ -314,6 +314,18 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
       if (/a swap leg inside Mayan into .*not USDC/.test(String(e))) {
         console.info(`LI.FI's ETH -> SOL Mayan route runs a leg the wallet refuses: not offered (${String(e).slice(0, 120)}…)`);
         await expect(asQuoted()).rejects.toThrow(/not USDC/);
+        return;
+      }
+      // an order naming a referrer — LI.FI's own at 0 bps, as every LI.FI → Mayan route did on 2026-11-09 —, setting a referrer fee or asking for
+      // a gas drop: the wallet signs none, so it is never offered (the owner's decision, 2026-11-09) — set aside as the adapter's answer (ZH's critique)
+      if (/names a referrer|sets a referrer fee|asks for a gas drop/.test(String(e))) {
+        console.info(`LI.FI's ETH -> SOL Mayan route's order names a referrer or asks for a gas drop: not offered (${String(e).slice(0, 160)}…)`);
+        const refused = await asQuoted().then(
+          () => null,
+          (x: unknown) => x,
+        );
+        expect(refused).toBeInstanceOf(AdapterRefusal);
+        expect(String((refused as Error).message)).toMatch(/names a referrer|sets a referrer fee|asks for a gas drop/);
         return;
       }
       throw e;

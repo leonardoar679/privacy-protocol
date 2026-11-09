@@ -717,7 +717,7 @@ function mayanSwift(e: CallExpectation, now: number, swap: { protocol: Address; 
   const wantTokenOut = e.to.asset === "native" ? padHex("0x", { size: 32 }) : bytes32Of(e.to.chain, e.to.asset);
   must(same(o.tokenOut, wantTokenOut), P, "asset", `delivers ${o.tokenOut}, not ${e.to.symbol}`);
   must(o.gasDrop === 0n, P, "order", "asks for a gas drop");
-  must(BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "carries a referrer fee");
+  must(BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "names a referrer or sets a referrer fee");
   // Swift amounts carry at most 8 decimals; a swap & lock order is in USDC (6 decimals), at least the bounded minMiddle of it
   const inDecimals = swapAndLock ? 6 : native ? 18 : e.from.decimals;
   const orderIn = swapAndLock ? swap!.minMiddle : e.net;
@@ -765,7 +765,7 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
   must(same(payload.destAddr, bytes32Of(e.to.chain, e.destination)), P, "receiver", "the order pays another address than your fresh one");
   const wantTokenOut = e.to.asset === "native" ? padHex("0x", { size: 32 }) : bytes32Of(e.to.chain, e.to.asset);
   must(same(payload.tokenOut, wantTokenOut), P, "asset", `delivers ${payload.tokenOut}, not ${e.to.symbol}`);
-  must(BigInt(payload.referrerAddr) === 0n && payload.referrerBps === 0, P, "fees", "carries a referrer fee");
+  must(BigInt(payload.referrerAddr) === 0n && payload.referrerBps === 0, P, "fees", "names a referrer or sets a referrer fee");
   must(payload.deadline > BigInt(now), P, "deadline", "the order deadline has passed");
   // bounded as a SWIFT order's are (audit 2026-10-16): Mayan's verified FastMCTP pays refundFee to whoever calls refund (for a USDC
   // output that is how the order delivers), takes redeemFee at the destination, and holds an unfilled order's USDC until its deadline
@@ -839,7 +839,7 @@ function lifiMayanOrder(
     must(WORMHOLE_CHAIN[e.to.chain] !== undefined && o.destChainId === WORMHOLE_CHAIN[e.to.chain], P, "chain", `the Mayan order delivers to Wormhole chain ${o.destChainId}, not ${e.to.chain}`);
     must(same(o.destAddr, dest32), P, "receiver", "the Mayan order pays another address than your fresh one");
     must(same(o.tokenOut, wantTokenOut), P, "asset", `the Mayan order delivers ${o.tokenOut}, not ${e.to.symbol}`);
-    must(o.gasDrop === 0n && BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop or carries a referrer fee");
+    must(o.gasDrop === 0n && BigInt(o.referrerAddr) === 0n && o.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop, names a referrer or sets a referrer fee");
     must(o.deadline > BigInt(now) && o.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS) && o.auctionMode > 0, P, "deadline", "the Mayan order's deadline has passed or lies more than 6 h ahead, or it has no auction mode");
     // Swift amounts carry at most 8 decimals: the fees within 1 % of what the order carries, as a direct Swift order's (D11-2)
     const normalizedIn = carriedDecimals! > 8 ? carried / 10n ** BigInt(carriedDecimals! - 8) : carried;
@@ -871,7 +871,7 @@ function lifiMayanOrder(
   must(payload.payloadType === 3, P, "order", `the Mayan order's payload type ${payload.payloadType}`);
   must(same(payload.destAddr, dest32), P, "receiver", "the Mayan order pays another address than your fresh one");
   must(same(payload.tokenOut, wantTokenOut), P, "asset", `the Mayan order delivers ${payload.tokenOut}, not ${e.to.symbol}`);
-  must(payload.gasDrop === 0n && BigInt(payload.referrerAddr) === 0n && payload.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop or carries a referrer fee");
+  must(payload.gasDrop === 0n && BigInt(payload.referrerAddr) === 0n && payload.referrerBps === 0, P, "fees", "the Mayan order asks for a gas drop, names a referrer or sets a referrer fee");
   must(payload.deadline > BigInt(now) && payload.deadline <= BigInt(now + SWIFT_MAX_DEADLINE_SECONDS), P, "deadline", "the Mayan order's deadline has passed or lies more than 6 h ahead");
   const minOut = scaled(payload.amountOutMin);
   must(minOut > 0n, P, "minimum", "the Mayan order binds a zero minimum");

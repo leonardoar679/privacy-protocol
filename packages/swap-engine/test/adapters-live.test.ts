@@ -104,7 +104,10 @@ describe("LI.FI adapter (live)", () => {
     );
     // LI.FI's routing changes by the minute: whatever it returns, a route that is offered bridges something the escrow re-shields;
     // no route at all (HTTP 422 "None of the available routes…") is the provider's answer of the moment, not a defect
-    if (r instanceof Error) expect(r.message).toMatch(/cannot re-shield|cannot verify|HTTP 4\d\d/);
+    // ... nor is a Mayan route whose order the engine refuses (VZ-2's token rules; a referrer named, at any rate, or a gas drop: the owner's
+    // decision, 2026-11-09 — ZH's critique), nor a route with a destination call, as the ETH → ETH case below says (LI.FI answered this pair
+    // with one on 2026-11-09)
+    if (r instanceof Error) expect(r.message).toMatch(/cannot re-shield|cannot verify|HTTP 4\d\d|LI\.FI\/Mayan calldata|destination call/);
     else expect(escrowCanReshield(ETH, decodeLifiCall((r.raw as any).transactionRequest.data).bridgeData.sendingAssetId)).toBe(true);
   }, 60_000);
   it("quotes ETH (Ethereum) -> ETH (Base) with toAmountMin and a verified transactionRequest ingress", async () => {
@@ -123,7 +126,8 @@ describe("LI.FI adapter (live)", () => {
       (e: Error) => e,
     );
     if (r instanceof Error) {
-      expect(r.message).toMatch(/destination call|cannot verify|cannot re-shield/);
+      // (a Mayan route whose order the engine refuses too — VZ-2's token rules, a referrer at any rate, a gas drop: ZH's critique)
+      expect(r.message).toMatch(/destination call|cannot verify|cannot re-shield|LI\.FI\/Mayan calldata/);
       return;
     }
     const q = r;

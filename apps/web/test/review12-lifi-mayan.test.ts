@@ -14,7 +14,7 @@ import { checkBeforeSigning, type JournaledOrder } from "@privacy-wallet/sdk/swa
 import { executionDigest, predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
 import type { Prepared, ServiceOrder, ServiceOrderParams } from "@privacy-wallet/sdk/swapService";
-import { addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, type SwiftOrder } from "@privacy-wallet/swap-engine/adapters/mayan";
+import { addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, type OrderPayload, type SwiftOrder } from "@privacy-wallet/swap-engine/adapters/mayan";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const USDC = getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
@@ -185,6 +185,60 @@ describe("VZ-2: a USDC order bridged alone through LI.FI's MayanFacet", () => {
     expect(await refusal(checkProviderCall({ provider: PINNED.lifiDiamond, value: 0n, calldata: viaLifi(order(X_TOKEN, NET), PINNED.mayanFastMctp) }, e))).toMatch(/not funded in USDC/);
     expect(await refusal(checkProviderCall({ provider: PINNED.lifiDiamond, value: 0n, calldata: viaLifi(order(USDC, NET / 2n), PINNED.mayanFastMctp) }, e))).toMatch(/not the 10000000000 the facet bridges/);
     expect(await refusal(checkProviderCall({ provider: PINNED.lifiDiamond, value: 0n, calldata: viaLifi(order(USDC, NET + 1n), PINNED.mayanFastMctp) }, e))).toMatch(/orders 10000000001, not the 10000000000 the facet bridges/);
+  });
+});
+
+// LI.FI's own referrer, as every live LI.FI → Mayan route named it on 2026-11-09 (USDC, USDT and ETH to SOL: Swift V2 orders, 0 bps)
+const LIFI_REFERRER = addressHex32("ethereum", "0xa5aa6e2171b416e1d27ec53ca8c13db3f91a89cd");
+
+// the refusal's words name what the order does at 0 bps — it names a referrer; it carries no fee (ZH's critique: "carries a referrer fee")
+describe("the owner's decision (2026-11-09): a Mayan order naming a referrer is refused at signing, even at 0 bps", () => {
+  const NET = 10_000_000_000n, TIP = 5_000_000n, APPROVED = 40_000_000_000n;
+  const u = orderOf("usdc", NET, TIP);
+  const eUsdc = (): CallExpectation => ({ escrow: u.escrow, from: USDC_REF as never, to: SOL as never, destination: DEST_SOL, net: NET, policy: "best-privacy", now: NOW, chainId: 1n, pooled: POOLED });
+  const viaLifi = (protocolData: Hex, mayanProtocol: Address = PINNED.mayanSwiftV2) =>
+    encodeFunctionData({ abi: LIFI, functionName: "startBridgeTokensViaMayan", args: [bd({ sendingAssetId: USDC, minAmount: NET }) as never, md(u.escrow, protocolData, { mayanProtocol }) as never] });
+  const viaForwarder = (protocolData: Hex, mayanProtocol: Address) =>
+    encodeFunctionData({ abi: FORWARDER, functionName: "forwardERC20", args: [USDC, NET, { value: 0n, deadline: 0n, v: 0, r: padHex("0x", { size: 32 }), s: padHex("0x", { size: 32 }) }, mayanProtocol, protocolData] });
+  const gate = (calldata: Hex) => checkBeforeSigning({ prepared: u.prepare(PINNED.lifiDiamond, 0n, calldata), order: u.so, journaled: u.journaled(APPROVED), factory: FACTORY, chainId: 1n, now: NOW, pooled: POOLED });
+  const fastOrder = (over: Partial<OrderPayload> = {}) =>
+    encodeCreateOrder(USDC, NET, 0n, 5, 1000, {
+      destAddr: addressHex32("solana", DEST_SOL),
+      tokenOut: Buffer.alloc(32),
+      amountOutMin: APPROVED / 10n,
+      gasDrop: 0n,
+      redeemFee: 0n,
+      refundFee: 0n,
+      deadline: BigInt(NOW + 1800),
+      referrerAddr: Buffer.alloc(32),
+      referrerBps: 0,
+      ...over,
+    }) as Hex;
+  const bent: Partial<Pick<SwiftOrder, "referrerAddr" | "referrerBps" | "gasDrop">>[] = [{ referrerAddr: LIFI_REFERRER }, { referrerBps: 5 }];
+
+  it("LI.FI's Swift order naming LI.FI's own referrer at 0 bps — every live route's —, a referrer's bps alone, or a gas drop: refused at the call's check and at the signing gate", async () => {
+    expect((await gate(viaLifi(encodeSwiftCreateOrder(USDC, NET, swiftOrder(u.escrow, APPROVED)) as Hex))).ok, "the same order naming none: signed").toBe(true);
+    for (const over of [...bent, { gasDrop: 1n }]) {
+      const call = viaLifi(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(u.escrow, APPROVED), ...over }) as Hex);
+      expect(await refusal(checkProviderCall({ provider: PINNED.lifiDiamond, value: 0n, calldata: call }, eUsdc())), JSON.stringify(Object.keys(over))).toMatch(/the Mayan order asks for a gas drop, names a referrer or sets a referrer fee/);
+      await expect(gate(call), "the signing gate refuses it too").rejects.toThrow(/names a referrer or sets a referrer fee/);
+    }
+  });
+
+  it("LI.FI's Fast-MCTP order naming LI.FI's referrer at 0 bps, a referrer's bps alone, or a gas drop: refused", async () => {
+    const check = (protocolData: Hex) => checkProviderCall({ provider: PINNED.lifiDiamond, value: 0n, calldata: viaLifi(protocolData, PINNED.mayanFastMctp) }, eUsdc());
+    expect(await check(fastOrder()), "the same order naming none: signed").toMatchObject({ provider: "lifi", refundTo: "destination" });
+    for (const over of [...bent, { gasDrop: 1n }]) expect(await refusal(check(fastOrder(over))), JSON.stringify(Object.keys(over))).toMatch(/the Mayan order asks for a gas drop, names a referrer or sets a referrer fee/);
+  });
+
+  it("the direct forwarder's Swift and Fast-MCTP orders naming a referrer at 0 bps, or its bps alone: refused (the engine builds them with none)", async () => {
+    const check = (protocolData: Hex, protocol: Address) => checkProviderCall({ provider: PINNED.mayanForwarder, value: 0n, calldata: viaForwarder(protocolData, protocol) }, eUsdc());
+    expect(await check(encodeSwiftCreateOrder(USDC, NET, swiftOrder(u.escrow, APPROVED)) as Hex, PINNED.mayanSwiftV2), "Swift naming none: signed").toMatchObject({ refundTo: "escrow" });
+    expect(await check(fastOrder(), PINNED.mayanFastMctp), "Fast-MCTP naming none: signed").toMatchObject({ refundTo: "destination" });
+    for (const over of bent) {
+      expect(await refusal(check(encodeSwiftCreateOrder(USDC, NET, { ...swiftOrder(u.escrow, APPROVED), ...over }) as Hex, PINNED.mayanSwiftV2)), `Swift ${Object.keys(over)}`).toMatch(/names a referrer or sets a referrer fee/);
+      expect(await refusal(check(fastOrder(over), PINNED.mayanFastMctp)), `Fast-MCTP ${Object.keys(over)}`).toMatch(/names a referrer or sets a referrer fee/);
+    }
   });
 });
 
