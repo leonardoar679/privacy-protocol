@@ -788,17 +788,33 @@ function mayan(call: ProviderCall, e: CallExpectation, now: number): CheckedCall
  * The Mayan order inside LI.FI's MayanFacet (the third review round, 2026-11-03): the facet hands `protocolData` to `mayanProtocol`
  * as is, so the trader a cancelled Swift order refunds, the receiver, the asset and the minimum are read as a direct Mayan call's
  * are — before, only the facet's own sweep recipient was, and a service could name itself the trader of an order it then let
- * lapse. A swap leg inside (ETH → USDC) is bounded as the direct call's is. Gives the route a minimum this wallet can read.
+ * lapse. A swap leg inside (ETH → USDC) is bounded as the direct call's is. Gives the route a minimum this wallet can read. The order locks what
+ * the forwarder hands Mayan — the leg's USDC, or the bridged ERC-20 —, and, an ERC-20 bridged alone, exactly what the facet bridges (the twelfth review round,
+ * VZ-2); ETH reaches the order only through the leg.
  */
 function lifiMayanOrder(
   e: CallExpectation,
   now: number,
   m: { mayanProtocol: Address; protocolData: Hex; swapProtocol: Address; middleToken: Address; minMiddleAmount: bigint; mayanAmountIn: bigint },
-  bd: { sendingAssetId: Address; minAmount: bigint },
+  bd: { sendingAssetId: Address; minAmount: bigint; hasSourceSwaps: boolean },
 ): { minOut: bigint; refundTo: "escrow" | "destination"; fact: string; refundTokens?: Address[]; refundFloors?: Record<string, string> } {
   const P: ProviderName = "lifi";
   const bridged = getAddress(bd.sendingAssetId);
-  const leg = BigInt(m.swapProtocol) !== 0n || BigInt(m.middleToken) !== 0n || m.minMiddleAmount !== 0n;
+  // the leg as the facet reads it: by its swap protocol alone (the twelfth review round, YA's critique) — a middle token or a floor named without
+  // one is ignored on chain, and had been read as a leg
+  const leg = BigInt(m.swapProtocol) !== 0n;
+  must(leg || (BigInt(m.middleToken) === 0n && m.minMiddleAmount === 0n), P, "swap", "a middle token or floor is named for a swap the facet does not run (no swap protocol)");
+  // ... and ETH reaches Mayan only through the leg: without one the facet forwards it as value, which neither Swift V2's nor Fast-MCTP's entry
+  // takes — the call reverts, as the direct call's decoder says of an ETH order neither wrapped nor swapped first (YA's critique)
+  must(leg || !same(bridged, ZERO), P, "order", "an ETH order is neither wrapped nor swapped first: the facet would forward the ETH to an entry that takes none");
+  // what the forwarder hands Mayan (the twelfth review round, VZ-2): the leg's USDC, or the bridged ERC-20. LI.FI's MayanFacet checks the order's
+  // receiver and, for an ERC-20, its amount, but never its tokenIn; Mayan's forwarder max-approves the protocol and calls the order as is; Swift
+  // pulls whatever its tokenIn names: an order locking another token than this had left the whole bridged amount in the forwarder, anyone's to take
+  const handed = leg ? getAddress(m.middleToken) : bridged;
+  // ... and, bridge-only with an ERC-20, exactly what the facet bridges — the wallet's own rule, whatever the facet's version checks (the swap
+  // variant and the leg have the amount rewritten on chain: the facet's `_replaceInputAmount`, the forwarder's swapAndForwardEth; a leg runs
+  // only on ETH bridged, refused below otherwise)
+  const bindsAmount = !bd.hasSourceSwaps && !same(bridged, ZERO);
   if (leg) {
     must(same(bridged, ZERO), P, "swap", "a swap leg inside Mayan on a token the facet already bridges");
     // bounded on what the facet forwards (the eleventh review round, D11-3): the bridge-only entry never reads mayanAmountIn — LI.FI's
@@ -815,7 +831,9 @@ function lifiMayanOrder(
   const scaled = (x: bigint) => (e.to.decimals > 8 ? x * 10n ** BigInt(e.to.decimals - 8) : x);
   if (same(m.mayanProtocol, PINNED.mayanSwiftV2)) {
     const { args } = decode(P, SWIFT_V2_ABI, m.protocolData);
-    const [, , o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; cancelFee: bigint; refundFee: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
+    const [tokenIn, amountIn, o, customPayload] = args as [Address, bigint, { payloadType: number; trader: Hex; destAddr: Hex; destChainId: number; referrerAddr: Hex; tokenOut: Hex; minAmountOut: bigint; gasDrop: bigint; cancelFee: bigint; refundFee: bigint; deadline: bigint; referrerBps: number; auctionMode: number }, Hex];
+    must(same(tokenIn, handed), P, "order", leg ? "the swapped USDC is not what the order inside locks" : `the order inside locks ${tokenIn}, not the ${same(bridged, ZERO) ? "ETH" : bridged} the facet bridges`);
+    if (bindsAmount) must(amountIn === bd.minAmount, P, "order", `the order inside orders ${amountIn}, not the ${bd.minAmount} the facet bridges`);
     must(o.payloadType === 1 && customPayload === "0x", P, "order", "the Mayan order carries a custom payload");
     must(same(o.trader, bytes32Of("ethereum", e.escrow)), P, "refund", "an unfilled Mayan order would be refunded to another address than the escrow");
     must(WORMHOLE_CHAIN[e.to.chain] !== undefined && o.destChainId === WORMHOLE_CHAIN[e.to.chain], P, "chain", `the Mayan order delivers to Wormhole chain ${o.destChainId}, not ${e.to.chain}`);
@@ -839,8 +857,11 @@ function lifiMayanOrder(
   }
   must(same(m.mayanProtocol, PINNED.mayanFastMctp), P, "protocol", `hands the order to ${m.mayanProtocol}, not the pinned Fast-MCTP or Swift contract`);
   const order = decode(P, FAST_MCTP_ABI, m.protocolData);
-  const [tokenIn, , circleMaxFee, destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; redeemFee: bigint; refundFee: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
+  const [tokenIn, amountIn, circleMaxFee, destDomain, , payload] = order.args as [Address, bigint, bigint, number, number, { payloadType: number; destAddr: Hex; tokenOut: Hex; amountOutMin: bigint; gasDrop: bigint; redeemFee: bigint; refundFee: bigint; deadline: bigint; referrerAddr: Hex; referrerBps: number }];
   must(same(tokenIn, USDC_ETHEREUM), P, "order", "the Mayan order is not funded in USDC");
+  // ... in the USDC the forwarder hands it (VZ-2), and, an ERC-20 bridged alone, exactly what the facet bridges
+  must(same(handed, USDC_ETHEREUM), P, "order", `the facet hands the Fast-MCTP order ${handed}, not USDC`);
+  if (bindsAmount) must(amountIn === bd.minAmount, P, "order", `the Fast-MCTP order inside orders ${amountIn}, not the ${bd.minAmount} the facet bridges`);
   // its fees as a direct Fast-MCTP order's (D11-2): redeem + refund within 1 % of the USDC it carries (or 2 USDC), Circle's within 1 %
   const usdc = carried;
   const feeCap = (usdc * FAST_MCTP_MAX_FEES_BPS) / 10_000n > FAST_MCTP_MIN_FEE_CAP ? (usdc * FAST_MCTP_MAX_FEES_BPS) / 10_000n : FAST_MCTP_MIN_FEE_CAP;

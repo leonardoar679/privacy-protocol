@@ -309,6 +309,13 @@ describe("§74 LI.FI API malicious — everything the order key would sign is ch
       verified = verifyLifiTransaction(reqSol, raw).verified;
     } catch (e) {
       if (/destination call/.test(String(e))) return;
+      // a leg inside Mayan into another token than USDC (LI.FI's ETH → WETH wrap as its leg): the wallet refuses it at signing, so it is never
+      // offered (the twelfth review round, VZ-2) — the refusal is the engine's, before any quote is weighed
+      if (/a swap leg inside Mayan into .*not USDC/.test(String(e))) {
+        console.info(`LI.FI's ETH -> SOL Mayan route runs a leg the wallet refuses: not offered (${String(e).slice(0, 120)}…)`);
+        await expect(asQuoted()).rejects.toThrow(/not USDC/);
+        return;
+      }
       throw e;
     }
     expect(verified).toContain("receiver (mayan nonEVMReceiver)");

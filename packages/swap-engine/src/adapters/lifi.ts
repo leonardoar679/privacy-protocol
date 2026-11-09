@@ -22,7 +22,7 @@
 // can name recipients and amounts this adapter cannot read.
 import { hexBuf, selectorHex } from "../abi";
 import { base58Decode } from "./chainflip";
-import { boundMiddle, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, USDC_ETHEREUM, type LegPrice } from "./mayan";
+import { boundMiddle, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, SEL_CREATE_ORDER, SEL_SWIFT_CREATE_ORDER, USDC_ETHEREUM, type LegPrice } from "./mayan";
 import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Valuer } from "../valuation";
 import { WETH as ACROSS_WETH } from "./across";
@@ -184,7 +184,7 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
     if (bd.hasSourceSwaps && u(M(8)) !== bd.minAmount) throw new Error(`LI.FI/Mayan calldata: mayanAmountIn ${u(M(8))} is not the bridged amount ${bd.minAmount} (the facet hands Mayan only mayanAmountIn and sweeps the rest to refundRecipient)`);
     verified.push("refund recipient=escrow", "bridged amount");
     // the order inside, as the wallet reads it at signing (the eleventh review round, 2026-11-04, after its critique — D11-3, D11-6 and the
-    // verifier's NF-1): a route the wallet refuses is never offered — under Fastest it had been funded at once, and the escrow waited for its
+    // verifier's NF-1): a route the wallet refuses for the swap & lock's re-shield, or for its floor through the bridge-only entry, is never offered (its floor after LI.FI's own swap before the facet only the wallet bounds: stated, YC's critique) — under Fastest it had been funded at once, and the escrow waited for its
     // refund time. A swap & lock (MayanData.swapProtocol set) refunds its middle token to the escrow, which must re-shield it, and its swap has a
     // floor; with the service's own agreed ETH price, an ETH → USDC leg and a swap into USDC before the facet are bounded at 98 % of the ETH
     if (addr(M(3)) !== ZERO) {
@@ -195,6 +195,43 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
       verified.push("swap & lock refunds re-shieldable");
     }
     if (leg && bd.hasSourceSwaps && req.from.asset === "native" && bd.sendingAssetId === USDC_ETHEREUM) boundMiddle(bd.minAmount, req.amount, leg, "LI.FI source swap");
+    // the order inside locks what the forwarder hands Mayan (the twelfth review round, VZ-2), as the wallet checks at signing: the leg's middle
+    // token, or the bridged ERC-20 — LI.FI's MayanFacet checks the order's receiver and, for an ERC-20, its amount, but never its tokenIn, and Swift
+    // pulls whatever tokenIn names; its amount too where nothing rewrites it on chain (an ERC-20 bridged alone); ETH only through a leg, a leg only
+    // on ETH and only into USDC, as the wallet requires. A route the wallet would refuse at signing for the order's token or amount is never offered
+    // (under Fastest it had been funded first, and the escrow waited for its refund time); the rest of the order — its trader, receiver, chain,
+    // asset, fees, gas drop, referrer, deadline, auction mode, payload (type and custom payload) and minimum, and a leg's floor after LI.FI's own swap —
+    // only the wallet reads (gap 82's residual)
+    {
+      const protocol = addr(M(1));
+      const off = Number(u(M(2)));
+      const pd = d.facetData.subarray(off + 32, off + 32 + Number(u(d.facetData.subarray(off, off + 32))));
+      const sel = "0x" + pd.subarray(0, 4).toString("hex");
+      const want = protocol === MAYAN_SWIFT_V2 ? SEL_SWIFT_CREATE_ORDER : protocol === MAYAN_FAST_MCTP ? SEL_CREATE_ORDER : null;
+      if (!want || sel !== want || pd.length < 68) throw new Error(`LI.FI/Mayan calldata: the order inside (${sel} for ${protocol}) is not one this adapter reads`);
+      // the leg as the facet reads it: by its swap protocol alone (YA's critique) — a middle token or floor named without one is ignored on chain
+      const legInside = addr(M(3)) !== ZERO;
+      if (!legInside && (addr(M(5)) !== ZERO || u(M(6)) !== 0n)) throw new Error("LI.FI/Mayan calldata: a middle token or floor is named for a swap the facet does not run (no swap protocol)");
+      // ... and ETH only through the leg: without one the facet forwards it as value, which neither Swift V2's nor Fast-MCTP's entry takes (it reverts)
+      if (!legInside && bd.sendingAssetId === ZERO) throw new Error("LI.FI/Mayan calldata: ETH bridged into the order without a leg: the facet would forward it to an entry that takes no value (the call reverts)");
+      if (legInside && bd.sendingAssetId !== ZERO) throw new Error(`LI.FI/Mayan calldata: a swap leg inside Mayan on ${bd.sendingAssetId}, a token the facet already bridges`);
+      // ... and only into USDC, the one leg the wallet bounds (its mustBoundMiddle: "the ETH → USDC leg is not bounded in USDC"): LI.FI's live ETH →
+      // SOL route wraps ETH into WETH as its leg, which the wallet refuses at signing — offered, it had been funded first under Fastest
+      if (legInside && addr(M(5)) !== USDC_ETHEREUM) throw new Error(`LI.FI/Mayan calldata: a swap leg inside Mayan into ${addr(M(5))}, not USDC: the wallet bounds only an ETH → USDC leg and refuses any other at signing`);
+      const handed = legInside ? addr(M(5)) : bd.sendingAssetId;
+      const tokenIn = addr(pd.subarray(4, 36));
+      // a Fast-MCTP order burns USDC through CCTP: handed USDC, and funded in it, in the wallet's words (the twelfth review round, YB's critique — any
+      // other token reverts, so nothing stays in the forwarder; the Swift wording had said it did, and an earlier refusal had left the first check
+      // unreached)
+      if (protocol === MAYAN_FAST_MCTP) {
+        if (handed !== USDC_ETHEREUM) throw new Error(`LI.FI/Mayan calldata: the facet hands the Fast-MCTP order ${handed}, not USDC`);
+        if (tokenIn !== USDC_ETHEREUM) throw new Error("LI.FI/Mayan calldata: the Mayan order is not funded in USDC");
+      } else if (tokenIn !== handed)
+        throw new Error(`LI.FI/Mayan calldata: the order inside locks ${tokenIn}, not the ${handed} the facet hands Mayan`);
+      if (!bd.hasSourceSwaps && bd.sendingAssetId !== ZERO && u(pd.subarray(36, 68)) !== bd.minAmount)
+        throw new Error(`LI.FI/Mayan calldata: the order inside orders ${u(pd.subarray(36, 68))}, not the ${bd.minAmount} the facet bridges`);
+      verified.push("the order inside locks what the facet hands Mayan");
+    }
   }
   if (acrossV4) {
     // AcrossV4Data { receiverAddress, refundAddress, sendingAssetId, receivingAssetId (bytes32 each), outputAmount, outputAmountMultiplier, exclusiveRelayer, quoteTimestamp, fillDeadline, exclusivityParameter, message }

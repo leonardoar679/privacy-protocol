@@ -95,10 +95,10 @@ function journaledOrder(o: { asset: Address; amount: bigint; tip: bigint; provid
 }
 
 describe("D11-2: the inner orders' fee bases (the tests critic's G1–G3)", () => {
-  it("ETH bridged into a Swift order, its fees normalized to Swift's 8 decimals: cancel + refund fees of 99 % are refused, the honest order passes", async () => {
+  it("ETH bridged into a Swift order without a leg: refused before its fees are weighed — the facet would forward the ETH to an entry that takes none (the twelfth review round, YA's critique: the honest one had been signed for a call that reverts; the 8-decimal fee base is pinned on WETH bridged after LI.FI's swap, in review12-lifi-mayan)", async () => {
     const greedy = md({ protocolData: encodeSwiftCreateOrder(ZERO, NET, so({ cancelFee: 49_500_000n, refundFee: 49_500_000n })) as Hex });
-    await expect(checkProviderCall(via(bd(), greedy, NET), eEth())).rejects.toThrow(/fees/);
-    expect((await checkProviderCall(via(bd(), md(), NET), eEth())).refundTo).toBe("escrow");
+    await expect(checkProviderCall(via(bd(), greedy, NET), eEth())).rejects.toThrow(/an ETH order is neither wrapped nor swapped first/);
+    await expect(checkProviderCall(via(bd(), md(), NET), eEth())).rejects.toThrow(/an ETH order is neither wrapped nor swapped first/);
   });
   it("a swap and lock leg, the leg's USDC floor its base: fees of 98 % of the leg are refused", async () => {
     const floor = middleFloorUsdc(NET, USD.ETH);

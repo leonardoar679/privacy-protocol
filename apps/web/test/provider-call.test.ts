@@ -628,9 +628,13 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
   const INNER_MIN = 2_189_073_633n; // 21.89073633 SOL in Swift's 8 decimals
   const inner = (o: Partial<SwiftOrder> = {}): SwiftOrder => ({ payloadType: 1, trader: addressHex32("ethereum", ESCROW), destAddr: addressHex32("solana", DEST_SOL), destChainId: 1, referrerAddr: Buffer.alloc(32), tokenOut: Buffer.alloc(32), minAmountOut: INNER_MIN, gasDrop: 0n, cancelFee: 53n, refundFee: 10_651n, deadline: BigInt(NOW + 1500), referrerBps: 0, auctionMode: 2, random: Buffer.alloc(32, 7), ...o });
   // the facet hands protocolData to mayanProtocol as is — here a Swift order of the bridged ETH (the third review round, 2026-11-03: the order inside is read)
-  const mayanData = (o: Record<string, unknown> = {}, order: SwiftOrder = inner()) => ({ nonEVMReceiver: SOL32, mayanProtocol: MAYAN_SWIFT_V2 as Address, protocolData: encodeSwiftCreateOrder(ZERO, MIN_AMOUNT, order) as Hex, swapProtocol: ZERO, swapData: "0x" as Hex, middleToken: ZERO, minMiddleAmount: 0n, refundRecipient: ESCROW, mayanAmountIn: MIN_AMOUNT, ...o });
+  // ... through the facet's ETH → USDC leg, the shape that executes (the twelfth review round, YA's critique: ETH handed to Swift without a leg
+  // reverts — its entry takes no value): the order locks the leg's USDC, its amount free (the forwarder rewrites it on chain)
+  const LEG_ROUTER = "0x0000000000000000000000000000000000000e77" as Address;
+  const LEG_FLOOR = 2_482_977_000n; // 98 % of MIN_AMOUNT (0.9975 ETH) at 2,540 USD, in USDC
+  const mayanData = (o: Record<string, unknown> = {}, order: SwiftOrder = inner()) => ({ nonEVMReceiver: SOL32, mayanProtocol: MAYAN_SWIFT_V2 as Address, protocolData: encodeSwiftCreateOrder(USDC.asset, LEG_FLOOR + 12_345n, order) as Hex, swapProtocol: LEG_ROUTER, swapData: "0x1234" as Hex, middleToken: USDC.asset as Address, minMiddleAmount: LEG_FLOOR, refundRecipient: ESCROW, mayanAmountIn: MIN_AMOUNT, ...o });
   const mayanCall = (md = mayanData(), bd = bridgeData({ bridge: "mayan", receiver: "0x11f111f111f111f111f111f111f111f111f111f1", destinationChainId: 1151111081099710n })) => ({ provider: PINNED.lifiDiamond, value: NET, calldata: encodeFunctionData({ abi: LIFI_ABI, functionName: "swapAndStartBridgeTokensViaMayan", args: [bd as any, feeSwap() as any, md as any] }) });
-  const es = expectation({ to: SOL, destination: DEST_SOL });
+  const es = expectation({ to: SOL, destination: DEST_SOL, usd: PRICED, pooled: POOL_USDC });
   it("Mayan facet: the Swift order inside is read — its minimum (so any policy may sign it), its trader the escrow, its receiver the fresh address; the sweep goes to the escrow", async () => {
     const c = await checkProviderCall(mayanCall(), es);
     expect(c).toMatchObject({ provider: "lifi", minOut: INNER_MIN * 10n, receiver: DEST_SOL, refundTo: "escrow" });
@@ -653,13 +657,15 @@ describe("LI.FI: diamond pinned, facets read by selector; Across's minimum is wh
   });
   it("Mayan facet: a swap leg inside (ETH → USDC by a router Mayan names) is bounded at this wallet's own price less 2 %, as the direct call's is", async () => {
     const ROUTER = "0x0000000000000000000000000000000000000e77" as Address;
-    const leg = (minMiddleAmount: bigint) => mayanData({ swapProtocol: ROUTER, swapData: "0x1234" as Hex, middleToken: USDC.asset as Address, minMiddleAmount });
+    // the order inside locks the leg's USDC, what the forwarder hands Mayan (the twelfth review round, VZ-2)
+    const leg = (minMiddleAmount: bigint) =>
+      mayanData({ swapProtocol: ROUTER, swapData: "0x1234" as Hex, middleToken: USDC.asset as Address, minMiddleAmount, protocolData: encodeSwiftCreateOrder(USDC.asset, minMiddleAmount + 12_345n, inner()) as Hex });
     const priced = { ...es, usd: PRICED, pooled: POOL_USDC };
     // MIN_AMOUNT (0.9975 ETH) at 2,540 USD is 2,533.65 USDC; the floor is 98 % of it
     await expect(checkProviderCall(mayanCall(leg(2_482_977_000n)), priced)).resolves.toMatchObject({ provider: "lifi", minOut: INNER_MIN * 10n });
     await refused(checkProviderCall(mayanCall(leg(2_482_976_999n)), priced), /below/);
     await refused(checkProviderCall(mayanCall(leg(1n)), priced), /below/);
-    await unverified(checkProviderCall(mayanCall(leg(2_482_977_000n)), { ...es, pooled: POOL_USDC }), /no fresh agreed ETH price/);
+    await unverified(checkProviderCall(mayanCall(leg(2_482_977_000n)), { ...es, usd: undefined }), /no fresh agreed ETH price/);
     await refused(checkProviderCall(mayanCall(mayanData({ swapProtocol: ROUTER, swapData: "0x1234" as Hex, middleToken: ENGINE_WETH.ethereum as Address, minMiddleAmount: MIN_AMOUNT })), priced), /not bounded in USDC/);
   });
   it("any other facet is a call this wallet cannot read", async () => {
