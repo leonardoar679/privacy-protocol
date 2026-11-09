@@ -111,16 +111,16 @@ async function wallet(o: { recent?: boolean } = {}) {
   await priceStore.refresh(deployment);
   expect(priceStore.state().status).toBe("ready");
 }
-function mount(path = "/swap") {
+function mount(path = "/swap", d: typeof deployment = deployment) {
   const router = createMemoryRouter(
     [
-      { path: "/swap/*", element: <SwapScreen masterSeed={session.state().seed!} deployment={deployment} /> },
+      { path: "/swap/*", element: <SwapScreen masterSeed={session.state().seed!} deployment={d} /> },
       { path: "/", element: <div data-testid="home" /> },
     ],
     { initialEntries: [path], future: ROUTER_FUTURE },
   );
   render(
-    <Providers deployment={deployment}>
+    <Providers deployment={d}>
       <RouterProvider router={router} future={PROVIDER_FUTURE} />
     </Providers>,
   );
@@ -298,7 +298,12 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
       j.operations = (j.operations ?? []).filter((r) => r.id !== swapRecordId(orderId));
     });
     const vault = String((st.params as { refundVault: string }).refundVault);
-    syncSwapRecord({ ...st, refunds: [{ leafIndex: 7, vault, amount: "1" }] }, partial, completed);
+    // ... the rest, half the order (the twelfth review round, XG: a 1-unit note is no rest of it)
+    syncSwapRecord(
+      { ...st, refunds: [{ leafIndex: 7, vault, amount: (BigInt((st.params as { amount: string }).amount) / 2n).toString() }] },
+      partial,
+      completed,
+    );
     expect(getOperation(swapRecordId(orderId))).toMatchObject({ state: "COMPLETED", outcome: "partial" });
     mount(`/swap/progress/${swapRecordId(orderId)}`);
     expect((await screen.findByTestId("swap-done")).textContent).toContain(
@@ -339,6 +344,66 @@ describe("Swap with one confirmation (spec v2.0 §7.5–§7.7)", () => {
     const done = await screen.findByTestId("swap-done");
     expect(done.textContent).toContain("0.49 ETH returned to your protected balance");
     expect(done.textContent).toMatch(/privacy fee was earned at funding and does not come back/);
+  }, 60_000);
+
+  it("a refund that came back in another token is named in it beside the order's own (the twelfth review round's fourth critique)", async () => {
+    await wallet();
+    const { orderId } = await confirmed();
+    const stored = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    const vault = String((stored.params as { refundVault: string }).refundVault);
+    const USDC_VAULT = "0x" + "c5".padStart(40, "0");
+    session.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === orderId)!;
+      x.refundVaults = { [USDC_VAULT]: "1000000" };
+      x.refunds = [
+        { leafIndex: 7, vault, amount: (2n * 10n ** 16n).toString() },
+        { leafIndex: 8, vault: USDC_VAULT, amount: "3400000000" },
+      ];
+    });
+    syncSwapRecord(
+      session.journal().swaps.find((x) => x.orderId === orderId)!,
+      { state: "REFUNDED", label: "Refunded", steps: [true, true, false, false], detail: "The escrow was re-shielded into your private balance." } as never,
+      { id: orderId, escrow: stored.endpoint, state: "refunded", updatedAt: Date.now() } as never,
+    );
+    cleanup();
+    const withUsdc = {
+      ...deployment,
+      erc20Vaults: [{ symbol: "USDC", decimals: 6, token: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", vault: USDC_VAULT }],
+    } as typeof deployment;
+    mount(`/swap/progress/${swapRecordId(orderId)}`, withUsdc);
+    const done = await screen.findByTestId("swap-done");
+    expect(done.textContent).toContain("0.02 ETH, 3,400 USDC returned to your protected balance");
+    cleanup();
+    // in USDC alone — Return funds after a late refund in USDC —: named in it
+    session.update((j) => {
+      j.swaps.find((y) => y.orderId === orderId)!.refunds = [{ leafIndex: 8, vault: USDC_VAULT, amount: "3400000000" }];
+    });
+    mount(`/swap/progress/${swapRecordId(orderId)}`, withUsdc);
+    expect((await screen.findByTestId("swap-done")).textContent).toContain("3,400 USDC returned to your protected balance");
+    cleanup();
+    // a note below the refund token's floor beside the order's own: never named
+    session.update((j) => {
+      j.swaps.find((y) => y.orderId === orderId)!.refunds = [
+        { leafIndex: 7, vault, amount: (49n * 10n ** 16n).toString() },
+        { leafIndex: 9, vault: USDC_VAULT, amount: "1" },
+      ];
+    });
+    mount(`/swap/progress/${swapRecordId(orderId)}`, withUsdc);
+    const own = await screen.findByTestId("swap-done");
+    expect(own.textContent).toContain("0.49 ETH returned to your protected balance");
+    expect(own.textContent).not.toContain("USDC");
+    cleanup();
+    // a vault this deployment does not know: no amount named, never a part of what came back as the whole
+    session.update((j) => {
+      j.swaps.find((y) => y.orderId === orderId)!.refunds = [
+        { leafIndex: 7, vault, amount: (2n * 10n ** 16n).toString() },
+        { leafIndex: 8, vault: USDC_VAULT, amount: "3400000000" },
+      ];
+    });
+    mount(`/swap/progress/${swapRecordId(orderId)}`);
+    const unknown = await screen.findByTestId("swap-done");
+    expect(unknown.textContent).toContain("Returned to your protected balance.");
+    expect(unknown.textContent).not.toContain("0.02 ETH returned");
   }, 60_000);
 
   it("a refund that came back to a handed-over order's escrow offers Return funds on the Swap screen; the runner sends it (the ninth review round, 2026-11-04, C-05)", async () => {

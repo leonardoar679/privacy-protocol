@@ -19,6 +19,9 @@ export interface ProgressModel {
     executingUsdCents: bigint;
     remainingUsdCents: bigint;
     notDeliveredUsdCents?: bigint;
+    returnedOtherUsdCents?: bigint;
+    /** the steps delivered in part whose rest came back in another token, how much of each untold (C12-4): part of the "not delivered" line, no line of its own */
+    partlyBackUsdCents?: bigint;
     returnCostsUsdCents?: bigint;
   } | null;
 }
@@ -62,12 +65,22 @@ export function ProgressView({ model: m }: { model: ProgressModel }) {
                 <Usd cents={m.large.remainingUsdCents} />
               </dd>
             </div>
-            {/* what neither arrived as asked nor came back: its own line, never Remaining (the eleventh review round, 2026-11-04, VE-1) */}
+            {/* what did not arrive as asked (notAsAsked(): what neither arrived nor came back, and what came back in another token): its own line,
+                never Remaining (the eleventh review round, 2026-11-04, VE-1; the twelfth, C12-4) */}
             {m.large.notDeliveredUsdCents ? (
               <div className="ds-review-row ds-review-row-warn" data-testid="progress-not-delivered">
                 <dt>{t("screen.progress.notDelivered")}</dt>
                 <dd>
                   <Usd cents={m.large.notDeliveredUsdCents} />
+                </dd>
+              </div>
+            ) : null}
+            {/* ... of which what came back in another token (the twelfth review round, C12-4): part of the line above, never added to it */}
+            {m.large.returnedOtherUsdCents ? (
+              <div className="ds-review-row" data-testid="progress-returned-other">
+                <dt>{t("screen.progress.returnedOther")}</dt>
+                <dd>
+                  <Usd cents={m.large.returnedOtherUsdCents} />
                 </dd>
               </div>
             ) : null}

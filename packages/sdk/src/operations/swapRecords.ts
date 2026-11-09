@@ -3,6 +3,8 @@
 // engines keep their own states; the record follows them. V6 (spec v2.0 §12): a delay is `delayed` on the phase's state,
 // the settlement comes from the tracker (kept when a read could not tell), and a terminal record keeps its state (I-O1).
 import type { Tracked } from "../orderTracker";
+import { CLOSING_READINGS, refundNotesBack, SWAP_CLOSED_STATES } from "../orderStates";
+import { lateRefundHeld } from "@privacy-wallet/protocol/wallet/settlement";
 import type { SwapJob } from "../relayer";
 import { fundedOf, type StoredSwap } from "../wallet/journal";
 import {
@@ -32,17 +34,27 @@ const asTier = (x: unknown): Tier =>
  */
 export function syncSwapRecord(
   stored: StoredSwap,
-  tracked: Tracked | null,
+  given: Tracked | null,
   job: SwapJob | null,
   now = Date.now(),
   s: WalletSession = defaultSession,
 ): OperationRecord {
+  // a closed order's live reading that does not close it is not this record's (the twelfth review round, C12-3's critique): the reading that closed it
+  // stands — a Refresh with the provider down had moved a provider failure's record to Executing. A late refund reopens it (the order is open again)
+  const tracked = given && SWAP_CLOSED_STATES.includes(stored.state) && !CLOSING_READINGS.includes(given.state) && given.state !== "LATE_REFUND" ? null : given;
   const req = (stored.request ?? {}) as {
     from?: { symbol?: string; decimals?: number; chain?: string };
     to?: { symbol?: string; decimals?: number; chain?: string };
     destination?: string;
   };
   const params = stored.params as { amount?: string };
+  // a closed order re-synced with no live reading (a closed-order tick, A10-6) is the journal's last reading where that reading is the one that
+  // closed it (the twelfth review round, C12-8): a provider failure, a refund paid at the destination — from the bare journal state "completed"
+  // either had been recorded "Swap complete", terminal. Never a stale open reading over a closed order
+  const lastClosing: Pick<Tracked, "state"> | null =
+    !tracked && stored.state === "completed" && (stored.track?.state === "PROVIDER_FAILED" || stored.track?.state === "REFUNDED_AT_DESTINATION")
+      ? { state: stored.track.state }
+      : null;
   const mapped = fromStoredSwap(
     {
       state: job?.state ?? stored.state,
@@ -54,13 +66,13 @@ export function syncSwapRecord(
       campaign: stored.campaign,
       paused: stored.paused,
     },
-    tracked,
+    tracked ?? lastClosing,
   );
   // a partial fill whose rest is accounted for — the executor's watch ended, or its refund came back — is finished (the ninth review round,
   // 2026-11-04, C-03): it had stayed "needs attention" for good, its only action changing nothing; while the rest may still come back it waits
   // with no job given (a closed order's re-sync), the journal's own closed state is the job's last word (the second critique): "refunded" from a job
   // — the rest came back — and "completed" — the watch ended — settle a partial fill as its runner's reading had
-  const restBack = job?.state === "refunded" || (stored.refunds?.length ?? 0) > 0 || (!job && stored.state === "refunded" && !!stored.jobId);
+  const restBack = job?.state === "refunded" || refundNotesBack(stored) || (!job && stored.state === "refunded" && !!stored.jobId);
   // the journal's last reading where no live one is given (the eleventh review round, 2026-11-04, B11-1): a refund the scan journals before the
   // runner reads the refunded job re-syncs the closed order with none, and a partly delivered swap had been recorded REFUNDED for good
   const partial: Pick<Tracked, "state" | "deliveredUnits" | "deliveredAsset" | "otherToken"> | null =
@@ -77,7 +89,18 @@ export function syncSwapRecord(
   const settledPartial = !!partial && (job?.state === "completed" || restBack || (!job && stored.state === "completed"));
   // a provider failure whose funds came back later (the verifier's VB-N1): the refund note found makes it a refund — the bare journal state
   // "completed" had recorded it "Swap complete", terminal
-  const failedBack = !tracked && stored.track?.state === "PROVIDER_FAILED" && restBack;
+  // ... what came back being the order's own and more than dust (the twelfth review round, C12-1's critique: a 1-wei note anyone holding the
+  // payload can make had recorded a provider failure REFUNDED, terminal, and a late refund then had no Return funds)
+  const refundVault = String((stored.params as { refundVault?: string }).refundVault ?? "").toLowerCase();
+  const ownBack = (stored.refunds ?? []).filter((x) => !refundVault || x.vault.toLowerCase() === refundVault).reduce((a, x) => a + BigInt(x.amount), 0n);
+  // ... or, on a route that refunds in another token, a note in one of its refund tokens' vaults at that token's floor at least (XB's critique: the
+  // provider's refund of a swap-first route, re-shielded in its token, had left the record "check the provider's record" for good)
+  const tokenBack = (stored.refunds ?? []).some((x) => {
+    const floor = stored.refundVaults?.[x.vault.toLowerCase()];
+    return floor !== undefined && BigInt(x.amount) >= BigInt(floor);
+  });
+  const failedBack =
+    !tracked && stored.track?.state === "PROVIDER_FAILED" && (job?.state === "refunded" || lateRefundHeld(ownBack, BigInt(params.amount ?? "0")) || tokenBack);
   const m = settledPartial
     ? { state: "COMPLETED" as const, phase: "settlement" as const }
     : failedBack
@@ -93,7 +116,7 @@ export function syncSwapRecord(
       : restBack
         ? "partial"
         : "partial-unreturned"
-    : tracked?.state === "REFUNDED_AT_DESTINATION"
+    : (tracked ?? lastClosing)?.state === "REFUNDED_AT_DESTINATION"
       ? "refunded-at-destination"
       : undefined;
   const id = swapRecordId(stored.orderId);
@@ -168,7 +191,7 @@ export function syncSwapRecord(
       ? prev!.outcome
         ? // a rest that came back after the record settled refines what it says (the eleventh review round, B11-8; I-O1 holds the state)
           {
-            outcome: prev!.outcome === "partial-unreturned" && (stored.refunds?.length ?? 0) > 0 ? "partial" : prev!.outcome,
+            outcome: prev!.outcome === "partial-unreturned" && refundNotesBack(stored) ? "partial" : prev!.outcome,
             ...(prev!.outcomeAsset ? { outcomeAsset: prev!.outcomeAsset } : {}),
           }
         : {}

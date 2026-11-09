@@ -58,10 +58,21 @@ export interface StoredSwap {
   /** when this wallet last handed the signed execution to its executor, before the answer (unix ms; the ninth review round, C-09): a
    *  hand-over whose answer was lost is never read "nothing was swapped" at the window's end. Optional */
   handOverAttempt?: number;
+  /** the twelfth review round (C12-6's critique): the journaled `executionTx` is the escrow's own Executed event's — not looked for again while it stands */
+  executionFromEvent?: boolean;
+  /** the twelfth review round (XV's critique): a read found the escrow's `executed` flag true — it never goes back; a read where every endpoint says
+   *  it did not execute (a reorg) takes it away. A read whose flag could not be read is read as it */
+  escrowExecutedSeen?: boolean;
   /** tokens other than the order's asset the signed provider call may pay back to the escrow (handed to the executor) */
   refundTokens?: string[];
   /** with them, the least balance of each worth a re-shield after execution (PP-S12) */
   refundFloors?: Record<string, string>;
+  /**
+   * the pool's vault of each refund token, by the vault's lower case, with that token's floor (the twelfth review round, XB's critique of C12-4): a
+   * refund in another token than the order's is a note in one of them at its floor at least — a note in any other vault, a 1-unit one anyone
+   * holding the order's payload can make, is none
+   */
+  refundVaults?: Record<string, string>;
   /** refund notes found in the pool for this order (PP-S09): refund() may re-shield more than once */
   refunds?: { leafIndex: number; vault: string; amount: string }[];
   state: string;

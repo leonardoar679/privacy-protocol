@@ -27,7 +27,8 @@ export interface WalletNotification {
  * had replaced the runner's own, and "Every step settled." was shown for a step refunded at its destination or lost.
  */
 export interface AlertWords {
-  key: "paused" | "route-changed" | "route-review" | "cancelled" | "cancelled-not-all" | "completed" | "completed-kept" | "completed-not-all";
+  /** `return-refused`: a step's return a relayer refused while the rest returns (the twelfth review round, XI's critique), said once */
+  key: "paused" | "route-changed" | "route-review" | "cancelled" | "cancelled-not-all" | "completed" | "completed-kept" | "completed-not-all" | "return-refused";
   vars?: Record<string, string>;
 }
 

@@ -144,6 +144,11 @@ export const CATALOG: Record<string, CatalogRow> = {
   // to do — a wallet set to send its own transactions, a relayer that closed the order's job, a record without the refund's payload
   refund_needs_relayer: { source: "wallet", fundsClass: "still-protected", actions: ["check-settings"] },
   refund_not_watched: { source: "relayer", fundsClass: "still-protected", actions: ["continue-monitoring"] },
+  // a protected execution's step its relayer dropped (its order reads DROPPED), and a step whose return that relayer refused after a Resume (the
+  // twelfth review round, XI's critique): the campaign's own words — one step not swapped beside steps that may have settled, Resume once another
+  // relayer is chosen — never the single swap's
+  step_dropped: { source: "relayer", fundsClass: "still-protected", actions: ["check-settings"] },
+  step_refund_not_watched: { source: "relayer", fundsClass: "still-protected", actions: ["check-settings"] },
   refund_payload_missing: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
   // the order was closed while its funding was proved (C-04; A10-8): read again at the send, nothing was sent
   order_closed: { source: "wallet", fundsClass: "not-moved", actions: ["new-quote"] },

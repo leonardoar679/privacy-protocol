@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   canPrepare, canRelease, checkWithinBounds, createCampaign, detectPause, exposure, gateFor, ledger, maximumLossModel, nextAction, planTranches, providerLimit, providerShares,
-  rateE18, replan, riskierClass, settledBy, stallAfterSeconds, stricterGate, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, MAX_TRANCHES, REPLAN_PAUSE, STALL_FLOOR_SECONDS, TRACK_INTERVAL_MS, TooManyTranches,
+  rateE18, replan, riskierClass, settledBy, stallAfterSeconds, stricterGate, withCampaignState, withTrancheState, FINALITY_MARGIN_SECONDS, MAX_DEVIATION_BPS, MAX_TRANCHES, REFUSED_RETRY_MS, REPLAN_PAUSE, STALL_FLOOR_SECONDS, TRACK_INTERVAL_MS, TooManyTranches,
   type Campaign, type ExecutionBounds, type TranchePlan, type TrancheState,
   swappedInFull, trancheMinimum, unreturnedOf,
 } from "../src/wallet/campaign";
@@ -332,7 +332,7 @@ describe("the reducer (§7): one action per tick, the continuation after a crash
     r = withTrancheState(r, 0, "executing", 2);
     r = withTrancheState(r, 1, "funded", 3);
     r = withTrancheState(r, 2, "skipped", 3);
-    expect(nextAction(r, facts)).toEqual({ kind: "wind-down" });
+    expect(nextAction(r, facts)).toEqual({ kind: "wind-down", index: 1 });
     r = withTrancheState(r, 1, "refunding", 4);
     expect(nextAction(r, facts)).toEqual({ kind: "track", indexes: [0, 1] });
     r = withTrancheState(withTrancheState(r, 0, "settled", 5), 1, "refunded", 6);
@@ -346,8 +346,38 @@ describe("the reducer (§7): one action per tick, the continuation after a crash
     r = withTrancheState(r, 1, "committed", 3);
     r = withTrancheState(r, 2, "skipped", 3);
     expect(nextAction(r, facts)).toEqual({ kind: "abandon", index: 1 });
-    expect(nextAction(withTrancheState(r, 1, "funded", 4), facts), "a funded one gets its refund-only job first").toEqual({ kind: "wind-down" });
+    expect(nextAction(withTrancheState(r, 1, "funded", 4), facts), "a funded one gets its refund-only job first").toEqual({ kind: "wind-down", index: 1 });
     expect(nextAction(withTrancheState(r, 1, "skipped", 4), facts)).toEqual({ kind: "complete" });
+  });
+  it("winding down past a step whose return a relayer refused: the held step behind it first, a committed one given up, the returning one tracked, then the refused one asked again once REFUSED_RETRY_MS passed (the twelfth review round, XI's critique)", () => {
+    const refusedAt = facts.now - 60_000;
+    let r = withCampaignState(campaign([p, p, p, p], [], {}, { capBps: 4000 }), "winding-down", 1);
+    r = withTrancheState(r, 0, "failed", 2, { refundRefusedAt: refusedAt });
+    r = withTrancheState(r, 1, "funded", 3);
+    r = withTrancheState(r, 2, "committed", 3);
+    r = withTrancheState(r, 3, "skipped", 3);
+    expect(nextAction(r, facts), "the step behind the refused one").toEqual({ kind: "wind-down", index: 1 });
+    r = withTrancheState(r, 1, "refunding", 4);
+    expect(nextAction(r, facts), "a committed one given up meanwhile").toEqual({ kind: "abandon", index: 2 });
+    r = withTrancheState(r, 2, "skipped", 5);
+    expect(nextAction(r, facts), "the returning one tracked").toEqual({ kind: "track", indexes: [1] });
+    r = withTrancheState(r, 1, "refunded", 6);
+    expect(nextAction(r, facts), "then a wait for the refused one's retry").toMatchObject({ kind: "wait", until: refusedAt + REFUSED_RETRY_MS });
+    expect(nextAction(r, { ...facts, now: refusedAt + REFUSED_RETRY_MS }), "asked again once its wait is over").toEqual({ kind: "wind-down", index: 0 });
+    expect(nextAction(withTrancheState(r, 0, "failed", 7, { refundRefusedAt: undefined }), facts), "a step no relayer refused: asked at once").toEqual({ kind: "wind-down", index: 0 });
+  });
+  it("two refused steps while the rest returns: the wait ends at the earliest retry, and the step whose wait ended first is asked first (the twelfth review round, XJ's critique)", () => {
+    const early = facts.now - 120_000, late = facts.now - 60_000;
+    let r = withCampaignState(campaign([p, p, p], [], {}, { capBps: 4000 }), "winding-down", 1);
+    r = withTrancheState(r, 0, "failed", 2, { refundRefusedAt: early });
+    r = withTrancheState(r, 1, "funded", 3, { refundRefusedAt: late });
+    r = withTrancheState(r, 2, "skipped", 3);
+    expect(nextAction(r, facts)).toMatchObject({ kind: "wait", until: early + REFUSED_RETRY_MS });
+    expect(nextAction(r, { ...facts, now: early + REFUSED_RETRY_MS }), "the step refused first").toEqual({ kind: "wind-down", index: 0 });
+    let q = withTrancheState(r, 0, "failed", 4, { refundRefusedAt: late });
+    q = withTrancheState(q, 1, "funded", 5, { refundRefusedAt: early });
+    expect(nextAction(q, facts), "the later step refused first: the wait still ends at the earliest").toMatchObject({ kind: "wait", until: early + REFUSED_RETRY_MS });
+    expect(nextAction(q, { ...facts, now: early + REFUSED_RETRY_MS }), "the step whose wait ended first").toEqual({ kind: "wind-down", index: 1 });
   });
   it("a committed tranche is funded and signed before any new one is committed, in every mode", () => {
     const half = 20n * ETH;

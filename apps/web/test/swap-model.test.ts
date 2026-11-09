@@ -15,7 +15,7 @@ import {
   quoteLines,
   routeDetails,
 } from "../src/features/swap/model";
-import { TARGETS } from "../src/features/swap/targets";
+import { TARGETS, canReturn, refundReadBack } from "../src/features/swap/targets";
 
 const NOW = Date.parse("2026-10-13T12:00:00Z");
 const quote: ServiceQuote = {
@@ -192,5 +192,30 @@ describe("the blockers at the confirmation (spec v2.0 §13.4)", () => {
     expect(confirmBlockers({ ...base, approvedMin: 17_700_000n })).toEqual(["minimum_below_limit"]);
     expect(confirmBlockers({ ...base, destinationValid: false })).toEqual(["destination_invalid"]);
     expect(confirmBlockers({ ...base, providerHealthy: false })).toEqual(["provider_unhealthy"]);
+  });
+});
+
+describe("refundReadBack (the twelfth review round, XN and XO)", () => {
+  it("a relayer's 'refunded' the tracker reads back — refunded, or a partial fill's rest re-shielded — and nothing else", () => {
+    for (const reading of ["REFUNDED", "PARTIAL", "DESTINATION_SUBMITTED"]) expect(refundReadBack("refunded", reading), reading).toBe(true);
+    // ... never a reading that may rest on an escrow not read: PROVIDER_EXECUTING also reads a destination refund whose refund tokens were not read (XP)
+    // ... nor a refund's leftover the next scan records (XQ): a refund at the destination, or a completed job's
+    for (const reading of ["DROPPED", "SOURCE_FINAL", "REFUND_PENDING", "LATE_REFUND", "PROVIDER_EXECUTING", "REFUNDED_AT_DESTINATION", "COMPLETED", undefined])
+      expect(refundReadBack("refunded", reading), String(reading)).toBe(false);
+    expect(refundReadBack("completed", "PARTIAL"), "no relayer's 'refunded'").toBe(false);
+  });
+});
+
+// The twelfth review round's seventh critique (XG): a relayer's "refunded" over an escrow that still holds the order reads as needing the user, and
+// its order panel offers Return funds — whatever that job's state says; an executing or settled order's never.
+describe("canReturn", () => {
+  it("no job, or one that ended without executing; a reading that needs the user; never a running or refunded job otherwise", () => {
+    expect(canReturn(undefined)).toBe(true);
+    expect(canReturn("execute-failed")).toBe(true);
+    expect(canReturn("refunded")).toBe(false);
+    expect(canReturn("refunded", "FAILED")).toBe(true);
+    expect(canReturn("refunded", "DROPPED")).toBe(true);
+    expect(canReturn("completed", "LATE_REFUND"), "a late refund: Return funds is its way out").toBe(true);
+    expect(canReturn("executing", "PROVIDER_EXECUTING")).toBe(false);
   });
 });

@@ -30,6 +30,9 @@ export const ORDER_STATE_MAP: Record<OrderState, Mapped> = {
   EXPIRED: { state: "RECOVERY_REQUIRED", phase: "funding", code: "order_expired" }, // V7: the escrow holds the funds until its refund time
   CANCELLED: { state: "CANCELLED", phase: "funding" },
   FAILED: { state: "RECOVERY_REQUIRED", phase: "execution", code: "needs_attention" },
+  // a relayer's "refunded" over an escrow that still holds the order, past its window (the twelfth review round, XH's critique): nothing was swapped,
+  // the funds are held for it — the window's words, never "the tracker could not settle where the funds are"
+  DROPPED: { state: "RECOVERY_REQUIRED", phase: "execution", code: "execution_window_closed" },
   LATE_REFUND: { state: "RECOVERY_REQUIRED", phase: "settlement", code: "late_refund" },
   // the sixth review round (2026-11-03): a refund paid at the destination is the order's end (the money is at the fresh address);
   // a provider failure with nothing back by the end of the watch needs the user's attention, with its reason

@@ -43,6 +43,8 @@ import { provenSpent, TreeNotProven, verifyTree } from "./verifiedReads";
 import { assertPublicInputsOfSpec } from "@privacy-wallet/protocol/prover";
 import { activityId, recordActivity, type ActivityRecord } from "./wallet/activity";
 import { assetByVault } from "./assets";
+import { refundVaultsOf } from "./refundVaults";
+import { refundNotesBack } from "./orderStates";
 import { guardDeployment } from "./deploymentGuard";
 import { guardRecipient } from "./recipients";
 import { readAllowance } from "./allowances";
@@ -1074,20 +1076,17 @@ export const COUNTER_RESERVE = 256;
 
 const refundFound = (r: RecoveredRefund): FoundNote => ({ leafIndex: r.leafIndex, note: r.note, commitment: r.commitment, noteData: r.noteData, txHash: r.txHash, label: r.kind === "shield" ? "swap" : "swap refund", counter: r.counter });
 
-/**
- * A job the relayer has ended, or is refunding: its refund found closes the order — unless an execution was seen, since a partial fill's rest
- * comes back through these states too (the round's second critique: an executed order had been closed REFUNDED here, its delivered part lost).
- */
-const RELAYER_DONE: readonly string[] = ["lapsed", "expired", "execute-failed", "refund-failed", "refunding", "refund-only"];
 /** An order's closed states (swapFunding.ts CLOSED_STATES, "completed" aside: kept here, swapFunding imports this module). */
 const ORDER_CLOSED: readonly string[] = ["refunded", "abandoned", "lapsed"];
 /**
  * What the scan found for each order a committed deposit came for: a refund's notes, journaled, and a same-chain swap's delivered notes on its
- * shield receipt (V6 §11.2: the order's tracker reads them as completed). A refund closes, refunded, an open order never handed over or ended at
- * the relayer with no execution seen; an order an execution was seen for, or the executor was asked about, keeps its state and is left to its
- * runner (a tick due now), which closes it on its reading; a completed order keeps its state, its record synced again.
+ * shield receipt (V6 §11.2: the order's tracker reads them as completed). A refund above dust (refundNotesBack) closes, refunded, an order already
+ * closed; every open order
+ * keeps its state and is left to its runner (an order tick due now; a campaign's order is read by its campaign's runner), which closes it on its
+ * reading — the escrow's balance read empty among it (the twelfth review round, C12-1); a completed order keeps its state, its record synced
+ * again. With the deployment, an order journaled before its refund vaults were has them derived (XD's critique).
  */
-export function journalRefunds(refunds: RecoveredRefund[]): void {
+export function journalRefunds(refunds: RecoveredRefund[], deployment: Deployment | null = null): void {
   if (!refunds.length || !session.isUnlocked()) return;
   // the orders a refund leaves to their runner: ticked now, so the job and the provider are read (B11-1); the ones it closed here
   const runnerReads = new Set<string>();
@@ -1105,30 +1104,36 @@ export function journalRefunds(refunds: RecoveredRefund[]): void {
       }
       const list = (s.refunds ??= []);
       if (!list.some((x) => x.leafIndex === r.leafIndex)) list.push({ leafIndex: r.leafIndex, vault: "0x" + r.note.vaultId.toString(16).padStart(40, "0"), amount: r.note.amount.toString() });
-      // which orders the refund closes (the eleventh review round, 2026-11-04, B11-1, B11-2, and the round's critique). An open order an execution
-      // was seen for — its transaction journaled, its job executing or executed — is left to its runner: its refund may be the rest of a partial
-      // fill, and the runner reads the job and the provider before it closes it (closed here from the bare state, a partly delivered swap had
-      // been recorded REFUNDED for good, a campaign step booked refunded). So is an open one the executor was asked about: the runner reads its
-      // job, and with none decides on the escrow's executed flag (orderRunner step 1b). Every other one is closed by its refund (A10-6), its pause
-      // with it (B11-2) — an order
-      // already closed or failed at the relayer (lapsed, refund-failed, execute-failed, expired), one never handed over (a tracker's reading is
-      // no execution: a Refresh writes one for any funded order)
-      // a completed order keeps its state; its record is synced again below, so what the refund changes of it is said — a provider failure
+      // a journal from before the hand-over kept its refund tokens' vaults (the twelfth review round, XD's critique): derived here, where its record is
+      // synced again — a provider failure closed before this change, its refund back in its token, had stayed "check the provider's record"
+      if (deployment && s.refundTokens?.length && !s.refundVaults) s.refundVaults = refundVaultsOf(deployment, s.refundTokens, s.refundFloors);
+      // which orders the refund closes (the eleventh review round, B11-1, B11-2; the twelfth, C12-1): an order already closed takes the refund's
+      // word (below); every open one is left to its runner — a campaign's order to its campaign's runner —, whose reading closes it, its pause with it
+      // a completed order keeps its state; its record is synced again below (a provider failure's record becomes a refund only on what came
+      // back being more than dust — swapRecords.ts), so what the refund changes of it is said — a provider failure
       // whose funds came back is a refund (VB-N1), the rest of a partial fill came back (B11-8) — the second critique: nothing re-synced it
       if (s.state === "completed") {
         if (!s.campaign) resync.add(s.orderId.toLowerCase());
         continue;
       }
-      const executionSeen = !!s.executionTx || s.state === "executing" || s.state === "executed";
-      const asked = s.handOverAttempt !== undefined || s.handedOverAt !== undefined || !!s.jobId;
-      // a Return funds' job (refund-only, refunding) says nothing of an execution the executor was asked for before it (the fifth critique: a
-      // hand-over whose answer was lost, then Return funds — its rest re-shielded, the order had closed REFUNDED and its delivered part was lost):
-      // left to its runner, whose tracker reads the escrow's flag
-      const returnAfterHandOver = (s.state === "refund-only" || s.state === "refunding") && (s.handOverAttempt !== undefined || s.handedOverAt !== undefined);
-      const over = ORDER_CLOSED.includes(s.state) || (RELAYER_DONE.includes(s.state) && !executionSeen && !returnAfterHandOver);
-      if (!over && (executionSeen || asked)) {
+      // an open order is left to its runner, whose reading closes it (the twelfth review round, C12-1): a refund note is a vault deposit anyone
+      // holding the order's payload can make — the relayer it was handed to, or a Return funds went to, holds it —, and closed here on the note
+      // alone, a funded order the escrow still held, and could still execute, had read Refunded for good, its Return funds gone. The runner's
+      // reading settles it only on the escrow's balance read empty (orderTracker.ts), as it does an order an execution was seen for (the eleventh
+      // review round, B11-1: its refund may be the rest of a partial fill) or one handed over with no word (its flag decides)
+      if (!ORDER_CLOSED.includes(s.state)) {
         if (!s.campaign) runnerReads.add(s.orderId);
         continue;
+      }
+      // ... on what came back above dust only (refundNotesBack; XG's critique: a note anyone holding the payload can make had closed a lapsed order)
+      if (!refundNotesBack(s)) continue;
+      // ... with the reading it closes on, when this close is the one that makes it refunded (the twelfth review round, XC's critique: the journal's
+      // last reading — the lapsed order's "Refunding" — had been answered as the one that closed it; XD's: an order already closed refunded on its
+      // reading — a partial fill's, its delivered amount with it — keeps it)
+      if (s.state !== "refunded") {
+        const at = Date.now();
+        s.track = { state: "REFUNDED", label: "Refunded", at };
+        if (s.history?.[s.history.length - 1]?.state !== "REFUNDED") s.history = [...(s.history ?? []), { state: "REFUNDED", at, note: "Refunded" }];
       }
       s.state = "refunded";
       delete s.paused;
@@ -1229,7 +1234,7 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   const { addedNotes, ...r } = await recordFound(o.deployment, keys, waiting.length ? found.filter((f) => !waiting.includes(f)) : found, index, locked);
   // only the refunds and deliveries recorded: one waiting past the proven pool is journaled once a proof covers it, as recoverSwapRefunds
   // does (the tenth review round, B10-2: a lying quorum's replay at a tail leaf had marked an order refunded for good, nothing in the store)
-  journalRefunds(waiting.length ? refunds.filter((x) => !waiting.some((f) => f.leafIndex === x.leafIndex)) : refunds);
+  journalRefunds(waiting.length ? refunds.filter((x) => !waiting.some((f) => f.leafIndex === x.leafIndex)) : refunds, o.deployment);
   noteStore.batch(() => {
     for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   });
@@ -1293,6 +1298,6 @@ export async function recoverSwapRefunds(o: { masterSeed: Uint8Array; deployment
   const refunds = proven === null ? found : found.filter((r) => r.leafIndex < proven || noteStore.all().some((n) => n.leafIndex === r.leafIndex));
   await recordFound(o.deployment, keys, refunds.map(refundFound), index, stale);
   if (stale()) throw new Error("the wallet locked during the lookup: the next scan records what it found");
-  journalRefunds(refunds);
+  journalRefunds(refunds, o.deployment);
   return refunds;
 }

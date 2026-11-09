@@ -5,7 +5,7 @@ import { formatAmount } from "@privacy-wallet/ui";
 import type { Amount, Status } from "./viewKit";
 import { isDraft, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { needsAttention } from "@privacy-wallet/sdk/operations/recovery";
-import { exposure, swappedInFull, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, notAsAsked, swappedInFull, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import type { MessageKey } from "../app/i18n/en";
 import type { Vars } from "../app/i18n/messages";
 
@@ -76,12 +76,13 @@ export function activityStatus(kind: string, status: string, campaign?: Campaign
     // (what did not arrive as asked, never a returned step's fees: the critique of E11-1) — a cancel that returned nothing reads complete (its
     // third critique)
     if (campaign.state === "cancelled" && swappedInFull(e)) return "completed";
-    if (e.completed > 0n && (e.notDelivered > 0n || campaign.state === "cancelled")) return "partial";
-    if (e.notDelivered > 0n) {
+    if (e.completed > 0n && (notAsAsked(e) > 0n || campaign.state === "cancelled")) return "partial";
+    if (notAsAsked(e) > 0n) {
       // nothing delivered as asked: what the steps handed over became
       const ways = new Set(campaign.tranches.filter((x) => x.state === "undelivered").map((x) => x.outcome?.undelivered ?? "lost"));
       if (ways.size === 1 && ways.has("refunded-at-destination")) return "refunded-at-destination";
-      if (ways.size === 1 && ways.has("other-token")) return "other-token";
+      // delivered in another token, or come back in another token (the twelfth review round, C12-4): another token, a warning
+      if (ways.size >= 1 && [...ways].every((w) => w === "other-token" || w === "refunded-other-token")) return "other-token";
       if (ways.size > 0) return "failed";
     }
   }

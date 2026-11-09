@@ -115,6 +115,12 @@ describe("Return funds' words (the eleventh review round's critique of E11-10)",
     // a path that exists in Simple too (the second critique: Simple's Settings has no Advanced row until the experience is Advanced)
     expect(en["op.error.refund_needs_relayer.reason"]).toContain("In Settings, set Experience to Advanced");
     expect(en["op.error.refund_needs_relayer.reason"]).toContain("Advanced → Submission of private transactions");
+    // ... and so do a relayer's closed job's, a campaign step's and a dropped step's (the twelfth review round, XI's critique: "choose another relayer in
+    // Settings" named a row Simple's Settings do not have)
+    for (const k of ["op.error.refund_not_watched.reason", "op.error.step_refund_not_watched.reason", "op.error.step_dropped.reason", "campaign.returnRefused"] as const) {
+      expect(en[k], k).toContain("set Experience to Advanced");
+      expect(en[k], k).toContain("Advanced → Submission of private transactions");
+    }
   });
 
   it("the wallet's own return under connected-wallet submission is refused with its code, before anything is asked of anyone", async () => {

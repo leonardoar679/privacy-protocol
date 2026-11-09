@@ -154,7 +154,7 @@ async function walletWithOrder(state = "funded") {
 }
 
 describe("a refunded order reaches the wallet (PP-S09)", () => {
-  it("a rescan records the refund note with the vault's amount and marks the order refunded; again, nothing new", async () => {
+  it("a rescan records the refund note with the vault's amount and leaves the order to its runner, which closes it once the escrow reads empty (the twelfth review round, C12-1); again, nothing new", async () => {
     await walletWithOrder();
     const r = await scanNotes({ masterSeed: seed, deployment });
     expect(r).toEqual({ scanned: 5, found: 1, added: 1, spent: 0, refunds: 1, received: [], pending: [], proven: null, leaves: expect.any(Number) }); // a refund is not a transfer received
@@ -162,7 +162,8 @@ describe("a refunded order reaches the wallet (PP-S09)", () => {
     expect(note).toMatchObject({ label: "swap refund", counter: COUNTER, spent: false, note: ours });
     expect(noteStore.balance(BigInt(ETH_VAULT))).toBe(AMOUNT);
     const s = session.journal().swaps[0];
-    expect(s.state).toBe("refunded");
+    expect(s.state).toBe("funded");
+    expect(session.journal().schedule.some((a) => a.id === `order-tick:${ORDER}`), "its runner reads it now").toBe(true);
     expect(s.refunds).toEqual([{ leafIndex: 4, vault: ETH_VAULT.toLowerCase(), amount: AMOUNT.toString() }]);
     expect(await scanNotes({ masterSeed: seed, deployment })).toEqual({ scanned: 5, found: 1, added: 0, spent: 0, refunds: 1, received: [], pending: [], proven: null, leaves: expect.any(Number) });
     expect(session.journal().swaps[0].refunds!.length).toBe(1);

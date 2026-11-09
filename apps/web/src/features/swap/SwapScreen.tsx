@@ -29,14 +29,15 @@ import { parseDestination, looksLikeChain } from "@privacy-wallet/protocol/walle
 import { assessSwapPrivacy, timingOfFunding } from "@privacy-wallet/protocol/wallet/privacyAssessment";
 import { unacknowledgedBlocks, type LintId } from "@privacy-wallet/protocol/wallet/privacyLint";
 import { swapFunding, type FeeTerms } from "@privacy-wallet/protocol/wallet/fees";
-import { exposure, swappedInFull } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, notAsAsked, swappedInFull } from "@privacy-wallet/protocol/wallet/campaign";
 import type { BlockerCode } from "@privacy-wallet/protocol-types";
 import { AssetSelector, Button, Card, ListRow, Page, SuccessCard, TextButton, WarningCard, formatUsdCents, type AssetOption } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
+import { useDeployment } from "../../app/deployment";
 import type { MessageKey } from "../../app/i18n/en";
 
 import { formatDateTime } from "../../app/i18n/intl";
-import { assetsOf, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
+import { assetByVault, assetsOf, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { swapService, type QuoteSet } from "@privacy-wallet/sdk/swapService";
 import { feeTerms, maxSpendable } from "@privacy-wallet/sdk/privateTx";
@@ -68,7 +69,7 @@ import {
   campaignMinimumOutput,
 } from "@privacy-wallet/sdk/wallet/campaigns";
 import { inFlightLimitReached, protectedInFlight } from "@privacy-wallet/sdk/wallet/inFlight";
-import { campaignLineText, notDeliveredWords } from "./protected/words";
+import { campaignLineText, notDeliveredWords, returnedOtherText } from "./protected/words";
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
 import { walletSwapProvider } from "@privacy-wallet/sdk/swapProvider";
@@ -1050,19 +1051,25 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
   const t = useT();
   const navigate = useNavigate();
   const { campaignId } = useParams();
+  const deployment = useDeployment();
   const { protection } = useSettings();
   const c = useCampaigns().find((x) => x.id.toLowerCase() === (campaignId ?? "").toLowerCase());
   if (!c) return <Navigate to="/swap" replace />;
   const model = campaignProgressModel(c);
   const total = model.large ? formatUsd(Number(model.large.totalUsdCents) / 100) : `${c.request.from.symbol}`;
   const pair = `${c.request.from.symbol} → ${c.request.to.symbol}`;
-  // what did not arrive as asked (exposure().notDelivered), in dollars at the confirmation's valuation (else in the asset), and where each
+  // what did not arrive as asked (notAsAsked(e), and of it what neither arrived nor came back, e.notDelivered), in dollars at the confirmation's valuation (else in the asset), and where each
   // step not delivered as asked went (the eleventh review round, 2026-11-04, E11-1: the Simple screens never read it); what returned steps
   // did not bring back is their fees, said as such — never "did not arrive as you asked" (its critique: a "Return the rest" read so)
   const e = exposure(c);
   const inAsset = (u: bigint) =>
     `${displayAmount(amountOf(u, c.request.from.symbol, c.request.from.decimals, c.request.from.chain), "down")} ${c.request.from.symbol}`;
-  const endedAmount = model.large?.notDeliveredUsdCents !== undefined ? formatUsdCents(model.large.notDeliveredUsdCents) : inAsset(e.notDelivered);
+  // what neither arrived nor came back: the "Not delivered as asked" line less what came back in another token and the steps delivered in part
+  // with their rest back in another token (the twelfth review round, C12-4), so the sentences add up to that line
+  const endedAmount =
+    model.large?.notDeliveredUsdCents !== undefined
+      ? formatUsdCents(model.large.notDeliveredUsdCents - (model.large.returnedOtherUsdCents ?? 0n) - (model.large.partlyBackUsdCents ?? 0n))
+      : inAsset(e.notDelivered);
   const costs =
     e.returnCosts > 0n ? (
       <p data-testid="swap-steps-return-costs">
@@ -1072,9 +1079,31 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
       </p>
     ) : null;
   const where = notDeliveredWords(t, c);
+  // ... and what came back to the protected balance in another token, said as such — never "did not come back" (the twelfth review round, C12-4)
+  const otherAmount = model.large?.returnedOtherUsdCents !== undefined ? formatUsdCents(model.large.returnedOtherUsdCents) : inAsset(e.returnedOther);
+  const partlyAmount = model.large?.partlyBackUsdCents !== undefined ? formatUsdCents(model.large.partlyBackUsdCents) : inAsset(e.partlyBack);
+  // ... naming what came back, in its own token (XB's critique: the step's value had been named as what came back)
+  const assetOf = (vault: string) => assetByVault(deployment, vault);
+  const show = (units: bigint, symbol: string, decimals: number) => `${displayAmount(amountOf(units, symbol, decimals), "down")} ${symbol}`;
+  const otherReturned = returnedOtherText(c, assetOf, false, show);
+  const partlyReturned = returnedOtherText(c, assetOf, true, show);
   const notDelivered = (
     <>
-      <p data-testid="swap-steps-ended">{t("screen.swap.stepsEnded", { amount: endedAmount })}</p>
+      {e.notDelivered > 0n ? <p data-testid="swap-steps-ended">{t("screen.swap.stepsEnded", { amount: endedAmount })}</p> : null}
+      {e.returnedOther > 0n ? (
+        <p data-testid="swap-steps-returned-other">
+          {otherReturned !== null
+            ? t("screen.swap.stepsReturnedOther", { amount: otherAmount, returned: otherReturned })
+            : t("screen.swap.stepsReturnedOtherUnknown", { amount: otherAmount, from: c.request.from.symbol })}
+        </p>
+      ) : null}
+      {e.partlyBack > 0n ? (
+        <p data-testid="swap-steps-partly-back">
+          {partlyReturned !== null
+            ? t("screen.swap.stepsPartlyBack", { amount: partlyAmount, returned: partlyReturned })
+            : t("screen.swap.stepsPartlyBackUnknown", { amount: partlyAmount, from: c.request.from.symbol })}
+        </p>
+      ) : null}
       {where.map((w) => (
         <p key={w}>{w}</p>
       ))}
@@ -1095,7 +1124,7 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
     // part of it not delivered as asked is never "complete" nor "Returned to your protected balance" (E11-1): the result says how much
     // did not arrive and where it went — it had read "Your $80,000 ETH → BTC swap is complete." with a quarter of it refunded at a fresh
     // address in another asset, or gone
-    if (e.notDelivered > 0n)
+    if (notAsAsked(e) > 0n)
       return (
         <Page title={t("screen.swap.title")} back={p.onDone} testId="swap-view">
           <WarningCard
@@ -1144,6 +1173,8 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
     );
   }
   const winding = c.state === "winding-down";
+  // a held step whose return a relayer refused (the twelfth review round, XI's critique): said while the rest returns, never "Returning the rest" alone
+  const returnRefused = c.tranches.some((x) => x.refundRefusedAt !== undefined && ["funded", "signed", "failed"].includes(x.state));
   if (c.state === "paused" || c.state === "rerouting") {
     // the pause in the catalog's words (audit round 2, n87): its code's title and reason — the runner's own English detail under
     // Advanced; a step that runs longer than expected reads as a delay, not an anomaly
@@ -1162,6 +1193,18 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
     // paused by the user's own "Pause large operations" (the eleventh review round, 2026-11-04, E11-2): the page had said the wallet was
     // locked and offered a Resume the next tick paused again on the same switch — the switch itself is offered, and Resume once it is off
     const bySwitch = c.state === "paused" && c.pause?.reason === "wallet-pause";
+    // a step that comes back only once it is returned — its relayer dropped it, or will not return it — never "returns … after its refund time" (XI),
+    // whatever the pause (XJ's critique: under the user's own pause, or a price pause after a Resume, a dropped or refused step had read so)
+    const swaps = session.isUnlocked() ? session.journal().swaps : [];
+    const kept =
+      code === "step_dropped" ||
+      code === "step_refund_not_watched" ||
+      c.tranches.some(
+        (x) =>
+          ["funded", "signed", "failed"].includes(x.state) &&
+          (x.refundRefusedAt !== undefined ||
+            swaps.some((o) => !!x.orderId && o.orderId.toLowerCase() === x.orderId.toLowerCase() && o.track?.state === "DROPPED")),
+      );
     return (
       <Page title={t("screen.swap.title")} back={p.onNew} testId="swap-view">
         <Card padding="md" testId="swap-steps-paused">
@@ -1191,8 +1234,12 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
                 ? "op.funds.unknown"
                 : c.tranches.some((x) => ["funded", "signed", "failed", "refunding"].includes(x.state))
                   ? where.length
-                    ? "screen.swap.stepsRestHeld"
-                    : "screen.swap.stepsSafeHeld"
+                    ? kept
+                      ? "screen.swap.stepsRestKept"
+                      : "screen.swap.stepsRestHeld"
+                    : kept
+                      ? "screen.swap.stepsSafeKept"
+                      : "screen.swap.stepsSafeHeld"
                   : where.length
                     ? "screen.swap.stepsRest"
                     : "screen.swap.stepsSafe",
@@ -1233,6 +1280,11 @@ function SwapSteps(p: { advanced: boolean; onDone: () => void; onNew: () => void
       <p className="ds-note" data-testid="swap-steps-note">
         {t(winding ? "screen.swap.stepsReturning" : "screen.swap.stepsNote")}
       </p>
+      {winding && returnRefused ? (
+        <p className="ds-note-warn" data-testid="swap-steps-return-refused">
+          {t("campaign.returnRefused")}
+        </p>
+      ) : null}
       {!winding ? (
         <TextButton onClick={() => cancelCampaign(c.id)} data-testid="swap-steps-return">
           {t("screen.swap.stepsReturn")}
@@ -1380,6 +1432,24 @@ function SwapProgress(p: { masterSeed: Uint8Array; deployment: Deployment | null
       const vault = String((stored?.params as { refundVault?: string } | undefined)?.refundVault ?? "").toLowerCase();
       const back = (stored?.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + BigInt(x.amount), 0n);
       const from = (stored?.request as { from?: { symbol?: string; decimals?: number } } | undefined)?.from;
+      // ... and what came back in another token: a refund token's vault at its floor, named in its own token (the twelfth review round, XD's critique:
+      // a refund in USDC, or in WETH back as ETH for a USDC order, had read "Returned to your protected balance." with no word of it, or named only
+      // the order's own asset). A vault this deployment does not know: none of them named, never a part of what came back as the whole
+      const byVault = new Map<string, bigint>();
+      for (const x of stored?.refunds ?? []) {
+        const floor = stored?.refundVaults?.[x.vault.toLowerCase()];
+        if (x.vault.toLowerCase() === vault || floor === undefined || BigInt(x.amount) < BigInt(floor)) continue;
+        byVault.set(x.vault.toLowerCase(), (byVault.get(x.vault.toLowerCase()) ?? 0n) + BigInt(x.amount));
+      }
+      if (byVault.size) {
+        const others = [...byVault].map(([v, units]) => {
+          const a = assetByVault(p.deployment, v);
+          return a ? `${displayAmount(amountFrom(units.toString(), a.symbol, a.decimals), "down")} ${a.symbol}` : null;
+        });
+        if (others.some((x) => x === null)) return t("screen.swap.returned");
+        const own = back > 0n && from?.symbol ? [`${displayAmount(amountFrom(back.toString(), from.symbol, from.decimals ?? 18), "down")} ${from.symbol}`] : [];
+        return t("screen.swap.returnedAmounts", { amounts: [...own, ...(others as string[])].join(", ") });
+      }
       return back > 0n && from?.symbol
         ? t("screen.swap.returnedAmount", { amount: displayAmount(amountFrom(back.toString(), from.symbol, from.decimals ?? 18), "down"), symbol: from.symbol })
         : t("screen.swap.returned");

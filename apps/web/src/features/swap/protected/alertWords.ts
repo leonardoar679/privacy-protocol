@@ -46,4 +46,5 @@ export const UNDELIVERED_WORDS: Record<NonNullable<NonNullable<Tranche["outcome"
   "refunded-at-destination": "campaign.undelivered.refunded-at-destination",
   "other-token": "campaign.undelivered.other-token",
   lost: "campaign.undelivered.lost",
+  "refunded-other-token": "campaign.undelivered.refunded-other-token",
 };

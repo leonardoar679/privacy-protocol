@@ -590,19 +590,19 @@ describe("the escrow's own reads, through the wallet's endpoints (K4; the tests 
     expect(await escrowExecuted(deployment, ESCROW)).toBeNull();
   });
 
-  it("executionTxOf: the event between the order's creation and its deadline, window by window, named alike by every endpoint", async () => {
+  it("executionTxOf: the event in its deadline's span (the twelfth review round, C12-9: never from the device's commit time), window by window, named alike by every endpoint", async () => {
     const latest = BLOCK0 + 20_000n;
     // the deadline lies 150 blocks after the creation; an execution there is found, one past the deadline is not this order's
     vi.mocked(clientsFor).mockReturnValue([
       endpoint({ executed: true, at: BLOCK0 + 140n, latest }),
       endpoint({ executed: true, at: BLOCK0 + 140n, latest }),
     ] as never);
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S)).toBe(EXEC);
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S)).toBe(EXEC);
     vi.mocked(clientsFor).mockReturnValue([
       endpoint({ executed: true, at: BLOCK0 + 200n, latest }),
       endpoint({ executed: true, at: BLOCK0 + 200n, latest }),
     ] as never);
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "after the deadline: none").toBeNull();
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "after the deadline: none").toBeNull();
     // a window longer than one read: a delayed order's 72 hours, its execution in the last window
     const long = DEADLINE_S + 72 * 3600;
     const at = BLOCK0 + BigInt(72 * 300 + 100);
@@ -610,35 +610,36 @@ describe("the escrow's own reads, through the wallet's endpoints (K4; the tests 
       endpoint({ executed: true, at, latest: at + 9000n }),
       endpoint({ executed: true, at, latest: at + 9000n }),
     ] as never);
-    expect(await executionTxOf(deployment, ESCROW, T0, long)).toBe(EXEC);
+    expect(await executionTxOf(deployment, ESCROW, long)).toBe(EXEC);
     // one endpoint that names none: no agreed answer
     vi.mocked(clientsFor).mockReturnValue([endpoint({ executed: true, at: BLOCK0 + 140n, latest }), endpoint({ executed: true, latest })] as never);
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S)).toBeNull();
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S)).toBeNull();
   });
 
-  it("executionTxOf's bounds: an execution before a fast device's commit time is found, so is one in the deadline's own block, never one after it; a capped endpoint is read in smaller windows", async () => {
+  it("executionTxOf's bounds: an execution before a fast device's commit time is found, so is one in the deadline's own block, never one after it; a capped endpoint is read in smaller windows (C12-9: the span is the deadline's, not the commit time's)", async () => {
     const latest = BLOCK0 + 20_000n;
     const both = (o: Parameters<typeof endpoint>[0]) => vi.mocked(clientsFor).mockReturnValue([endpoint(o), endpoint(o)] as never);
     // the device's clock 5 minutes fast at the commit: the execution came 2 minutes after the true commit, 3 minutes before createdAt
     both({ executed: true, at: BLOCK0 - 15n, latest });
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "a fast device clock").toBe(EXEC);
-    // ... up to the hour's margin: 55 minutes fast, found; more than an hour before the commit, not this order's
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "a fast device clock").toBe(EXEC);
+    // ... 55 minutes fast, found; more than an hour before the device's commit time too: the search starts from the deadline's span, which the
+    // device's clock never moves (C12-9)
     both({ executed: true, at: BLOCK0 - 275n, latest });
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "55 minutes").toBe(EXEC);
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "55 minutes").toBe(EXEC);
     both({ executed: true, at: BLOCK0 - 305n, latest });
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "61 minutes").toBeNull();
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "61 minutes").toBe(EXEC);
     // the block whose time is the deadline (BLOCK0 + 150): execute() takes block.timestamp <= the deadline
     both({ executed: true, at: BLOCK0 + 150n, latest });
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "the deadline's own block").toBe(EXEC);
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "the deadline's own block").toBe(EXEC);
     both({ executed: true, at: BLOCK0 + 151n, latest });
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "one past it").toBeNull();
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "one past it").toBeNull();
     // a deadline still ahead of the latest block: read to the latest, the latest included
     both({ executed: true, at: BLOCK0 + 100n, latest: BLOCK0 + 100n });
-    expect(await executionTxOf(deployment, ESCROW, T0, DEADLINE_S), "the latest block").toBe(EXEC);
+    expect(await executionTxOf(deployment, ESCROW, DEADLINE_S), "the latest block").toBe(EXEC);
     // a day-long window at an endpoint that serves 2,000 blocks at a time: halved until it answers
     const day = DEADLINE_S + 24 * 3600;
     both({ executed: true, at: BLOCK0 + 7_000n, latest, cap: 2_000n });
-    expect(await executionTxOf(deployment, ESCROW, T0, day)).toBe(EXEC);
+    expect(await executionTxOf(deployment, ESCROW, day)).toBe(EXEC);
   });
 });
 
@@ -721,7 +722,7 @@ describe("a job found ended closes the order only on a settled reading (the fift
 });
 
 describe("a Return funds' job after a hand-over (the fifth critique)", () => {
-  it("says nothing of the execution: the order is left to its runner, whose tracker reads the escrow's flag — one never handed over is closed at once", () => {
+  it("says nothing of the execution: the order is left to its runner, whose tracker reads the escrow's flag — one never handed over too, closed by its runner once the escrow reads empty (the twelfth review round, C12-1)", () => {
     for (const state of ["refund-only", "refunding"]) {
       session.update((j) => {
         j.operations = [];
@@ -734,7 +735,8 @@ describe("a Return funds' job after a hand-over (the fifth critique)", () => {
       expect(pending(), `${state}: its runner reads it`).toBeDefined();
       put({ state, jobId: "job-r", relayerUrl: "http://relayer.test", handOverAttempt: undefined });
       journalRefunds([refund()]);
-      expect(stored().state, `${state}, never handed over: its refund closes it`).toBe("refunded");
+      expect(stored().state, `${state}, never handed over: left to its runner too (C12-1)`).toBe(state);
+      expect(pending(), `${state}, never handed over: its runner reads it`).toBeDefined();
     }
   });
 });
@@ -895,8 +897,9 @@ describe("1b reads again what it could not read (the tests critic's T5; the fift
       expect(await tick(baseIo(over), LATER), name).toBe("track");
       expect(pending()?.dueAt, name).toBe(LATER + HANDOVER_RECHECK_MS);
       expect(stored().paused, `${name}: never "your funds wait in your one-time escrow" over funds already back`).toBeUndefined();
-      expect(rec()?.state, name).toBe("PROVIDER_EXECUTING");
-      expect(rec()?.history.at(-1)?.note, name).toBe("Executing");
+      // the escrow not read: a refund is reported, never yet "came back" (the twelfth review round, C12-1: a refund counts on the escrow read empty)
+      expect(rec()?.state, name).toBe(name === "the escrow not read" ? "REFUNDING" : "PROVIDER_EXECUTING");
+      expect(rec()?.history.at(-1)?.note, name).toBe(name === "the escrow not read" ? "Refunding" : "Executing");
     }
   });
 

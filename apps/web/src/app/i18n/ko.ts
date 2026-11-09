@@ -165,6 +165,9 @@ export const ko: Record<MessageKey, string> = {
   "notification.campaign.completed-not-all.body": "모든 단계가 끝났지만, 금액 일부는 요청한 대로 도착하지 않았습니다.",
   "notification.campaign.cancelled-not-all.title": "보호된 스왑이 취소되었습니다",
   "notification.campaign.cancelled-not-all.body": "나머지는 비공개 잔액으로 돌아갔지만, 금액 일부는 요청한 대로 도착하지 않았습니다.",
+  "notification.campaign.return-refused.title": "한 단계의 반환이 거절되었습니다",
+  "notification.campaign.return-refused.body":
+    "한 단계의 릴레이어가 지금 그 단계에 대해 아무것도 돌려주지 않아, 자금이 그 단계에 묶여 있습니다. 돌려받으려면 다른 릴레이어를 고르세요. 설정에서 사용 방식을 고급으로 바꾸고 고급 → 비공개 거래 제출 방식에서 고르면 됩니다. 지갑은 10분마다 다시 요청합니다.",
   "operation.actionNeeded": "조치 필요",
   "operation.fundsSafe": "자금은 안전합니다.",
   "operation.checkingFunds": "자금 상태를 확인하고 있습니다.",
@@ -300,11 +303,14 @@ export const ko: Record<MessageKey, string> = {
   "screen.swap.stepsRest": "아직 넘겨지지 않은 금액은 보호 잔액에 그대로 있습니다.",
   "screen.swap.stepsRestHeld":
     "이미 자금이 들어간 단계는 해당 스왑을 위해 보관되었다가 환불 시간이 지나면 보호 잔액으로 돌아오며, 나머지는 보호 잔액에 그대로 있습니다.",
+  "screen.swap.stepsSafeKept": "자금은 안전합니다. 이미 자금이 들어간 단계는 돌려받을 때까지 해당 스왑을 위해 보관되며, 나머지는 보호 잔액에 그대로 있습니다.",
+  "screen.swap.stepsRestKept": "이미 자금이 들어간 단계는 돌려받을 때까지 해당 스왑을 위해 보관되며, 나머지는 보호 잔액에 그대로 있습니다.",
   "screen.swap.stepsDetail": "단계 보기",
   "screen.swap.intoProtected": "보호 잔액으로 들어옵니다.",
   "screen.swap.addingToProtected": "전달됨 — 보호 잔액에 추가하는 중…",
   "screen.swap.returned": "보호 잔액으로 반환되었습니다.",
   "screen.swap.returnedAmount": "보호 잔액으로 {amount} {symbol} 반환됨. 프라이버시 수수료는 자금을 넣을 때 부과되어 돌아오지 않습니다.",
+  "screen.swap.returnedAmounts": "보호 잔액으로 {amounts} 반환됨. 프라이버시 수수료는 자금을 넣을 때 부과되어 돌아오지 않습니다.",
   "screen.swap.stepsPartly": "{pair} 스왑의 일부가 완료되었습니다. 나머지는 보호 잔액에 있습니다.",
   "screen.swap.stepsNotAll": "{usd} 규모의 {pair} 스왑이 끝났지만, 일부는 요청한 대로 도착하지 않았습니다.",
   "screen.swap.stepsPartlyNotAll": "{pair} 스왑의 일부는 완료되었고 일부는 요청한 대로 도착하지 않았습니다. 나머지는 보호 잔액에 있습니다.",
@@ -314,6 +320,17 @@ export const ko: Record<MessageKey, string> = {
   "screen.swap.stepsWhere.otherToken": "한 단계가 목적지 주소로 {symbol}이(가) 아닌 다른 토큰으로 전달되었습니다.",
   "screen.swap.stepsWhere.lost": "제공자가 한 단계에서 실패했고, 그 단계에서는 아무것도 돌아오지 않았습니다.",
   "screen.swap.stepsWhere.partialUnreturned": "한 단계가 일부만 전달되었고, 나머지는 돌아오지 않았습니다.",
+  "screen.swap.stepsWhere.partialReturnedOther":
+    "한 단계가 일부만 전달되었고, 나머지는 {from}이(가) 아닌 다른 토큰으로 보호 잔액에 돌아왔습니다. 그 토큰은 보호 잔액에 남아 있으며 자동으로 다시 스왑되지 않습니다.",
+  "screen.swap.stepsWhere.lostRest": "제공자가 한 단계에서 실패했습니다. 그 단계에서 돌아온 것은 보호 잔액으로 돌아왔습니다.",
+  "screen.swap.stepsWhere.refundedOtherToken":
+    "한 단계의 제공자가 {from}이(가) 아닌 다른 토큰으로 돌려주었습니다. 그 토큰은 보호 잔액에 남아 있으며 자동으로 다시 스왑되지 않습니다.",
+  "screen.swap.stepsReturnedOther": "스왑 금액 중 {amount}은(는) {returned}(으)로 보호 잔액에 돌아왔습니다.",
+  "screen.swap.stepsReturnedOtherUnknown": "스왑 금액 중 {amount}은(는) {from}이(가) 아닌 다른 토큰으로 보호 잔액에 돌아왔습니다.",
+  "screen.swap.stepsPartlyBack": "스왑 금액 중 {amount}은(는) 일부만 전달되었고, 나머지는 {returned}(으)로 보호 잔액에 돌아왔습니다.",
+  "screen.swap.stepsPartlyBackUnknown": "스왑 금액 중 {amount}은(는) 일부만 전달되었고, 나머지는 {from}이(가) 아닌 다른 토큰으로 보호 잔액에 돌아왔습니다.",
+  "screen.swap.stepsWhere.partialOtherToken":
+    "한 단계의 제공자가 일부만 전달하고 나머지는 {from}이(가) 아닌 다른 토큰으로 돌려주었으며, 각각 얼마인지는 알리지 않았습니다. 그 토큰은 보호 잔액에 남아 있으며 자동으로 다시 스왑되지 않습니다.",
   "screen.swap.stepsReturnCosts": "돌아온 단계의 수수료: {amount}",
   "screen.swap.stepsKept": "따로 스왑하기에는 너무 적은 나머지 금액은 보호 잔액에 남아 있습니다.",
   "screen.swap.cancelled": "취소되었습니다. 보호 잔액에서 빠져나간 것은 없습니다.",
@@ -402,6 +419,7 @@ export const ko: Record<MessageKey, string> = {
   "screen.progress.executing": "실행 중",
   "screen.progress.remaining": "남은 금액",
   "screen.progress.notDelivered": "요청대로 전달되지 않음",
+  "screen.progress.returnedOther": "그중: 다른 토큰으로 반환된 단계",
   "screen.progress.returnCosts": "돌아온 단계의 수수료",
   "more.receiveWhy": "비공개로 받기 위한 프라이버시 주소",
   "more.privacyWhy": "비공개로 유지되는 것과 지갑이 약속할 수 없는 것",
@@ -621,7 +639,11 @@ export const ko: Record<MessageKey, string> = {
   "op.error.refund_needs_relayer.reason":
     "이 지갑은 거래를 직접 보내도록 설정되어 있고, 스왑은 릴레이어를 통해 돌려받습니다. 설정에서 사용 방식을 고급으로 바꾸고, 고급 → 비공개 거래 제출 방식에서 릴레이어를 고른 뒤 다시 돌려받으세요.",
   "op.error.refund_not_watched.title": "릴레이어가 이 스왑의 작업을 닫았습니다",
-  "op.error.refund_not_watched.reason": "릴레이어가 더 이상 이 스왑을 지켜보지 않아 지금은 아무것도 돌려주지 않습니다. 자금은 이 스왑에 묶여 있습니다.",
+  "op.error.refund_not_watched.reason":
+    "이 릴레이어는 지금 이 스왑에 대해 아무것도 돌려주지 않습니다. 자금은 이 스왑에 묶여 있습니다. 설정에서 사용 방식을 고급으로 바꾸고, 고급 → 비공개 거래 제출 방식에서 다른 릴레이어를 고른 뒤 다시 돌려받으세요.",
+  "op.error.step_refund_not_watched.title": "릴레이어가 이 단계의 작업을 닫았습니다",
+  "op.error.step_refund_not_watched.reason":
+    "이 릴레이어는 지금 이 단계에 대해 아무것도 돌려주지 않습니다. 자금은 이 단계에 묶여 있습니다. 설정에서 사용 방식을 고급으로 바꾸고, 고급 → 비공개 거래 제출 방식에서 다른 릴레이어를 고른 뒤 재개를 누르세요.",
   "op.error.refund_payload_missing.title": "이 지갑에서는 이 스왑을 돌려받을 수 없습니다",
   "op.error.refund_payload_missing.reason": "이 지갑의 스왑 기록에 돌려받는 데 필요한 정보가 없어 아무것도 보내지 않았습니다.",
   "op.error.funding_under_way.title": "자금 전송이 진행 중입니다",
@@ -760,6 +782,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.step_relayer_not_ready.title": "이 단계에 자금을 투입할 수 없습니다",
   "op.error.step_relayer_not_ready.reason":
     "릴레이어가 이 스왑 서비스의 주문을 실행하지 않거나 이 지갑이 거래를 직접 보내도록 설정되어 있어, 이 단계는 자금 투입 전에 중단되었습니다. 이 단계에서는 아무것도 보내지 않았습니다. 설정에서 사용 방식을 고급으로 바꾸고, 고급 → 비공개 거래 제출 방식에서 이 서비스의 스왑을 실행하는 릴레이어를 고른 뒤 재개를 누르거나 나머지를 보호 잔액으로 반환하세요.",
+  "op.error.step_dropped.title": "한 단계가 스왑되지 않았습니다",
+  "op.error.step_dropped.reason":
+    "이 단계의 릴레이어는 이 단계를 돌려주었다고 하지만 자금은 아직 이 단계에 묶여 있어, 이 단계는 스왑되지 않았습니다. 재개를 누르면 설정에서 고른 릴레이어를 통해 자금을 돌려받고 나머지를 계속 진행합니다. 같은 릴레이어라면 먼저 설정에서 사용 방식을 고급으로 바꾸고, 고급 → 비공개 거래 제출 방식에서 다른 릴레이어를 고르세요.",
   "op.error.relayer_not_ready.reason":
     "이 스왑을 처리할 릴레이어가 스왑 서비스의 주문을 실행하지 않아 자금을 투입하기 전에 중단했습니다. 보호 잔액에서 빠져나간 것은 없습니다. 설정에서 릴레이어를 확인하거나 나중에 다시 시도하세요.",
   "op.error.service_key_changed.title": "스왑을 확인한 뒤 스왑 서비스의 키가 바뀌었습니다",
@@ -1345,6 +1370,7 @@ export const ko: Record<MessageKey, string> = {
   "campaign.restReturnedNotAll": "나머지는 비공개 잔액으로 반환되었습니다. 금액 일부는 요청한 대로 도착하지 않았습니다('요청대로 전달되지 않음' 참고).",
   "campaign.finishedNotAll": "모든 단계가 끝났습니다. 금액 일부는 요청한 대로 도착하지 않았습니다('요청대로 전달되지 않음' 참고).",
   "campaign.notDelivered": "요청대로 전달되지 않음",
+  "campaign.returnedOther": "그중: 다른 토큰으로 반환된 단계",
   "campaign.returnCosts": "돌아온 단계의 수수료",
   "campaign.keptInBalance": "비공개 잔액에 남김",
   "campaign.counts": "정산 {settled} · 실행 중 {executing} · 남음 {remaining}",
@@ -1378,10 +1404,18 @@ export const ko: Record<MessageKey, string> = {
   "campaign.alert.cancelled": "취소됨",
   "campaign.undelivered.refunded-at-destination":
     "한 단계가 전달되지 않았습니다. 제공자가 그 단계의 목적지 주소로 자체 환불 자산으로 환불했으며, 비공개 잔액으로 돌아온 것은 없습니다.",
+  "campaign.undelivered.refunded-at-destination-rest":
+    "한 단계가 전달되지 않았습니다. 제공자가 해당 단계의 목적지 주소로 자체 환불 자산으로 환불했습니다. 그 밖에 돌아온 것은 비공개 잔액으로 돌아왔습니다.",
   "campaign.undelivered.other-token": "한 단계가 요청한 토큰이 아닌 다른 토큰으로 전달되었습니다. 그 단계의 목적지 주소에 무엇이 도착했는지 확인하세요.",
   "campaign.undelivered.lost": "한 단계가 제공자에서 실패했으며, 지갑이 지켜보는 동안 돌아온 것이 없습니다.",
+  "campaign.undelivered.refunded-other-token": "한 단계가 스왑하던 토큰이 아닌 다른 토큰으로 비공개 잔액에 돌아왔습니다. 자동으로 다시 스왑되지 않습니다.",
+  "campaign.undelivered.partial-other-token":
+    "한 단계가 일부만 전달되었고, 나머지는 스왑하던 토큰이 아닌 다른 토큰으로 비공개 잔액에 돌아왔습니다. 자동으로 다시 스왑되지 않습니다.",
+  "campaign.undelivered.lost-rest": "한 단계가 제공자에서 실패했습니다. 그 단계에서 돌아온 것은 비공개 잔액으로 돌아왔습니다.",
   "campaign.resumeNote":
     "재개하면 사실 관계를 다시 확인하고 남은 금액의 견적을 다시 받으며, 경로가 바뀌었다면 검토를 요청합니다. 이미 넘겨진 단계는 그동안 계속 진행됩니다.",
+  "campaign.returnRefused":
+    "한 단계의 릴레이어가 지금 그 단계에 대해 아무것도 돌려주지 않아, 자금이 그 단계에 묶여 있습니다. 돌려받으려면 다른 릴레이어를 고르세요. 설정에서 사용 방식을 고급으로 바꾸고 고급 → 비공개 거래 제출 방식에서 고르면 됩니다. 지갑은 10분마다 다시 요청합니다.",
   "campaign.rerouteTitle": "경로가 바뀌었습니다: {provider}.",
   "campaign.rerouteNote": "대규모 작업의 경로 변경은 조용히 적용되지 않고 항상 검토를 거칩니다. 이미 넘겨진 단계는 계속 진행됩니다.",
   "campaign.pause": "일시 중지",
@@ -1625,6 +1659,7 @@ export const ko: Record<MessageKey, string> = {
   "order.confirmAgain": "2 · 새 견적으로 다시 확인",
   "order.confirm": "2 · 스왑 확인",
   "order.returnHint": "주문은 실행되지 않았습니다. 기간이 열리면 에스크로가 비공개 잔액으로 다시 보호 처리됩니다",
+  "order.returnHintHeld": "이 스왑을 위해 보관된 자금을 비공개 잔액으로 돌려받습니다",
   "order.return": "비공개 잔액으로 반환",
   "order.priceMoved": "가격이 변했습니다. 이제 이 경로의 보장 최소 수령액은 {min}입니다(승인한 금액: {approved}, −{drop} %). 아무것도 서명하지 않았습니다.",
   "order.priceMovedNote":

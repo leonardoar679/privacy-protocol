@@ -13,7 +13,9 @@ import { journalRefunds } from "../src/privateTx";
 import type { RecoveredRefund } from "../src/refunds";
 import { syncSwapRecord, swapRecordId } from "../src/operations/swapRecords";
 import { getOperation, resetOperationsMemory } from "../src/operations/store";
-import { deriveState } from "../src/orderTracker";
+import { deriveState, trackOrder } from "../src/orderTracker";
+import { runOrderTick, type OrderIo } from "../src/wallet/orderRunner";
+import type { SwapJob } from "../src/relayer";
 import { trancheStateOf } from "../src/wallet/campaignRunner";
 import { depositedLogs, type Deployment } from "../src/chain";
 import { rpcUrlsOf } from "../src/rpcUrls";
@@ -80,6 +82,40 @@ const refund = (leafIndex = 9): RecoveredRefund =>
     counter: 7,
   }) as unknown as RecoveredRefund;
 
+/** The order's runner, one tick at `now`, the escrow read empty and its flag false (the twelfth review round, C12-1: the runner closes what the scan finds). */
+const runnerTick = async (now: number, jobState?: SwapJob["state"]) => {
+  const unused = async (): Promise<never> => {
+    throw new Error("not used");
+  };
+  const track: OrderIo["track"] = (st) =>
+    trackOrder(st, {
+      deployment: null,
+      session,
+      now,
+      readers: {
+        job: async () => (jobState ? ({ id: "job-1", escrow: st.endpoint, state: jobState, updatedAt: T0 } as SwapJob) : null),
+        balance: async () => 0n,
+        track: async () => null,
+        executed: async () => false,
+      },
+    });
+  const io: OrderIo = {
+    fund: unused,
+    escrowBalance: async () => 0n,
+    escrowExecuted: async () => false,
+    sign: unused,
+    handOver: unused,
+    job: async () => null,
+    track,
+    refund: unused,
+    shieldStatus: async () => null,
+    registerShield: unused,
+    recoverShield: async () => 0,
+  };
+  const a = session.journal().schedule.find((x) => x.id === `order-tick:${ORDER}`)!;
+  return runOrderTick(a, { masterSeed: new Uint8Array(32).fill(5), deployment: null, io, now: () => now });
+};
+
 describe("a refund the scan finds (B11-1, B11-2)", () => {
   it("never closes an order that executed: the refund is journaled, the state is the runner's, its tick due now", () => {
     order({ executionTx: "0x" + "ee".repeat(32), handedOverAt: T0, track: { state: "PARTIAL", label: "Partial", deliveredAmount: "1500000", at: T0 } });
@@ -95,8 +131,8 @@ describe("a refund the scan finds (B11-1, B11-2)", () => {
     expect(stored().state).toBe("funded");
     expect(session.journal().schedule.some((a) => a.id === `order-tick:${ORDER}`)).toBe(true);
   });
-  it("a job the relayer ended (lapsed, refund-failed, expired): its refund closes it at once, REFUNDED — A10-6 kept (the critique, T1)", () => {
-    for (const state of ["lapsed", "refund-failed", "expired", "execute-failed"]) {
+  it("a job the relayer ended: a lapsed order takes its refund at once; one refund-failed, expired or execute-failed is left to its runner, which closes it REFUNDED once the escrow reads empty — A10-6 kept (the critique, T1; the twelfth review round, C12-1)", async () => {
+    for (const state of ["lapsed"]) {
       session.update((j) => {
         j.operations = []; // a record left by the last state would pass the REFUNDED check by itself (the second critique, T5)
         j.schedule = [];
@@ -112,6 +148,21 @@ describe("a refund the scan finds (B11-1, B11-2)", () => {
         session.journal().schedule.some((a) => a.id === `order-tick:${ORDER}`),
         `${state}: no tick for a closed order`,
       ).toBe(false);
+    }
+    for (const state of ["refund-failed", "expired", "execute-failed"] as const) {
+      session.update((j) => {
+        j.operations = [];
+        j.schedule = [];
+      });
+      resetOperationsMemory();
+      order({ state, jobId: "job-1", handedOverAt: T0 });
+      journalRefunds([refund()]);
+      expect(stored().state, `${state}: left to its runner`).toBe(state);
+      expect(session.journal().schedule.find((a) => a.id === `order-tick:${ORDER}`)?.dueAt, state).toBeLessThanOrEqual(Date.now());
+      const r = await runnerTick(T0 + 5 * 3600_000, state);
+      expect(r?.step, state).toBe("settled");
+      expect(stored().state, state).toBe("refunded");
+      expect(getOperation(swapRecordId(ORDER))?.state, state).toBe("REFUNDED");
     }
   });
   it("an execution seen wins over the relayer's refund states: an executed order in refunding, refund-failed or refund-only is left to its runner — its partial fill's rest comes back that way (the second critique, C1)", () => {
@@ -193,16 +244,20 @@ describe("a refund the scan finds (B11-1, B11-2)", () => {
     );
     expect(next).toMatchObject({ state: "undelivered", patch: { outcome: { undelivered: "other-token" } } });
   });
-  it("a tracker's reading is no execution: a funded order a Refresh read once, never handed over, is closed by its refund with its pause (the critique, W1)", () => {
+  it("a tracker's reading is no execution: a funded order a Refresh read once, never handed over, is closed by its refund with its pause — at its runner's tick, once the escrow reads empty (the critique, W1; the twelfth review round, C12-1)", async () => {
     order({ track: { state: "PROVIDER_TIMEOUT", label: "Waiting", at: T0 }, paused: { code: "execution_window_closed", detail: "x", at: T0 } });
     journalRefunds([refund()]);
+    expect(stored().state, "left to its runner").toBe("funded");
+    await runnerTick(T0 + 5 * 3600_000);
     expect(stored().state).toBe("refunded");
     expect(stored().paused).toBeUndefined();
     expect(getOperation(swapRecordId(ORDER))?.state).toBe("REFUNDED");
   });
-  it("closes one that never executed, its pause with it: the record says the funds came back, never 'wait in your escrow'", () => {
+  it("closes one that never executed, its pause with it, at its runner's tick once the escrow reads empty: the record says the funds came back, never 'wait in your escrow' (C12-1)", async () => {
     order({ paused: { code: "handover_unknown", detail: "x", at: T0 } });
     journalRefunds([refund()]);
+    expect(stored().state, "left to its runner").toBe("funded");
+    await runnerTick(T0 + 5 * 3600_000);
     expect(stored().state).toBe("refunded");
     expect(stored().paused).toBeUndefined();
     syncSwapRecord(stored(), null, null, T0);
@@ -253,6 +308,9 @@ describe("a closed order re-synced without a reading (B11-1, VB-N1)", () => {
       T0,
     );
     expect(done).toMatchObject({ state: "COMPLETED", outcome: "partial-unreturned" });
+    // ... a stranger's wei its only note (the twelfth review round, XH's critique): no rest of it — still "did not come back"
+    const dust = syncSwapRecord({ ...s, refunds: [{ leafIndex: 8, vault: "0x" + "e7".padStart(40, "0"), amount: "1" }] }, null, null, T0 + 30_000);
+    expect(dust).toMatchObject({ state: "COMPLETED", outcome: "partial-unreturned" });
     const later = syncSwapRecord(
       { ...s, refunds: [{ leafIndex: 9, vault: "0x" + "e7".padStart(40, "0"), amount: "400000000000000000" }] },
       null,

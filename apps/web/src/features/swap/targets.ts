@@ -56,5 +56,18 @@ export function basisText(t: T, a: Pick<PrivacyAssessment, "basis" | "basisWords
 }
 /** A job state in which the order can be signed again against a fresh quote. */
 export const OPEN_FOR_RESIGN = ["expired", "execute-failed", "refund-only"];
-/** A funded order can still be returned unexecuted while no execution is running or settled. */
-export const canReturn = (jobState: string | null | undefined): boolean => !jobState || ["waiting-funding", "expired", "execute-failed"].includes(jobState);
+/**
+ * A relayer's "refunded" the tracker reads back, the escrow read at dust: REFUNDED, or a partial fill's rest re-shielded (PARTIAL, DESTINATION_SUBMITTED on
+ * that word); one over an escrow that still holds the order, or one not read, is no refund yet (the twelfth review round, XN's critique: "Refunded on
+ * chain" had stood beside a dropped order; XO's: a partial fill's rest had lost its line). PROVIDER_EXECUTING is left out: on that word it also reads a
+ * refund at the destination whose refund tokens were not read (XP's critique). The swap screen's refund line.
+ */
+export const refundReadBack = (jobState: string | null | undefined, reading?: string): boolean =>
+  jobState === "refunded" && !!reading && ["REFUNDED", "PARTIAL", "DESTINATION_SUBMITTED"].includes(reading);
+/**
+ * A funded order can still be returned unexecuted while no execution is running or settled — and one whose reading offers its return, whatever its
+ * relayer's job says: FAILED, DROPPED (a relayer's "refunded" over an escrow that still holds the order) and LATE_REFUND (the twelfth review round,
+ * XG's and XH's critiques).
+ */
+export const canReturn = (jobState: string | null | undefined, reading?: string): boolean =>
+  !jobState || ["waiting-funding", "expired", "execute-failed"].includes(jobState) || reading === "FAILED" || reading === "DROPPED" || reading === "LATE_REFUND";

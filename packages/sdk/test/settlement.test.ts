@@ -191,7 +191,8 @@ describe("§82 — the scenarios", () => {
     const s = withTrack(stored({ ...FUNDED, jobId: "job-1" }), "REFUNDING");
     for (const later of [0, 3_600_000, 86_400_000]) expect(deriveState(s, facts({ now: NOW + later, job: job("refunding") })).settlement).toBe("REFUNDING");
     expect(deriveState(s, facts({ job: job("refund-failed") })).settlement).toBe("REFUND_AVAILABLE");
-    expect(deriveState(s, facts({ job: job("refunded") })).settlement, "the refund arrived").toBe("COMPLETED");
+    // the refund arrived: the escrow reads empty (the twelfth review round, C12-1: a refund counts on the escrow read empty)
+    expect(deriveState(s, facts({ job: job("refunded"), escrowBalance: 0n })).settlement, "the refund arrived").toBe("COMPLETED");
   });
   it("the RPC unavailable: an escrow balance or a job that cannot be read never downgrades the settlement", () => {
     const funded = withTrack(stored(FUNDED), "SOURCE_CONFIRMED");

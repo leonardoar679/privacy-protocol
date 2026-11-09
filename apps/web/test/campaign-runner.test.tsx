@@ -32,13 +32,13 @@ import {
   BOUNDS_SLIPPAGE_BPS,
 } from "@privacy-wallet/sdk/wallet/campaigns";
 import { MAX_ALERTS, withAlert } from "@privacy-wallet/sdk/wallet/alerts";
-import { withCampaignState, REPLAN_PAUSE } from "@privacy-wallet/protocol/wallet/campaign";
+import { withCampaignState, REFUSED_RETRY_MS, REPLAN_PAUSE } from "@privacy-wallet/protocol/wallet/campaign";
 import { addAddress, approveAddress, retireAddress, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
 import { pieceCeiling, protectionOf, replanRemainder, withRoute } from "@privacy-wallet/sdk/wallet/campaigns";
 import { runCampaignTick, resetRunnerMemory, SIGN_RETRIES_BEFORE_BACKOFF, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
-import type { Signed } from "@privacy-wallet/sdk/swapExecute";
+import { RefundRefusal, type Signed } from "@privacy-wallet/sdk/swapExecute";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
 import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
@@ -47,6 +47,8 @@ import { FeeMoved } from "@privacy-wallet/sdk/privateTx";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { useScheduler } from "../src/hooks";
+import { shownWords } from "../src/app/notifications";
+import { en } from "../src/app/i18n/en";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 const KDF = { N: 1 << 12, r: 8, p: 1 };
@@ -152,6 +154,8 @@ class World implements CampaignIo {
   handOverThrows = false;
   /** thrown once by the next hand-over, before the executor took anything */
   handOverRefusal: Error | null = null;
+  /** every refund-only request is refused with this (a relayer that keeps a job it will not reopen) */
+  refuseRefund: Error | null = null;
   /** the next signature fails with this (then signs normally) */
   signThrows: Error | null = null;
   /** the settlement read fails (the service or the network is down) */
@@ -355,6 +359,7 @@ class World implements CampaignIo {
   }
   async refund(stored: StoredSwap) {
     this.calls.push(`refund:${stored.campaign!.index}`);
+    if (this.refuseRefund) throw this.refuseRefund;
     const job: SwapJob = { id: stored.orderId, escrow: stored.endpoint as `0x${string}`, state: "refund-only", updatedAt: this.now() };
     this.jobs.set(stored.orderId, job);
     this.s.update((j) => {
@@ -2118,6 +2123,168 @@ describe("the seventh review round (2026-11-03): the campaign engine", () => {
     expect(world.calls.filter((x) => x.startsWith("refund:")).length - refundsBefore, "still one").toBe(1);
   });
 
+  it("a step its relayer dropped (its order reads DROPPED): paused in its own words, never 'the provider failed' nor the single swap's, its notification too; its return refused by that relayer pauses again in words ending with Resume, marked on the step; while the rest returns it is said no more — never thrown at every tick (the twelfth review round, XH and XI)", async () => {
+    const b = await fresh();
+    await toInFlight(b);
+    const first = current(b).tranches[0].orderId!;
+    world.tracked.set(first, "DROPPED");
+    // as the tracker journals its reading
+    session.update((j) => {
+      j.swaps.find((y) => y.orderId === first)!.track = { state: "DROPPED", label: "Needs attention", at: clock } as never;
+    });
+    clock += 15_000;
+    await tick(b);
+    expect(current(b).tranches[0].state).toBe("failed");
+    expect(current(b)).toMatchObject({ state: "paused", pause: { code: "step_dropped" } });
+    expect(current(b).pause?.detail).toMatch(/its executor says it returned the step/);
+    // the notification a Simple reader gets: the step's own words (XI's critique: "The provider reported an error on a step")
+    expect(shownWords(notes.at(-1)!)).toEqual({ title: en["notification.campaign.paused.title"], body: en["op.error.step_dropped.reason"] });
+    clock += 60_000;
+    world.refuseRefund = refusal();
+    resumeCampaign(b.id, session, clock);
+    await tick(b); // requote
+    const r = await tick(b);
+    expect(r?.action).toMatchObject({ kind: "refund", index: 0 });
+    expect(current(b)).toMatchObject({ state: "paused", pause: { code: "step_refund_not_watched" } });
+    expect(current(b).pause?.detail).toMatch(/Choose another relayer in Settings/);
+    expect(current(b).tranches[0].refundRefusedAt, "marked on the step").toBe(clock);
+    expect(shownWords(notes.at(-1)!).body).toBe(en["op.error.step_refund_not_watched.reason"]);
+    cancelCampaign(b.id, session, clock);
+    const said = () => (current(b).alerts ?? []).filter((a) => a.code === "step_refund_not_watched").length;
+    const told = notes.length;
+    for (let i = 0; i < 3; i++) {
+      clock += 11 * 60_000;
+      await tick(b);
+    }
+    expect(current(b).state).toBe("winding-down");
+    expect(said(), "said once: at its pause").toBe(1);
+    expect(notes.length - told, "never told again while the rest returns").toBe(0);
+    world.refuseRefund = null;
+  });
+
+  // the ninth critique of slice 12a (XI): the way out after a refused return, and the wind-down past a refused step
+  const refusal = () =>
+    new RefundRefusal(
+      "This relayer answers that it already returned this order, but the escrow still holds it. Choose another relayer in Settings (Experience: Advanced, then Advanced → Submission of private transactions) to return it.",
+      "refund_not_watched",
+    );
+  const drop = (orderId: string) => {
+    world.tracked.set(orderId, "DROPPED");
+    session.update((j) => {
+      j.swaps.find((y) => y.orderId === orderId)!.track = { state: "DROPPED", label: "Needs attention", at: clock } as never;
+    });
+  };
+
+  it("after a refused return, a Resume once another relayer answers returns the step, its mark cleared (XI)", async () => {
+    const b = await fresh();
+    await toInFlight(b);
+    drop(current(b).tranches[0].orderId!);
+    clock += 15_000;
+    await tick(b);
+    clock += 60_000;
+    world.refuseRefund = refusal();
+    resumeCampaign(b.id, session, clock);
+    await tick(b); // requote
+    await tick(b); // refused: paused
+    expect(current(b)).toMatchObject({ state: "paused", pause: { code: "step_refund_not_watched" } });
+    world.refuseRefund = null; // another relayer in Settings
+    clock += 60_000;
+    resumeCampaign(b.id, session, clock);
+    await tick(b); // requote
+    await tick(b);
+    expect(current(b).tranches[0].state).toBe("refunding");
+    expect(current(b).tranches[0].refundRefusedAt).toBeUndefined();
+  });
+
+  it("'Return the rest' with a dropped step: its refusal said once — an alert and a notification in a Simple reader's words —, the next tick waits REFUSED_RETRY_MS, asked again then, returned once another relayer answers (XI)", async () => {
+    const b = await fresh();
+    await toInFlight(b);
+    drop(current(b).tranches[0].orderId!);
+    clock += 15_000;
+    await tick(b);
+    world.refuseRefund = refusal();
+    cancelCampaign(b.id, session, clock);
+    clock += 2000;
+    const refusedTick = await tick(b);
+    expect(refusedTick?.action).toEqual({ kind: "wind-down", index: 0 });
+    expect(refusedTick?.nextAt, "the steps behind it at once, never after the ten minutes").toBe(clock + 1000);
+    const at = clock;
+    expect(current(b).tranches[0].refundRefusedAt).toBe(at);
+    expect(current(b).alerts?.at(-1)).toMatchObject({ code: "step_refund_not_watched", trancheIndex: 0 });
+    expect(shownWords(notes.at(-1)!)).toEqual({ title: en["notification.campaign.return-refused.title"], body: en["notification.campaign.return-refused.body"] });
+    clock += 1000;
+    const waits = await tick(b);
+    expect(waits?.action).toMatchObject({ kind: "wait", until: at + REFUSED_RETRY_MS });
+    expect(waits?.nextAt, "asked again ten minutes after the refusal, never every second").toBe(at + REFUSED_RETRY_MS);
+    const asked = world.calls.filter((x) => x === "refund:0").length;
+    const told = notes.length;
+    clock = at + REFUSED_RETRY_MS;
+    expect((await tick(b))?.action).toEqual({ kind: "wind-down", index: 0 });
+    expect(world.calls.filter((x) => x === "refund:0").length - asked, "asked again").toBe(1);
+    expect(notes.length - told, "said once").toBe(0);
+    world.refuseRefund = null; // another relayer in Settings
+    clock += REFUSED_RETRY_MS;
+    await tick(b);
+    expect(current(b).tranches[0].state).toBe("refunding");
+    expect(current(b).tranches[0].refundRefusedAt).toBeUndefined();
+  });
+
+  it("'Return the rest' past a refused step: the funded step behind it is returned at the next tick (a parallel plan; XI)", async () => {
+    const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 600 };
+    const c = startCampaign({
+      quotes: { ...quoteSet("near-intents"), protection: r2 },
+      provider: "near-intents",
+      from: ETH,
+      fromAsset: { symbol: "ETH", decimals: 18, vault: ETH_VAULT } as never,
+      to: BTC,
+      amount: AMOUNT,
+      tier: "high-value",
+      mode: "balanced",
+      preference: "balanced",
+      policy: "privacy-execution",
+      destination: { kind: "fresh-per-tranche" },
+      usd: 5_000_000,
+      confirmations: {},
+      now: clock,
+      rng: () => 0.5,
+      session,
+      gasPriceWei: "20000000000",
+    });
+    expect(current(c).plan.maxParallel).toBe(2);
+    await toInFlight(c);
+    world.tracked.set(current(c).tranches[0].orderId!, "DESTINATION_SUBMITTED"); // the first step settles at its gate
+    clock += 15_000;
+    await tick(c);
+    const flying = (x: Campaign) => x.tranches.filter((t) => t.state === "executing" || t.state === "source-confirmed");
+    const prepared = (x: Campaign) => x.tranches.filter((t) => t.state === "funded" || t.state === "signed");
+    for (let i = 0; i < 60 && !(flying(current(c)).length >= 1 && prepared(current(c)).length >= 1); i++) {
+      clock += 120_000;
+      await tick(c);
+    }
+    const dropped = flying(current(c))[0];
+    const behind = prepared(current(c))[0];
+    expect(behind.index).toBeGreaterThan(dropped.index);
+    drop(dropped.orderId!);
+    clock += 15_000;
+    await tick(c);
+    const own = world.refund.bind(world);
+    world.refund = async (st: StoredSwap) => {
+      if (st.orderId === dropped.orderId) {
+        world.calls.push(`refund:${st.campaign!.index}`);
+        throw refusal();
+      }
+      return own(st);
+    };
+    cancelCampaign(c.id, session, clock);
+    for (let i = 0; i < 4; i++) {
+      clock += 2000;
+      await tick(c);
+    }
+    expect(current(c).tranches[behind.index].state, "the funded step behind the refused one is returned").toBe("refunding");
+    expect(current(c).tranches[dropped.index]).toMatchObject({ state: "failed" });
+    expect(current(c).tranches[dropped.index].refundRefusedAt).toBeDefined();
+  });
+
   it("D7: a delivery in another token ends undelivered — never in flight, the campaign paused for the user — and a returned campaign ends", async () => {
     const c = await fresh();
     await toInFlight(c);
@@ -2134,6 +2301,70 @@ describe("the seventh review round (2026-11-03): the campaign engine", () => {
     const r = await tick(c);
     expect(r?.action.kind).toBe("complete");
     expect(current(c).state).toBe("cancelled");
+  });
+
+  it("D5 with part of the step back (the twelfth review round, C12-7): the pause says what else came back, and only the rest ended", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "REFUNDED_AT_DESTINATION");
+    session.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === first)!;
+      x.refunds = [{ leafIndex: 9, vault: (x.params as { refundVault: string }).refundVault, amount: eth(2).toString() }];
+    });
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "undelivered", outcome: { undelivered: "refunded-at-destination", refunded: eth(2).toString() } });
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    expect(current(c).pause!.detail).toMatch(/what else came back returned to your private balance/);
+    expect(current(c).pause!.detail).not.toMatch(/nothing came back/);
+    expect(exposure(current(c))).toMatchObject({ ended: eth(48), notDelivered: eth(48), inFlight: 0n });
+  });
+
+  it("C12-4 through the runner: a step delivered in part whose rest came back in another token, how much of each untold, ends so and pauses saying so", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "PARTIAL");
+    session.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === first)!;
+      x.refundTokens = ["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"];
+      x.refundVaults = { ["0x" + "c5".padStart(40, "0")]: "1000000" }; // the USDC vault, as the hand-over journals it
+      x.refunds = [{ leafIndex: 9, vault: "0x" + "c5".padStart(40, "0"), amount: "1000000" }];
+    });
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "undelivered", outcome: { undelivered: "refunded-other-token", deliveredInPart: true } });
+    expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+    expect(current(c).pause!.detail).toMatch(/Step 1 was delivered in part, and the rest came back to your private balance in another token/);
+    expect(exposure(current(c))).toMatchObject({ partlyBack: eth(50), returnedOther: 0n, notDelivered: 0n, inFlight: 0n });
+  });
+
+  it("C12-4 through the runner, an order journaled before its refund tokens' vaults were: the runner derives them from the deployment", async () => {
+    const c = await fresh();
+    await toInFlight(c);
+    const first = current(c).tranches[0].orderId!;
+    world.tracked.set(first, "PARTIAL");
+    const USDC_VAULT = "0x" + "c5".padStart(40, "0");
+    session.update((j) => {
+      const x = j.swaps.find((y) => y.orderId === first)!;
+      x.refundTokens = ["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"];
+      x.refundFloors = { "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "1000000" };
+      x.refunds = [{ leafIndex: 9, vault: USDC_VAULT, amount: "1000000" }];
+    });
+    clock += 15_000;
+    await runCampaignTick(action(c), {
+      masterSeed: seed,
+      deployment: { ...deployment, erc20Vaults: [{ symbol: "USDC", decimals: 6, token: getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), vault: getAddress(USDC_VAULT) }] },
+      session,
+      io: world,
+      now: () => clock,
+      settings: () => settings.get(),
+      notify: notify as never,
+      rng: () => 0.5,
+    });
+    expect(session.journal().swaps.find((y) => y.orderId === first)?.refundVaults).toEqual({ [USDC_VAULT]: "1000000" });
+    expect(current(c).tranches[0]).toMatchObject({ state: "undelivered", outcome: { undelivered: "refunded-other-token", deliveredInPart: true } });
   });
 
   it("D8: the velocity limit is the wallet's — a campaign without a price pauses (fail closed), and two campaigns share one 24-hour window", async () => {

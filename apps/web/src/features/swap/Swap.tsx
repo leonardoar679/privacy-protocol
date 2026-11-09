@@ -73,7 +73,7 @@ import { Wizard } from "./Wizard";
 import { alternativesOf, campaignFacts, campaignLines, commitDetails, commitExecution, commitLines, executeLines, liveQuotesOf, orderTarget, rerouteLines, usdOfUnits, type SwapContext } from "./facts";
 import { cappedSlippageBps, providerHealthy, strictQuote } from "./protectedChecks";
 import { swapRecordId, syncSwapRecord } from "@privacy-wallet/sdk/operations/swapRecords";
-import { TARGETS, refOf, settlementWords, type Target } from "./targets";
+import { TARGETS, refOf, refundReadBack, settlementWords, type Target } from "./targets";
 import { planDetail, planText, TIER_WORDS } from "../review/words";
 import { durationText, hoursText } from "../../app/i18n/duration";
 import { campaignLineText } from "./protected/words";
@@ -196,8 +196,10 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   // the executor re-shielded the order: its refund note goes into the wallet now, not at the next rescan (PP-S09)
   // a refund in the pool's unproven tail is recorded once a proof covers its leaf (the tenth review round, B10-5): looked for again every
   // minute, for half an hour — once had left the refund line unrecorded for good
+  // ... only once the tracker reads the refund back (refundReadBack: the twelfth review round, XN's and XO's critiques)
+  const refundRead = refundReadBack(job?.state, tracked?.state);
   useEffect(() => {
-    if (job?.state !== "refunded" || !deployment || !stored) return;
+    if (!refundRead || !deployment || !stored) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const orderId = stored.orderId.toLowerCase();
@@ -217,7 +219,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
         .catch((e) => live && setRefundLine(t("swap.refundedRecordFailed", { reason: e instanceof Error ? e.message : String(e) })));
     void look(0);
     return () => { live = false; if (timer) clearTimeout(timer); };
-  }, [job?.state, stored?.orderId, deployment]);
+  }, [refundRead, stored?.orderId, deployment]);
 
   function reset() { setOrder(null); setStored(null); setOrderKey(null); setRefundNoteData(null); setSigned(null); setChecked(null); setMoved(null); setJob(null); setCompare(false); setRefundLine(""); setReview(null); setInterstitial(null); setRouteAck(false); setDestAck(false); setError(""); }
   function patchStored(orderId: string, patch: Partial<StoredSwap>) {

@@ -80,8 +80,10 @@ describe("deriveState", () => {
     expect(deriveState(f, facts({ job: job("refunding") }))).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
     expect(deriveState(f, facts({ job: job("refund-only") })).detail).toMatch(/re-shields after/);
     expect(deriveState(f, facts({ job: job("expired") })).detail).toMatch(/expired before execution/);
-    expect(deriveState(f, facts({ job: job("refunded") }))).toMatchObject({ state: "REFUNDED", label: "Refunded" });
-    expect(deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 3, vault: "0x", amount: "1" }] }), facts())).toMatchObject({ state: "REFUNDED" });
+    expect(deriveState(f, facts({ escrowBalance: 0n, job: job("refunded") }))).toMatchObject({ state: "REFUNDED", label: "Refunded" });
+    // the refund note: the order back (the twelfth review round, XG: a 1-unit note is no refund of it — anyone holding the payload can make one)
+    expect(deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 3, vault: "0x", amount: (10n ** 18n).toString() }] }), facts({ escrowBalance: 0n }))).toMatchObject({ state: "REFUNDED" });
+    expect(deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 3, vault: "0x", amount: "1" }] }), facts({ escrowBalance: 0n })).state).not.toBe("REFUNDED");
     const failed = deriveState(f, facts({ job: job("execute-failed", { error: "nonce too low" }), escrowBalance: 10n ** 18n }));
     expect(failed).toMatchObject({ state: "FAILED", label: "Needs attention" });
     expect(failed.detail).toMatch(/1 ETH sits in the one-time escrow \(nonce too low\)/);
@@ -95,31 +97,32 @@ describe("an executor's job that ended with nothing in the escrow (a V6 follow-u
   it("never funded: Not started; funded: the refund is looked for; the refund note found: Refunded", () => {
     expect(deriveState(order({ jobId: "j" }), facts({ job: job("lapsed"), now: NOW + 30 * 3600_000 }))).toMatchObject({ state: "EXPIRED", label: "Not started" });
     expect(deriveState(order({ fundedTx: "0x1", state: "funded", jobId: "j" }), facts({ job: job("lapsed") }))).toMatchObject({ state: "REFUND_PENDING", label: "Refunding" });
-    expect(deriveState(order({ fundedTx: "0x1", state: "funded", jobId: "j", refunds: [{ leafIndex: 4, vault: "0x" + "e1".repeat(20), amount: "1" }] }), facts({ job: job("lapsed") }))).toMatchObject({ state: "REFUNDED" });
+    expect(deriveState(order({ fundedTx: "0x1", state: "funded", jobId: "j", refunds: [{ leafIndex: 4, vault: "0x" + "e1".repeat(20), amount: (10n ** 18n).toString() }] }), facts({ escrowBalance: 0n, job: job("lapsed") }))).toMatchObject({ state: "REFUNDED" });
   });
 });
 
 describe("a partial fill whose rest came back (a V6 follow-up of 2026-10-16)", () => {
   it("reads Partial with both amounts, not Refunded; a never-executed order's refund note still reads Refunded", () => {
     const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "300000000000000000" }] });
-    const back = deriveState(f, facts({ refundFound: true, job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "300000000000000000" } }));
+    const back = deriveState(f, facts({ escrowBalance: 0n, refundFound: true, job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "300000000000000000" } }));
     expect(back).toMatchObject({ state: "PARTIAL", label: "Partial", deliveredAmount: "0.02 BTC", deliveredUnits: "2000000", refundedAmount: "0.3 ETH" });
-    const never = deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "1000000000000000000" }] }), facts({ refundFound: true, job: job("refunded") }));
+    const never = deriveState(order({ fundedTx: "0x1", refunds: [{ leafIndex: 9, vault: "0x" + "e7".repeat(20), amount: "1000000000000000000" }] }), facts({ escrowBalance: 0n, refundFound: true, job: job("refunded") }));
     expect(never).toMatchObject({ state: "REFUNDED", label: "Refunded" });
   });
   it("reads Partial when the relayer re-shielded the rest before its note is found (audit round 2, r14)", () => {
     const f = order({ fundedTx: "0x1", state: "executing", jobId: "j" });
-    const reshielded = deriveState(f, facts({ job: job("refunded", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "300000000000000000" } }));
+    const reshielded = deriveState(f, facts({ escrowBalance: 0n, job: job("refunded", { executionTx: "0xee" }), track: { state: "partial", deliveredAmount: "2000000", refundedAmount: "300000000000000000" } }));
     expect(reshielded).toMatchObject({ state: "PARTIAL", label: "Partial", deliveredAmount: "0.02 BTC", refundedAmount: "0.3 ETH" });
     // nothing delivered: the re-shielded escrow is a refund
-    expect(deriveState(f, facts({ job: job("refunded", { executionTx: "0xee" }) }))).toMatchObject({ state: "REFUNDED" });
+    expect(deriveState(f, facts({ escrowBalance: 0n, job: job("refunded", { executionTx: "0xee" }) }))).toMatchObject({ state: "REFUNDED" });
   });
 });
 
 describe("another token at the destination (the audit's unverified m60)", () => {
   it("reads Partial with the token it came in, no amount of the output and nothing said to have come back", () => {
     const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", provider: "lifi" });
-    const other = deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), track: { state: "partial", deliveredAsset: "USDC.e" } }));
+    // its escrow read (the twelfth review round, XL's critique: on a balance not read the order is read again first)
+    const other = deriveState(f, facts({ job: job("completed", { executionTx: "0xee" }), escrowBalance: 0n, track: { state: "partial", deliveredAsset: "USDC.e" } }));
     expect(other).toMatchObject({ state: "PARTIAL", label: "Partial" });
     expect(other.deliveredUnits).toBeUndefined();
     expect(other.detail).toBe("Delivered in USDC.e at the destination instead of BTC: the route gave another token.");
@@ -129,7 +132,7 @@ describe("another token at the destination (the audit's unverified m60)", () => 
   it("with a leftover re-shielded too it stays Partial, never Refunded in full: the delivered step is not swapped again (audit round 2, n06)", () => {
     const f = order({ fundedTx: "0x1", state: "executing", jobId: "j", provider: "lifi" });
     const track = { state: "partial", deliveredAsset: "USDC.e" } as const;
-    for (const fx of [facts({ job: job("completed", { executionTx: "0xee" }), track, refundFound: true }), facts({ job: job("refunded", { executionTx: "0xee" }), track })]) {
+    for (const fx of [facts({ escrowBalance: 0n, job: job("completed", { executionTx: "0xee" }), track, refundFound: true }), facts({ escrowBalance: 0n, job: job("refunded", { executionTx: "0xee" }), track })]) {
       const other = deriveState(f, fx);
       expect(other).toMatchObject({ state: "PARTIAL", label: "Partial" });
       expect(other.detail).toMatch(/^Delivered in USDC\.e at the destination instead of BTC; .* came back to the escrow and was re-shielded into your private balance\.$/);
@@ -140,7 +143,7 @@ describe("another token at the destination (the audit's unverified m60)", () => 
 describe("a delivery once read is never forgotten (the seventh review round, 2026-11-03)", () => {
   it("an executed order whose rest came back reads Partial on its journaled units when this read has none — never Refunded in full", () => {
     const f = order({ fundedTx: "0x1", state: "executed", jobId: "j", executionTx: "0xee", track: { state: "PARTIAL", label: "Partial", at: NOW - 60_000, deliveredAmount: "120000000" } });
-    const t = deriveState(f, facts({ job: job("refunded", { executionTx: "0xee" }), track: null }));
+    const t = deriveState(f, facts({ escrowBalance: 0n, job: job("refunded", { executionTx: "0xee" }), track: null }));
     expect(t).toMatchObject({ state: "PARTIAL", deliveredUnits: "120000000", deliveredAmount: "1.2 BTC" });
   });
   it("another token is named on the read, so a campaign ends the step without a delivery of the output", () => {

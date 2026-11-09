@@ -82,7 +82,7 @@ export function OrderPanel(p: OrderPanelProps) {
         <div className="ds-actions">
           <Button onClick={p.onFundNow} disabled={!!p.busy || funded || p.holdActive || !!p.stored?.fundingAttempt} title={p.stored?.fundingAttempt ? t("order.fundingOnItsWay") : p.holdActive ? t("order.holdNotPassed") : dueAt ? t("order.fundNowHint") : undefined} data-testid="order-fund">{dueAt && !funded ? t("order.fundNowEarly") : t("order.fundNow")}</Button>
           <Button onClick={() => p.onSign()} disabled={!!p.busy || !funded || (!!p.job && !OPEN_FOR_RESIGN.includes(p.job.state))} data-testid="order-confirm">{p.job && OPEN_FOR_RESIGN.includes(p.job.state) ? t("order.confirmAgain") : t("order.confirm")}</Button>
-          {funded && canReturn(p.job?.state) ? <Button variant="secondary" onClick={p.onReturn} disabled={!!p.busy} title={t("order.returnHint")} data-testid="order-return">{t("order.return")}</Button> : null}
+          {funded && canReturn(p.job?.state, p.tracked?.state) ? <Button variant="secondary" onClick={p.onReturn} disabled={!!p.busy} title={t(p.tracked?.state === "FAILED" || p.tracked?.state === "DROPPED" || p.tracked?.state === "LATE_REFUND" ? "order.returnHintHeld" : "order.returnHint")} data-testid="order-return">{t("order.return")}</Button> : null}
           {p.canExport && p.stored ? <Button variant="secondary" icon="download" onClick={p.onExport}>{t("review.export")}</Button> : null}
         </div>
         {p.moved ? (() => {
@@ -108,7 +108,7 @@ export function OrderPanel(p: OrderPanelProps) {
         {p.job?.state === "executed" ? <p className="ds-note">{(p.checked?.refundTo ?? (p.stored?.quote as { refundTarget?: string } | undefined)?.refundTarget) === "destination" ? t("order.handedRefundDestination") : t("order.handedRefundPool", { time: refundAfter })}</p> : null}
         {p.job?.state === "refund-only" ? <p className="ds-note">{t("order.refundOnly", { time: refundAfter })}</p> : null}
         {p.refundLine ? <p className="ds-note" data-testid="refund-line">{p.refundLine}</p> : null}
-        {attention && p.record ? <Recovery record={p.record} onMonitor={p.onMonitor} onRefund={funded && canReturn(p.job?.state) ? p.onReturn : undefined} /> : null}
+        {attention && p.record ? <Recovery record={p.record} onMonitor={p.onMonitor} onRefund={funded && canReturn(p.job?.state, p.tracked?.state) ? p.onReturn : undefined} /> : null}
       </div>
     </Card>
   );

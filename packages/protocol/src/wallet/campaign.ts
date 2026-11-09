@@ -5,6 +5,7 @@
 // per risk class (§6), the bounds check (§3), the pause detection (§8) and the reducer that tells the wallet's
 // runner the one next action (§7). The wallet, the service's recommendation and the labs run exactly this code.
 import { bucketsFor } from "./amounts";
+import { lateRefundHeld } from "./settlement";
 import { feeForWithdrawal, PRIVACY_FEE_BPS } from "./fees";
 import type { Tier } from "./valuation";
 
@@ -120,7 +121,20 @@ export interface Tranche {
   notBefore?: number;
   expected?: { minOut: string; rateE18: string; etaSeconds: number };
   /** `delivered` in SOURCE base units (the destination amount converted at the expected rate, so the accounting of §5 adds like with like); `deliveredOut` as the tracker reported it, destination base units */
-  outcome?: { delivered?: string; deliveredOut?: string; refunded?: string; deviationBps?: number; /** how an `undelivered` step ended */ undelivered?: "refunded-at-destination" | "other-token" | "lost"; /** a skipped last step too small to swap on its own, left in the private balance (the seventh review round) */ kept?: boolean };
+  outcome?: {
+    delivered?: string;
+    deliveredOut?: string;
+    refunded?: string;
+    deviationBps?: number;
+    /** how an `undelivered` step ended; `refunded-other-token` (the twelfth review round, C12-4): it came back in another token than the order's */
+    undelivered?: "refunded-at-destination" | "other-token" | "lost" | "refunded-other-token";
+    /** what came back in other tokens than the order's, by vault (C12-4): never planned again in the order's asset */
+    returnedOther?: { vault: string; amount: string }[];
+    /** a `refunded-other-token` step its provider delivered in part, without saying how much (C12-4): how much of it came back is not known either */
+    deliveredInPart?: boolean;
+    /** a skipped last step too small to swap on its own, left in the private balance (the seventh review round) */
+    kept?: boolean;
+  };
   /**
    * The amount the step's escrow was funded with, kept when a partial fill settles `amount` to its delivered part (the seventh review
    * round, 2026-11-03): what neither arrived nor came back counts as ended, never as remaining to swap again.
@@ -137,6 +151,12 @@ export interface Tranche {
   lastReadFailedAt?: number;
   /** V4 (plan §111): when the funding was first seen in the escrow by the RPC quorum — a balance below the amount after this is a possible reorganization (the runner pauses `reconcile`; the tranche is never funded twice) */
   fundedSeenAt?: number;
+  /**
+   * When a relayer last refused to return this held step (refund_not_watched: a job it will not reopen; the twelfth review round, XI's critique):
+   * while the rest returns, the step is asked again after REFUSED_RETRY_MS and the steps behind it are returned meanwhile; cleared once a return is
+   * accepted.
+   */
+  refundRefusedAt?: number;
   history: { state: TrancheState; at: number; note?: string }[];
 }
 
@@ -308,7 +328,7 @@ export const PREPARED: readonly TrancheState[] = ["funded", "signed", "failed"];
 export const OPEN: readonly TrancheState[] = ["committed", ...PREPARED, ...IN_FLIGHT, "refunding"];
 export const TERMINAL: readonly TrancheState[] = ["settled", "refunded", "skipped", "undelivered"];
 
-export interface Exposure { total: bigint; cap: bigint; inFlight: bigint; prepared: bigint; completed: bigint; /** the seventh review round: what left the protected balance and neither arrives as asked nor comes back — undelivered steps, and what a returned or partly filled step did not bring back (its tip, its provider's fees) — never completed, never planned again */ ended: bigint; /** the part of `ended` that did not arrive as asked — the undelivered steps, a settled partial fill's rest that never came back (the eleventh review round's critique of E11-1: the screens' "did not arrive as you asked" had counted a returned step's fees) */ notDelivered: bigint; /** the rest of `ended`: what returned steps did not bring back — their executor's tip, their provider's fees — a cost of those steps */ returnCosts: bigint; /** a last step too small to swap on its own, left in the private balance: the campaign completes without it (the seventh review round) */ kept: bigint; remaining: bigint; protected: bigint; maxLoss: bigint; next: bigint | null; preparedCount: number; inFlightCount: number; /** V4 (plan §25, §67): the in-flight amount per provider */ byProvider: Record<string, bigint> }
+export interface Exposure { total: bigint; cap: bigint; inFlight: bigint; prepared: bigint; completed: bigint; /** what did not arrive as asked — notAsAsked(): gone (notDelivered), back in another token (returnedOther, partlyBack) — and what a returned step did not bring back (returnCosts: its tip, its provider's fees); the seventh review round, the twelfth's XF and XG critiques — never completed, never planned again */ ended: bigint; /** the part of `ended` that came back to the private balance in another token than the order's (the twelfth review round, C12-4): never planned again in the order's asset, never "did not come back" */ returnedOther: bigint; /** the part of `ended` in steps delivered in part whose rest came back in another token, the provider not saying how much it delivered (C12-4): neither "came back" nor "did not come back" alone */ partlyBack: bigint; /** the part of `ended` that neither arrived as asked nor came back, in any token — what is gone (the eleventh review round's critique of E11-1: the screens' "did not arrive as you asked" had counted a returned step's fees); what did not arrive as asked is `notAsAsked()`, which adds what came back in another token */ notDelivered: bigint; /** the rest of `ended`: what returned steps did not bring back — their executor's tip, their provider's fees — a cost of those steps */ returnCosts: bigint; /** left in the private balance, never swapped: a last step too small to swap on its own — the campaign completes without it (the seventh review round) —, and an undelivered step's own-asset dust (the twelfth's XE critique) */ kept: bigint; remaining: bigint; protected: bigint; maxLoss: bigint; next: bigint | null; preparedCount: number; inFlightCount: number; /** V4 (plan §25, §67): the in-flight amount per provider */ byProvider: Record<string, bigint> }
 
 const big = (s: string | undefined): bigint => BigInt(s ?? "0");
 
@@ -326,7 +346,7 @@ export function unreturnedOf(t: Tranche): bigint {
 export function exposure(c: Campaign): Exposure {
   const total = big(c.request.amount);
   const cap = big(c.bounds.maxExternalExposure);
-  let inFlight = 0n, prepared = 0n, completed = 0n, ended = 0n, notDelivered = 0n, returnCosts = 0n, kept = 0n, preparedCount = 0, inFlightCount = 0;
+  let inFlight = 0n, prepared = 0n, completed = 0n, ended = 0n, notDelivered = 0n, returnedOther = 0n, partlyBack = 0n, returnCosts = 0n, kept = 0n, preparedCount = 0, inFlightCount = 0;
   const byProvider: Record<string, bigint> = {};
   const fly = (t: Tranche, amount: bigint) => { inFlight += amount; inFlightCount++; if (t.provider) byProvider[t.provider] = (byProvider[t.provider] ?? 0n) + amount; };
   for (const t of c.tranches) {
@@ -336,12 +356,26 @@ export function exposure(c: Campaign): Exposure {
       // a partial fill settled for its delivered part: what neither arrived nor came back is spent, never remaining (the seventh review round)
       const short = unreturnedOf(t);
       ended += short;
-      notDelivered += short;
+      // its rest came back in another token (C12-4): not "did not come back"
+      if (t.outcome?.returnedOther?.length) returnedOther += short;
+      else notDelivered += short;
     }
     // a returned step: what did not come back (its executor tip, its provider's fees) is spent — a cost of the step, never part of the swap
     // not delivered (the eleventh review round's critique of E11-1); the refund note is what is planned again
     else if (t.state === "refunded") { const back = t.outcome?.refunded !== undefined ? big(t.outcome.refunded) : a; if (a > back) { ended += a - back; returnCosts += a - back; } }
-    else if (t.state === "undelivered") { ended += a; notDelivered += a; }
+    // a step not delivered as asked: what came back of it in the order's own asset is back in the private balance — planned again, never counted as not
+    // delivered (the twelfth review round, C12-7: a destination outcome with its rest re-shielded had been booked wholly as not delivered)
+    else if (t.state === "undelivered") {
+      const back = t.outcome?.refunded !== undefined ? min(big(t.outcome.refunded), a) : 0n;
+      ended += a - back;
+      // ... dust of it kept in the balance, never planned again (the fifth critique, XE: a 1-wei note anyone can make had raised the replan's question,
+      // to swap 1 wei at a privacy fee and a tip)
+      if (back > 0n && !lateRefundHeld(back, a)) kept += back;
+      // delivered in part, the rest back in another token, how much of each untold: neither line alone (C12-4)
+      if (t.outcome?.undelivered === "refunded-other-token" && t.outcome.deliveredInPart) partlyBack += a - back;
+      else if (t.outcome?.undelivered === "refunded-other-token") returnedOther += a - back;
+      else notDelivered += a - back;
+    }
     else if (t.state === "skipped" && t.outcome?.kept) kept += a;
     else if (t.state === "partial") { const d = big(t.outcome?.delivered); completed += d > a ? a : d; fly(t, a - (d > a ? a : d)); }
     else if (IN_FLIGHT.includes(t.state)) fly(t, a);
@@ -354,8 +388,14 @@ export function exposure(c: Campaign): Exposure {
   const next = c.tranches.find((t) => t.state === "planned" || t.state === "ready" || t.state === "committed");
   const nextAmount = next ? big(next.amount) : null;
   const protectedAmount = total - completed - ended - cap;
-  return { total, cap, inFlight, prepared, completed, ended, notDelivered, returnCosts, kept, remaining: remaining < 0n ? 0n : remaining, protected: protectedAmount < 0n ? 0n : protectedAmount, maxLoss: min(cap, inFlight + (nextAmount ?? 0n)), next: nextAmount, preparedCount, inFlightCount, byProvider };
+  return { total, cap, inFlight, prepared, completed, ended, notDelivered, returnedOther, partlyBack, returnCosts, kept, remaining: remaining < 0n ? 0n : remaining, protected: protectedAmount < 0n ? 0n : protectedAmount, maxLoss: min(cap, inFlight + (nextAmount ?? 0n)), next: nextAmount, preparedCount, inFlightCount, byProvider };
 }
+
+/**
+ * What did not arrive as asked: what neither arrived nor came back, what came back in another token, and the steps delivered in part whose rest
+ * came back in another token (the twelfth review round, C12-4).
+ */
+export const notAsAsked = (e: Pick<Exposure, "notDelivered" | "returnedOther" | "partlyBack">): bigint => e.notDelivered + e.returnedOther + e.partlyBack;
 
 /**
  * Nothing of the order is left to return: every unit delivered as asked, kept aside as too small to swap, or spent as a returned step's fees
@@ -368,7 +408,7 @@ export const swappedInFull = (e: Exposure): boolean => e.notDelivered === 0n && 
 export const providerLimit = (c: Campaign): bigint => bps(big(c.request.amount), Math.min(10000, Math.max(0, c.plan.providerShareCapBps || 10000)));
 
 /** The plan's §26 ledger (contract §3.5): derived from the tranche states alone, never stored. */
-export interface ExposureLedger { orderId: string; totalOrderValue: string; maxExternalExposure: string; completed: string; inFlight: string; pending: string; remaining: string; /** the seventh review round: out of the balance, neither delivered as asked nor back */ ended: string; /** a last step too small to swap, left in the balance */ kept: string; byProvider: Record<string, { inFlight: string; limit: string }> }
+export interface ExposureLedger { orderId: string; totalOrderValue: string; maxExternalExposure: string; completed: string; inFlight: string; pending: string; remaining: string; /** spent, or not delivered as asked: exposure().ended (gone, back in another token, a returned step's costs) */ ended: string; /** left in the balance, never swapped: exposure().kept */ kept: string; byProvider: Record<string, { inFlight: string; limit: string }> }
 export function ledger(c: Campaign): ExposureLedger {
   const e = exposure(c);
   const limit = providerLimit(c).toString();
@@ -575,7 +615,8 @@ export type Action =
   | { kind: "pause"; reason: PauseReason; detail: string; index?: number; replan?: boolean }
   | { kind: "replan" }
   | { kind: "requote" }
-  | { kind: "wind-down" }
+  /** the held step the runner hands a refund-only job while the rest returns (§8): the first one no relayer refused in the last REFUSED_RETRY_MS */
+  | { kind: "wind-down"; index: number }
   /** the seventh review round: a step that failed with its money in its escrow, after the user resumed — its own refund-only job, once */
   | { kind: "refund"; index: number }
   /** V6 Stage 13: a committed step that was never funded, while the rest returns — its order is given up once the runner
@@ -593,6 +634,8 @@ export interface ReducerFacts {
 
 export const TRACK_INTERVAL_MS = 15_000;
 export const PAUSED_TRACK_INTERVAL_MS = 60_000;
+/** A winding-down campaign asks again for a step's return a relayer refused (refund_not_watched) after this: Settings may name another by then. */
+export const REFUSED_RETRY_MS = 10 * 60_000;
 
 const inFlightIndexes = (c: Campaign): number[] => c.tranches.filter((t) => IN_FLIGHT.includes(t.state) || t.state === "refunding").map((t) => t.index);
 
@@ -616,6 +659,9 @@ function lastReturnAt(c: Campaign): number | null {
   for (const t of c.tranches) {
     if (t.state === "refunded") at = Math.max(at, enteredAt(t, "refunded"));
     else if (t.state === "settled" && big(t.outcome?.refunded) > 0n) at = Math.max(at, enteredAt(t, "settled"));
+    // ... and a step not delivered as asked with part of it back (the twelfth review round, XD's critique: that part was planned and swapped again with
+    // no question — its privacy fee, the relayer's and a tip paid again — fee-policy §4: a second 1 % is never charged silently)
+    else if (t.state === "undelivered" && lateRefundHeld(big(t.outcome?.refunded), big(t.amount))) at = Math.max(at, enteredAt(t, "undelivered"));
   }
   return at === -Infinity ? null : at;
 }
@@ -659,13 +705,19 @@ export function nextAction(c: Campaign, f: ReducerFacts): Action {
     case "winding-down": {
       const open = c.tranches.some((t) => OPEN.includes(t.state) || t.state === "ready");
       if (!open) return { kind: "complete" };
-      const funded = c.tranches.find((t) => t.state === "funded" || t.state === "signed" || t.state === "failed");
-      if (funded) return { kind: "wind-down" }; // the runner hands the funded tranche a refund-only job (§8)
+      // the runner hands a held tranche a refund-only job (§8): the first one whose return no relayer refused in the last REFUSED_RETRY_MS (the
+      // twelfth review round, XI's critique: the refused step had been asked again and again, every step behind it held for good)
+      const held = c.tranches.filter((t) => t.state === "funded" || t.state === "signed" || t.state === "failed");
+      const due = held.find((t) => t.refundRefusedAt === undefined || f.now >= t.refundRefusedAt + REFUSED_RETRY_MS);
+      if (due) return { kind: "wind-down", index: due.index };
       // V6 Stage 13 (found by the band's property test): a step committed but never funded when the rest was returned
       // would otherwise hold the campaign in winding-down forever
       const unfunded = c.tranches.find((t) => t.state === "committed");
       if (unfunded) return { kind: "abandon", index: unfunded.index };
-      return flying.length ? { kind: "track", indexes: flying } : { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: "winding down" };
+      if (flying.length) return { kind: "track", indexes: flying };
+      // ... and a refused step is asked again once its wait is over (Settings may name another relayer by then)
+      if (held.length) return { kind: "wait", until: Math.min(...held.map((t) => t.refundRefusedAt! + REFUSED_RETRY_MS)), why: "a relayer refused a step's return; it is asked again" };
+      return { kind: "wait", until: f.now + TRACK_INTERVAL_MS, why: "winding down" };
     }
     // the first step is released under the same facts as every later one (§6, §8): a pause condition at the start holds
     case "user-confirmed": if (f.pause) return { kind: "pause", reason: f.pause.reason, detail: f.pause.detail }; if (c.plan.shapeNotes && !f.notesShaped) return { kind: "shape-notes" }; return firstStep(c, f);

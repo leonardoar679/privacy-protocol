@@ -161,7 +161,9 @@ describe("the scan against a lagging or lying view (the tenth review round, B10-
     pool.state.deposits = [{ vault: VAULT, ownerCommitment: oc, amount, leafIndex: 1 }];
     await scanNotes({ masterSeed: seed, deployment: d() });
     expect(journaled().refunds?.map((r) => r.leafIndex)).toEqual([1]);
-    expect(journaled().state).toBe("refunded");
+    // the order is its runner's to close, once the escrow reads empty (the twelfth review round, C12-1): its tick is due now
+    expect(journaled().state).toBe("funded");
+    expect(session.journal().schedule.some((a) => a.id === `order-tick:${order.orderId}`)).toBe(true);
   });
 
   it("a note a scan found carries its time: a view a block behind keeps it for the grace a recorded note gets", async () => {

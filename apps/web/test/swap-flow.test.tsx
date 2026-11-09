@@ -134,6 +134,7 @@ describe("the Swap screen reads the provider call before signing (happy-dom, rea
     await vi.waitFor(() => expect(container.textContent).toContain("Returning to your private balance"), { timeout: 20_000 });
     refundHook.result = [{ orderId, leafIndex: 4, note: { vaultId: BigInt(ETH_VAULT), amount: 99n * 10n ** 16n, ownerCommitment: 1n, noteSecret: 2n }, counter: 0, commitment: 0n, noteData: "0x", txHash: "0x" }];
     jobs.set(orderId.toLowerCase(), "refunded"); // the escrow re-shielded once the window opened
+    world.escrowBalance = 0n; // ... and the escrow reads so (the twelfth review round: a relayer's "refunded" counts once the escrow is read empty)
     await mount(container); // a reload: the order comes back from the journal, its job from the relayer
     await act(async () => { button(container, "Open")!.click(); });
     await vi.waitFor(() => expect(container.textContent).toContain("Refunded: 0.99 ETH back in your private balance."), { timeout: 20_000 });

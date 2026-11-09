@@ -47,6 +47,12 @@ export const nextSettlement = (prev: SettlementState | null | undefined, legs: S
  * apps/relayer/src/swapExecutor.ts `OWN_FLOOR_BPS`); dust below it stays where it is.
  */
 export const lateRefundHeld = (balance: bigint, amount: bigint): boolean => balance > 0n && balance * 100n >= amount;
+/**
+ * How long past an executed order's refund time its executor still watches the escrow for a late refund, and re-shields one itself (the relayer's
+ * own LATE_REFUND_WATCH_SECONDS, apps/relayer swapExecutor.ts): a refund held there inside it is the executor's to return, never yet the user's
+ * (the twelfth review round, XD's critique: read as a late refund, a step had failed and paused its campaign for a refund re-shielded in seconds).
+ */
+export const EXECUTOR_LATE_REFUND_WATCH_SECONDS = 24 * 3600;
 
 /**
  * The relayer's swap job states (apps/relayer/src/swapExecutor.ts; the wallet's packages/sdk/src/relayer.ts). `lapsed` (a
@@ -99,6 +105,10 @@ export interface LegFacts {
   abandoned?: boolean;
   /** the refund note is in the pool (the wallet's discovery) */
   refundFound?: boolean;
+  /** the escrow holds a late refund in one of the route's refund tokens, or an ETH order's in wrapped ETH (the twelfth review round, VC12-N1) */
+  refundTokensHeld?: boolean;
+  /** ... or the route's refund tokens were not read this time (the wallet's failed read; the API reads none) — the twelfth review round, XV's critique */
+  refundTokensUnread?: boolean;
   /** the executor's job, or null when there is none */
   job: { state: SwapJobState; executionTx?: string } | null;
   /** a job is expected (its id is known) but its read failed */
@@ -111,6 +121,8 @@ export interface LegFacts {
   escrowBalance: bigint | null;
   amount: bigint;
   executeDeadline: number;
+  /** the escrow's refund time, unix seconds (the executor's late-refund watch ends EXECUTOR_LATE_REFUND_WATCH_SECONDS after it) */
+  refundAfter?: number;
   /** unix seconds */
   now: number;
   /** where the provider refunds an unfilled order (the quote's `refundTarget`, or the track's `refundedTo`; the sixth review round):
@@ -126,7 +138,30 @@ export interface LegFacts {
 export function legsFrom(f: LegFacts): SettlementLegs | null {
   const job = f.job?.state;
   if (f.abandoned) return { funded: false, executed: false, refundable: false };
-  if (f.refundFound || job === "refunded") return { funded: true, executed: false, refund: "done", refundable: false };
+  // a refund — the note found, the relayer's "refunded" — counts once the escrow's balance is read and holds dust at most (the twelfth review
+  // round, C12-1): unread, the last settlement stands; still holding the order, it is set aside and the legs read as the job and the balance say
+  if (f.refundFound || job === "refunded") {
+    if (f.escrowBalance === null) return null;
+    // ... nor while a refund token sits in the escrow at its floor (XD's critique: a note of the order's own asset beside it had closed it refunded,
+    // Return funds gone with the USDC still there)
+    if (!lateRefundHeld(f.escrowBalance, f.amount) && !f.refundTokensHeld) return { funded: true, executed: false, refund: "done", refundable: false };
+  }
+  // ... and a job that says it refunded, after an execution, with a refund held since (XC's critique): a late refund to return, as a completed job's — once
+  // its executor's watch is over (XD's critique); inside it the executor re-shields it itself
+  if (
+    job === "refunded" &&
+    (f.job?.executionTx ?? f.executionTx) &&
+    ((f.escrowBalance !== null && lateRefundHeld(f.escrowBalance, f.amount)) || f.refundTokensHeld)
+  )
+    // a refund time not given is read as inside the watch (the fifth critique, XE: the API's reconcile gave none, and a refund the executor re-shields at
+    // its next pass had read as one to return, for good)
+    return f.refundAfter !== undefined && f.now >= f.refundAfter + EXECUTOR_LATE_REFUND_WATCH_SECONDS
+      ? { funded: true, executed: true, provider: "refunded-to-escrow", refundable: true }
+      : // ... beside a refund paid at the destination, the order's own asset held and no refund token, inside the watch: closed at the destination, as the
+        // tracker reads it (the twelfth review round, XU's critique: its closed record had kept "Refunding")
+        !f.refundTokensHeld && !f.refundTokensUnread && f.track?.state === "refunded" && f.refundTarget === "destination"
+        ? { funded: true, executed: true, provider: "refunded-at-destination", refundable: false }
+        : { funded: true, executed: true, refund: "pending", refundable: false };
   if (f.fundingSent === false) return { funded: false, executed: false, refundable: false };
   if (f.jobUnread) return null; // the executor's job was not read
   const t = f.track?.state;
@@ -134,7 +169,7 @@ export function legsFrom(f: LegFacts): SettlementLegs | null {
   // round 2, r36) — a refund the provider held past the watch (a chain halt, an outbound queue) lands where no pass reads
   // again, and only a refund-only job, the wallet's "Return funds", re-shields it
   if (job === "completed") {
-    if (f.escrowBalance !== null && lateRefundHeld(f.escrowBalance, f.amount))
+    if ((f.escrowBalance !== null && lateRefundHeld(f.escrowBalance, f.amount)) || f.refundTokensHeld)
       return { funded: true, executed: true, provider: "refunded-to-escrow", refundable: true };
     // the escrow's balance or the provider's side was not read: the last settlement stands, as the header promises (the sixth review
     // round, 2026-11-03: the delivered rule had come first, and a failed balance read settled a partial fill as delivered)
@@ -169,5 +204,7 @@ export function legsFrom(f: LegFacts): SettlementLegs | null {
   if (job === "executing") return { funded: true, executed: false, refundable: false }; // the executor saw the funding and sends the call
   if (f.escrowBalance === null) return null; // the funding's finality rests on the escrow's balance, which was not read
   if (f.escrowBalance < f.amount) return { funded: false, executed: false, refundable: false };
-  return { funded: true, executed: false, refundable: !job && f.now > f.executeDeadline };
+  // ... a relayer's "refunded" set aside above (the escrow still holds the order, never executed) is a relayer that dropped it: past the execute
+  // deadline, refundable as an order no executor took (the twelfth review round, XG's critique: Return funds had never been offered)
+  return { funded: true, executed: false, refundable: (!job || job === "refunded") && f.now > f.executeDeadline };
 }

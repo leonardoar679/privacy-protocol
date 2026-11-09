@@ -12,7 +12,7 @@ import type { OrderState } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJobState } from "@privacy-wallet/sdk/relayer";
 import type { PauseReason, TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 
-const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED", "LATE_REFUND", "REFUNDED_AT_DESTINATION", "PROVIDER_FAILED"];
+const ORDER_STATES: OrderState[] = ["COMMITTED", "SOURCE_SUBMITTED", "SOURCE_FINAL", "PROVIDER_EXECUTING", "DESTINATION_SUBMITTED", "DESTINATION_FINAL", "COMPLETED", "PARTIAL", "REFUND_PENDING", "PROVIDER_TIMEOUT", "DESTINATION_FAILED", "REFUNDED", "EXPIRED", "CANCELLED", "FAILED", "LATE_REFUND", "DROPPED", "REFUNDED_AT_DESTINATION", "PROVIDER_FAILED"];
 const JOB_STATES: SwapJobState[] = ["waiting-funding", "expired", "refund-only", "executing", "executed", "execute-failed", "refunding", "refunded", "refund-failed", "completed", "lapsed"];
 const TRANCHE_STATES: TrancheState[] = ["planned", "ready", "committed", "funded", "signed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "settled", "partial", "refunding", "refunded", "failed", "skipped"];
 const PAUSES: PauseReason[] = ["price-deviation", "provider-error", "chain-congestion", "route-degraded", "unexpected-destination", "security-incident", "anomaly", "reconcile", "bounds", "user", "wallet-pause", "velocity"];
@@ -38,6 +38,8 @@ describe("the mapping table", () => {
     expect(ORDER_STATE_MAP.PROVIDER_TIMEOUT).toEqual({ state: "PROVIDER_EXECUTING", phase: "execution", code: "provider_timeout", delayed: true });
     expect(ORDER_STATE_MAP.DESTINATION_FAILED).toMatchObject({ state: "RECOVERY_REQUIRED", code: "destination_failed" });
     expect(ORDER_STATE_MAP.FAILED).toMatchObject({ state: "RECOVERY_REQUIRED", code: "needs_attention" });
+    // the twelfth review round, XH: a relayer's "refunded" over an escrow that still holds the order — nothing was swapped, the funds held for it
+    expect(ORDER_STATE_MAP.DROPPED).toMatchObject({ state: "RECOVERY_REQUIRED", phase: "execution", code: "execution_window_closed" });
     expect(ORDER_STATE_MAP.PARTIAL).toMatchObject({ state: "RECOVERY_REQUIRED", code: "partial_delivery" });
     expect(ORDER_STATE_MAP.EXPIRED, "V7: a funded order past its window waits for the return").toMatchObject({ state: "RECOVERY_REQUIRED", code: "order_expired" });
     expect(ORDER_STATE_MAP.REFUND_PENDING.state).toBe("REFUNDING");

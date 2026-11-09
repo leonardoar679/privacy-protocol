@@ -4,7 +4,7 @@
 // terms before it syncs the notes, and a line already passed is never shown waiting again. V6 Stage 13 (spec v2.0 §7.7,
 // §13.5): a protected execution shows amounts — completed, executing, remaining — never a step count. Pure.
 import type { StepState } from "@privacy-wallet/ui";
-import { exposure, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
+import { exposure, notAsAsked, type Campaign } from "@privacy-wallet/protocol/wallet/campaign";
 import { isTerminal, type OperationRecord } from "@privacy-wallet/sdk/wallet/operationRecord";
 import type { ProgressModel, ProgressStepKind } from "./View";
 
@@ -64,7 +64,7 @@ export function campaignProgressModel(c: Campaign): ProgressModel {
   // the rest of the dollars once completed, executing, not delivered as asked and the returned steps' fees are counted: the lines always add
   // up to the total
   const rest = (all: bigint): bigint => {
-    const r = all - cents(e.completed) - cents(executing) - cents(e.notDelivered) - cents(e.returnCosts);
+    const r = all - cents(e.completed) - cents(executing) - cents(notAsAsked(e)) - cents(e.returnCosts);
     return r > 0n ? r : 0n;
   };
   const at = done ? PROGRESS_LINES.length : e.completed > 0n || e.inFlight > 0n ? 3 : e.prepared > 0n ? 2 : 1;
@@ -79,14 +79,18 @@ export function campaignProgressModel(c: Campaign): ProgressModel {
           totalUsdCents: totalCents,
           completedUsdCents: cents(e.completed),
           executingUsdCents: cents(executing),
-          // what did not arrive as asked (exposure().notDelivered: a step refunded at its destination in the provider's own asset,
-          // delivered in another token, failed with nothing back, or a partial fill's rest that never came back) is a line of its own, never
+          // what did not arrive as asked (notAsAsked(e): a step refunded at its destination in the provider's own asset, delivered in another
+          // token, failed with nothing back, a partial fill's rest that never came back, or what came back in another token) is a line of its own, never
           // Remaining — what is still to swap (the eleventh review round, 2026-11-04, VE-1: "the three lines always add up to the total" had
           // counted it as Remaining) —, and what returned steps did not bring back (their fees) another, never "not delivered" (its critique)
-          notDeliveredUsdCents: cents(e.notDelivered),
+          notDeliveredUsdCents: cents(notAsAsked(e)),
+          // ... of which what came back to the protected balance in another token (the twelfth review round, C12-4): a line of its own
+          returnedOtherUsdCents: cents(e.returnedOther),
+          // ... and the steps delivered in part whose rest came back in another token, how much of each untold: in the line above, never "came back"
+          partlyBackUsdCents: cents(e.partlyBack),
           returnCostsUsdCents: cents(e.returnCosts),
-          // exposure().remaining, and a last remainder too small to swap kept in the balance (exposure().kept: never handed over; one
-          // step at a time, the campaign completes on the tick that keeps it)
+          // exposure().remaining, and what is kept in the balance (exposure().kept: a last remainder too small to swap, never handed over —
+          // one step at a time, the campaign completes on the tick that keeps it —, and an undelivered step's dust)
           remainingUsdCents: rest(totalCents),
         }
       : null;

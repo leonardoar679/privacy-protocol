@@ -4,7 +4,14 @@
 // that fails keeps the last settlement and never downgrades the state; a terminal state is final (I-O1). The wallet's own
 // reads win when they disagree. A relayer cost above 1.5 × the committed tip of an ETH order is logged once as
 // `fee.deviation`, without amounts.
-import { SWAP_JOB_MAP, lateRefundHeld, legsFrom, nextSettlement, type SwapJobState } from "@privacy-wallet/protocol/wallet/settlement";
+import {
+  EXECUTOR_LATE_REFUND_WATCH_SECONDS,
+  SWAP_JOB_MAP,
+  lateRefundHeld,
+  legsFrom,
+  nextSettlement,
+  type SwapJobState,
+} from "@privacy-wallet/protocol/wallet/settlement";
 import { TERMINAL_STATES, type OperationState, type SettlementState } from "@privacy-wallet/protocol-types";
 import type { OperationRow, Store } from "./store";
 
@@ -67,7 +74,8 @@ export function stateFrom(
   track: { state: string; refundedTo?: "escrow" | "destination"; deliveredAmount?: string | bigint } | null,
   funded: boolean | null,
   nowS: number,
-  /** the escrow holds a refund that came back after the executor's watch (lateRefundHeld) */
+  /** the escrow holds more than dust (lateRefundHeld): after an execution a refund held there — the executor's inside its watch, the user's to return
+   *  past it —, or, never executed, the order itself */
   lateRefund = false,
   /** the escrow's balance was read this time (the sixth review round, 2026-11-03): nothing settles on an unread one */
   escrowRead = true,
@@ -78,13 +86,22 @@ export function stateFrom(
   facts: { finalized?: boolean; deployed?: boolean | null; executed?: boolean | null } = {},
 ): { state: OperationState; code?: string; delayed?: true } {
   const j = job?.state;
-  if (j === "refunded") {
+  // the escrow unread: nothing settles on it, as in the completed branch (the twelfth review round, XF's critique: since C12-1 the legs give no
+  // settlement on an unread balance, and the terminal REFUNDED written beside it froze the row — a late refund never reached)
+  if (j === "refunded" && !escrowRead) return { state: "REFUNDING" };
+  // ... and a job that never executed is a refund in full only with the escrow read at dust at most (C12-1, the wallet's rule: the relayer's
+  // "refunded" is only its word); still holding the order, the job is set aside and the funding rules below read it
+  if (j === "refunded" && (job?.executed || !lateRefund)) {
     // the wallet's rule (orderTracker deriveState; the ninth review round, 2026-11-04, A9-6, refined by the eleventh's K4 critique): mined only on
     // the relayer's own flag — it keeps a reverted execution's transaction —; an executed order whose rest came back delivered part when the
     // provider gave units or said it delivered, is read again while its delivery is on its way or the provider tells nothing (unknown, pending,
     // executing) or is not read, and is a refund in full only on the provider's word that nothing was delivered (its refund, its failure). The
     // API had read the track's state and contradicted the wallet on four of five shapes
     if (!job?.executed) return { state: "REFUNDED" };
+    // a refund held in the escrow since, after an execution (the twelfth review round, XE's critique): the executor's to re-shield inside its late-refund
+    // watch, a late refund to return past it — never a terminal REFUNDED beside it (the wallet's rule: orderTracker deriveOrderState)
+    if (lateRefund)
+      return nowS >= row.refundAfter + EXECUTOR_LATE_REFUND_WATCH_SECONDS ? { state: "RECOVERY_REQUIRED", code: "late_refund" } : { state: "REFUNDING" };
     if (track === null) return { state: "REFUNDING" }; // the provider unread: nothing final on it
     let units = 0n;
     try {
@@ -101,8 +118,14 @@ export function stateFrom(
     return track.state === "refunded" || track.state === "failed" ? { state: "REFUNDED" } : { state: "REFUNDING" };
   }
   // a refund the provider paid at the destination address (the sixth review round, 2026-11-03; Mayan Fast-MCTP): final, whatever
-  // the executor's watch says — nothing reaches the escrow
-  if (track?.state === "refunded" && track.refundedTo === "destination" && (j === "completed" || j === "executed" || j === "executing"))
+  // the executor's watch says — nothing reaches the escrow — save a late refund held after a completed job's watch, which the wallet offers back (the
+  // twelfth review round, XU's critique: this terminal row could not follow its LATE_REFUND)
+  if (
+    track?.state === "refunded" &&
+    track.refundedTo === "destination" &&
+    (j === "completed" || j === "executed" || j === "executing") &&
+    !(j === "completed" && lateRefund)
+  )
     return { state: "COMPLETED" };
   // completed only on the provider's word (audit round 2, r36): the executor's watch ending with the escrow empty is none, and
   // a refund held past it waits for the wallet's return
@@ -179,16 +202,12 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
     chain: (balance === null ? "unreachable" : "ok") as Source,
     provider: (executionTx ? (trackRead ? "ok" : "unreachable") : "none") as Source,
   };
-  if (job)
-    store.putJob(row.id, {
-      state: job.state,
-      ...(job.executionTx ? { executionTx: job.executionTx } : {}),
-      ...(job.actualNetworkWei ? { actualWei: job.actualNetworkWei } : {}),
-    });
-
   const legs = legsFrom({
     fundingSent: null,
     refundFound: false,
+    // the API reads no refund token: a refund paid at the destination beside a leftover inside the watch stays refunding, as stateFrom reads it (the
+    // twelfth review round, XV's critique: its row had read REFUNDING beside a COMPLETED settlement)
+    refundTokensUnread: true,
     job: job ? { state: job.state, ...(job.executionTx ? { executionTx: job.executionTx } : {}) } : null,
     jobUnread: jobRead === null,
     ...(executionTx ? { executionTx } : {}),
@@ -196,6 +215,7 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
     escrowBalance: balance,
     amount: BigInt(row.amount),
     executeDeadline: row.executeDeadline,
+    refundAfter: row.refundAfter,
     now: nowS,
     ...(trackRead?.refundedTo ? { refundTarget: trackRead.refundedTo } : {}),
   });
@@ -227,6 +247,17 @@ export async function reconcileOperation(store: Store, row: OperationRow, reads:
   // kept the older snapshot when it wrote first, and the newer terminal answer, refused, was answered all the same): a refused write answers
   // what the row holds now
   const wrote = store.updateState(row.id, { state: derived.state, settlement }, { startedAt: now });
+  // the job's read is written under the state write's own rule, never over a later-started reconcile's (the twelfth review round, C12-5): an
+  // earlier-started reconcile whose state write was refused had written the relayer's older read back — an execution transaction the relayer had
+  // dropped and sent again — over the later one's, and the stall rule compared the wallet's transaction with a dead one. A terminal row refuses the
+  // state but takes the job read of the latest reconcile, as before
+  const laterStarted = !wrote && (store.getOperation(row.id)?.checkedAt ?? 0) > now;
+  if (job && !laterStarted)
+    store.putJob(row.id, {
+      state: job.state,
+      ...(job.executionTx ? { executionTx: job.executionTx } : {}),
+      ...(job.actualNetworkWei ? { actualWei: job.actualNetworkWei } : {}),
+    });
   // a refused write answers the row as it is — its state, settlement and time — and nothing of the refused read (B11-7): its superseded
   // settlement had been answered beside the newer state
   const held = wrote ? null : (store.getOperation(row.id) ?? current);

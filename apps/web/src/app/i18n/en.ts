@@ -160,6 +160,10 @@ export const en = {
   "notification.campaign.completed-not-all.body": "Every step finished, but part of the amount did not arrive as you asked.",
   "notification.campaign.cancelled-not-all.title": "Protected swap cancelled",
   "notification.campaign.cancelled-not-all.body": "The rest returned to your private balance, but part of the amount did not arrive as you asked.",
+  // a step's return a relayer refused while the rest returns, said once (the twelfth review round, XI's critique)
+  "notification.campaign.return-refused.title": "A step's return was refused",
+  "notification.campaign.return-refused.body":
+    "A step's relayer returns nothing for it now, so its funds stay held for it. To return them, choose another relayer: in Settings, set Experience to Advanced, then choose one under Advanced → Submission of private transactions. The wallet asks again every ten minutes.",
   "operation.actionNeeded": "Action needed",
   "operation.fundsSafe": "Your funds are safe.",
   "operation.checkingFunds": "We're checking on your funds.",
@@ -296,11 +300,16 @@ export const en = {
   "screen.swap.stepsRest": "What has not been handed over stays in your protected balance.",
   "screen.swap.stepsRestHeld":
     "A step already funded is held for its swap and returns to your protected balance after its refund time; the rest stays in your protected balance.",
+  // a step that comes back only once it is returned — its relayer dropped it, or will not return it (the twelfth review round, XI's critique): never
+  // "returns … after its refund time"
+  "screen.swap.stepsSafeKept": "Your funds are safe: a step already funded stays held for its swap until it is returned; the rest stays in your protected balance.",
+  "screen.swap.stepsRestKept": "A step already funded stays held for its swap until it is returned; the rest stays in your protected balance.",
   "screen.swap.stepsDetail": "View the steps",
   "screen.swap.intoProtected": "Arrives in your protected balance.",
   "screen.swap.addingToProtected": "Delivered — adding it to your protected balance…",
   "screen.swap.returned": "Returned to your protected balance.",
   "screen.swap.returnedAmount": "{amount} {symbol} returned to your protected balance. The privacy fee was earned at funding and does not come back.",
+  "screen.swap.returnedAmounts": "{amounts} returned to your protected balance. The privacy fee was earned at funding and does not come back.",
   "screen.swap.stepsPartly": "Part of your {pair} swap is complete. The rest is in your protected balance.",
   // a protected execution that ended with part of it not delivered as asked: never "complete" nor "Returned" — how much, and where it
   // went (the eleventh review round, 2026-11-04, E11-1)
@@ -313,6 +322,17 @@ export const en = {
   "screen.swap.stepsWhere.otherToken": "A step was delivered at its destination address in another token than {symbol}.",
   "screen.swap.stepsWhere.lost": "The provider failed a step, and nothing has come back from it.",
   "screen.swap.stepsWhere.partialUnreturned": "A step was delivered in part, and the rest did not come back.",
+  "screen.swap.stepsWhere.partialReturnedOther":
+    "A step was delivered in part, and the rest came back to your protected balance in another token than {from}. That token stays in your protected balance and is not swapped again on its own.",
+  "screen.swap.stepsWhere.lostRest": "The provider failed a step; what came back of it returned to your protected balance.",
+  "screen.swap.stepsWhere.refundedOtherToken":
+    "A step's provider returned it in another token than {from}. That token stays in your protected balance and is not swapped again on its own.",
+  "screen.swap.stepsReturnedOther": "{amount} of the swap came back to your protected balance as {returned}.",
+  "screen.swap.stepsReturnedOtherUnknown": "{amount} of the swap came back to your protected balance in another token than {from}.",
+  "screen.swap.stepsPartlyBack": "{amount} of the swap was delivered only in part; the rest came back to your protected balance as {returned}.",
+  "screen.swap.stepsPartlyBackUnknown": "{amount} of the swap was delivered only in part; the rest came back to your protected balance in another token than {from}.",
+  "screen.swap.stepsWhere.partialOtherToken":
+    "A step's provider delivered part of it and returned the rest in another token than {from}, without saying how much of each. That token stays in your protected balance and is not swapped again on its own.",
   "screen.swap.stepsReturnCosts": "Fees of steps that came back: {amount}.",
   "screen.swap.stepsKept": "A remainder too small to swap on its own stays in your protected balance.",
   "screen.swap.cancelled": "Cancelled. Nothing left your protected balance.",
@@ -402,6 +422,7 @@ export const en = {
   "screen.progress.executing": "Executing",
   "screen.progress.remaining": "Remaining",
   "screen.progress.notDelivered": "Not delivered as asked",
+  "screen.progress.returnedOther": "Of which: steps returned in another token",
   "screen.progress.returnCosts": "Fees of steps that came back",
   "more.receiveWhy": "Your privacy address, to be paid privately",
   "more.privacyWhy": "What stays private, and what the wallet cannot promise",
@@ -626,7 +647,11 @@ export const en = {
   "op.error.refund_needs_relayer.title": "Returning it needs the relayer",
   "op.error.refund_needs_relayer.reason": "This wallet is set to send its own transactions, and a swap is returned through the relayer. In Settings, set Experience to Advanced, choose the relayer under Advanced → Submission of private transactions, then return it again.",
   "op.error.refund_not_watched.title": "The relayer has closed this swap's job",
-  "op.error.refund_not_watched.reason": "The relayer no longer watches this swap and returns nothing now. Its funds stay held for it.",
+  "op.error.refund_not_watched.reason":
+    "This relayer returns nothing for this swap now. Its funds stay held for it: in Settings, set Experience to Advanced, choose another relayer under Advanced → Submission of private transactions, then return them again.",
+  "op.error.step_refund_not_watched.title": "The relayer has closed this step's job",
+  "op.error.step_refund_not_watched.reason":
+    "This relayer returns nothing for this step now. Its funds stay held for it: in Settings, set Experience to Advanced, choose another relayer under Advanced → Submission of private transactions, then choose Resume.",
   "op.error.refund_payload_missing.title": "This swap cannot be returned from this wallet",
   "op.error.refund_payload_missing.reason": "This wallet's record of the swap lacks what is needed to return it, so nothing was sent.",
   "op.error.funding_under_way.title": "A funding is on its way",
@@ -758,6 +783,9 @@ export const en = {
   "op.error.relayer_not_ready.title": "The relayer is not set up for this swap",
   "op.error.step_relayer_not_ready.title": "This step cannot be funded",
   "op.error.step_relayer_not_ready.reason": "The relayer does not run this swap service's orders, or this wallet sends its own transactions, so this step was stopped before its funding: nothing of it was sent. In Settings, set Experience to Advanced, choose a relayer that runs this service's swaps under Advanced → Submission of private transactions, then choose Resume, or return the rest to your protected balance.",
+  "op.error.step_dropped.title": "A step was not swapped",
+  "op.error.step_dropped.reason":
+    "Its relayer says it returned this step, but its funds are still held for it: nothing of it was swapped. Resume returns them and carries on with the rest, through the relayer chosen in Settings. If that is the same relayer, first choose another one: in Settings, set Experience to Advanced, then choose a relayer under Advanced → Submission of private transactions.",
   "op.error.relayer_not_ready.reason":
     "The relayer that would carry out this swap does not run the swap service's orders, so we stopped it before funding. Nothing left your protected balance. Check the relayer in Settings, or try again later.",
   "op.error.service_key_changed.title": "The swap service changed its key since you confirmed this swap",
@@ -1349,6 +1377,7 @@ export const en = {
   "campaign.restReturnedNotAll": "The rest returned to your private balance; part of the amount did not arrive as you asked (see Not delivered as asked).",
   "campaign.finishedNotAll": "Every step finished; part of the amount did not arrive as you asked (see Not delivered as asked).",
   "campaign.notDelivered": "Not delivered as asked",
+  "campaign.returnedOther": "Of which: steps returned in another token",
   "campaign.returnCosts": "Fees of steps that came back",
   "campaign.keptInBalance": "Kept in your private balance",
   "campaign.counts": "{settled} settled · {executing} executing · {remaining} remaining",
@@ -1384,10 +1413,19 @@ export const en = {
   "campaign.alert.cancelled": "Cancelled",
   "campaign.undelivered.refunded-at-destination":
     "A step was not delivered: its provider refunded it at that step's destination address, in its own refund asset. Nothing came back to your private balance.",
+  "campaign.undelivered.refunded-at-destination-rest":
+    "A step was not delivered: its provider refunded it at that step's destination address, in its own refund asset. What else came back returned to your private balance.",
   "campaign.undelivered.other-token": "A step was delivered in another token than the one you asked for: check what arrived at that step's destination address.",
   "campaign.undelivered.lost": "A step failed at its provider, and nothing came back while the wallet watched it.",
+  "campaign.undelivered.refunded-other-token":
+    "A step came back to your private balance in another token than the one it was swapping. It is not swapped again on its own.",
+  "campaign.undelivered.partial-other-token":
+    "A step was delivered in part, and the rest came back to your private balance in another token than the one it was swapping. It is not swapped again on its own.",
+  "campaign.undelivered.lost-rest": "A step failed at its provider; what came back of it returned to your private balance.",
   "campaign.resumeNote":
     "Resuming checks the facts again, quotes the remaining amount again, and asks you to review the route if it changed. Steps already handed over continue meanwhile.",
+  "campaign.returnRefused":
+    "A step's relayer returns nothing for it now, so its funds stay held for it. To return them, choose another relayer: in Settings, set Experience to Advanced, then choose one under Advanced → Submission of private transactions. The wallet asks again every ten minutes.",
   "campaign.rerouteTitle": "The route changed to {provider}.",
   "campaign.rerouteNote": "A route change on a large operation is reviewed, never adopted quietly. The steps already handed over continue.",
   "campaign.pause": "Pause",
@@ -1635,6 +1673,8 @@ export const en = {
   "order.confirmAgain": "2 · Confirm again with a fresh quote",
   "order.confirm": "2 · Confirm the swap",
   "order.returnHint": "The order is not executed; its escrow re-shields into your private balance once the window opens",
+  // ... on a reading that needs the user — a failed re-shield, a dropped order, a late refund — which may have executed (the twelfth review round, XI)
+  "order.returnHintHeld": "Returns what is held for this swap to your private balance",
   "order.return": "Return to my private balance",
   "order.priceMoved": "The price moved. This route now guarantees at least {min}; you approved {approved} (−{drop} %). Nothing has been signed.",
   "order.priceMovedNote":

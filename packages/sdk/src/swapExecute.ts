@@ -9,6 +9,7 @@ import type { Address, Hex } from "viem";
 import { higherTier, type Tier } from "@privacy-wallet/protocol/wallet/valuation";
 import type { LintItem } from "@privacy-wallet/protocol/wallet/privacyLint";
 import type { Deployment } from "./chain";
+import { refundTokensOf, refundVaultsOf } from "./refundVaults";
 import type { Asset } from "./assets";
 import { simulateExecution, type Simulation } from "./simulate";
 import { swapService, type CompetitionEntry, type ExecutionPlan, type Policy, type Prepared, type Preference, type ResumeRequest, type ServiceOrder, type ServiceOrderParams, type ServiceQuote, type SwapRequest, type Tier as ServiceTier } from "./swapService";
@@ -336,6 +337,9 @@ export class CallTooClose extends Error {
 
 export interface HandOverInput { deployment: Deployment | null; session?: WalletSession; stored: StoredSwap; order: ServiceOrder; signed: Signed; submission: Submission; /** right before the executor is asked, with its relayer (A10-3) */ onSending?: (relayerUrl: string) => void }
 
+// the pool's vault of each refund token, journaled at the hand-over (./refundVaults.ts)
+export { refundVaultsOf };
+
 /** Hand a checked, signed and simulated execution to the service (finalize) and the relayer's executor. */
 export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob }> {
   const s = i.session ?? defaultSession;
@@ -356,8 +360,12 @@ export async function handOverSigned(i: HandOverInput): Promise<{ job?: SwapJob 
   // the hand-over's time, for the velocity limit over every hand-over of the wallet (the seventh review round)
   if (i.submission.kind !== "relayer") { patchSwap(order.orderId, { handedOverAt: stored.handedOverAt ?? Date.now() }, s); return {}; }
   const factory = swapFactoryOf(i.deployment); // the swap service's own was read before the call was prepared (prepareAndSign)
-  const { refundTokens, refundFloors } = signed.call;
-  if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors }, s);
+  // the call's refund tokens, with wrapped ETH beside a refund token of address(0) for an ERC-20 order (refundTokensOf; XF's critique): an unfilled
+  // Across deposit of ETH comes back as WETH, which the executor re-shields only listed
+  const listed = refundTokensOf(i.deployment?.chainId, (stored.request as { from?: { asset?: string } })?.from?.asset, signed.call.refundTokens, signed.call.refundFloors);
+  const refundTokens = listed.refundTokens as Address[] | undefined;
+  const refundFloors = listed.refundFloors;
+  if (refundTokens?.length) patchSwap(order.orderId, { refundTokens, refundFloors, refundVaults: refundVaultsOf(i.deployment, refundTokens, refundFloors) }, s);
   i.onSending?.(i.submission.url); // from here the executor may have it (the tenth review round, A10-3)
   const job = await relayerSwapExecute(i.submission.url, {
     factory,
@@ -392,7 +400,18 @@ export class RefundRefusal extends Error {
  * Return a funded order to the private balance without executing it: a refund-only job (the journaled params and
  * refund payload, no signature) re-shields the escrow's balance as the committed note once the window opens.
  */
-export async function returnOrderToBalance(i: { deployment: Deployment | null; session?: WalletSession; stored: StoredSwap; submission: Submission }): Promise<SwapJob> {
+export async function returnOrderToBalance(i: {
+  deployment: Deployment | null;
+  session?: WalletSession;
+  stored: StoredSwap;
+  submission: Submission;
+  /**
+   * what the escrow still holds to return — "asset", the order's own (an ETH order's wrapped ETH too), "token", a refund token at its floor, false,
+   * nothing (orderTracker escrowLeftOf) —, every endpoint agreeing (null: not read): what tells a relayer's true "refunded" from one it keeps, and the
+   * escrow's own call a refusal names
+   */
+  escrowLeft?: () => Promise<"asset" | "token" | false | null>;
+}): Promise<SwapJob> {
   const s = i.session ?? defaultSession;
   const { stored } = i;
   if (i.submission.kind !== "relayer")
@@ -402,20 +421,56 @@ export async function returnOrderToBalance(i: { deployment: Deployment | null; s
     );
   const refundNoteData = stored.refundNoteData as Hex | undefined;
   if (!refundNoteData) throw new RefundRefusal("this order has no refund payload in the journal", "refund_payload_missing");
+  // ... with wrapped ETH beside a refund token of address(0) for an ERC-20 order, for a journal kept before the hand-over listed it (XF's critique: the
+  // refund-only job had re-shielded nothing of a WETH refund, and the order read a late refund again)
+  const returned = refundTokensOf(i.deployment?.chainId, (stored.request as { from?: { asset?: string } })?.from?.asset, stored.refundTokens, stored.refundFloors);
   const job = await relayerSwapRefund(i.submission.url, {
     factory: swapFactoryOf(i.deployment),
     params: stored.params as any,
     refundNoteData,
-    ...(stored.refundTokens?.length ? { refundTokens: stored.refundTokens as Address[], refundFloors: stored.refundFloors } : {}),
+    ...(returned.refundTokens?.length ? { refundTokens: returned.refundTokens as Address[], refundFloors: returned.refundFloors } : {}),
     ...(stored.orderVouch ? { vouch: { order: stored.orderVouch as Hex } } : {}), // the relayer refunds only a vouched order
   });
   // a relayer that keeps a completed job closed (one from before audit round 2, r36) re-shields nothing: said, never journaled
-  // as closed — the order stays open, its escrow read
-  if (job.state === "completed")
+  // as closed — the order stays open, its escrow read. So does one that answers its stored "refunded" job for an order its escrow still holds (the
+  // twelfth review round, XG's critique: only an executed refunded job is reopened, and journaled "refunded" it had closed the order on that word), and
+  // one whose refund failed (refund-failed: a job it never reopens — XI's critique: taken as an answer, every Return funds had done nothing, and the
+  // relayer Settings name was never asked)
+  if (job.state === "completed" || job.state === "refunded" || job.state === "refund-failed") {
+    // ... unless that "refunded" is true, the escrow holding nothing left to return — the order's asset at dust and no refund token at its floor (XI's
+    // critique: read in the order's asset alone, a refund token held after an execution had been taken as returned) —: it did return the order — its
+    // executor re-shielded it at its refund time, another copy's Return funds — and it is answered as it is, journaled by returnFunds (XH's critique:
+    // refused, the user had been told the money was held while it was back)
+    const left = i.escrowLeft ? await i.escrowLeft().catch(() => null) : null;
+    if (job.state === "refunded" && i.escrowLeft) {
+      if (left === false) {
+        // ... journaled with its job and the relayer that answered, never its state: the tracker closes the order on its own reading — the escrow's flag,
+        // the provider — (XJ's critique: closed here, an executed order's delivery read since had never been recorded)
+        patchSwap(stored.orderId, { jobId: job.id, relayerUrl: i.submission.url }, s);
+        return job;
+      }
+      // ... and an escrow not read is no answer either way (XI's critique: refused, the user had been told the money was held; taken, the order had
+      // closed on the relayer's word): nothing journaled, nothing asked of another relayer
+      if (left === null) throw new Error("This relayer answers that it already returned this order; the escrow could not be read to confirm it, so nothing was changed. Try again in a moment.");
+    }
+    const refundAfter = (stored.params as { refundAfter: number }).refundAfter;
+    const after = Date.now() / 1000 < refundAfter ? ` after ${new Date(refundAfter * 1000).toLocaleString()}` : "";
+    // the way to another relayer as Settings offer it (XI's critique: Simple's Settings have no relayer row until the experience is Advanced), and the
+    // escrow's own call for what it holds — refund() (deployAndRefund) re-shields the order's asset, refundToken a refund in another token (XJ's
+    // critique: deployAndRefund had been named for a refund it never moves) —, what it holds said in every sentence (XK's critique: "that token" had
+    // named nothing)
+    const inToken = left === "token";
+    const call = inToken ? "refundToken on the escrow for the refund token it holds" : "deployAndRefund on the factory";
+    const how = `Choose another relayer in Settings (Experience: Advanced, then Advanced → Submission of private transactions) to return it, or anyone can call ${call}${after}; the wallet keeps reading the escrow.`;
     throw new RefundRefusal(
-      "The executor no longer watches this order's escrow and re-shields nothing there now. Anyone can call deployAndRefund on the factory to return it to your private balance; the wallet keeps reading the escrow.",
+      job.state === "refunded"
+        ? `This relayer answers that it already returned this order, but the escrow still holds ${inToken ? "a refund in one of the route's refund tokens" : "it"}. ${how}`
+        : job.state === "refund-failed"
+          ? `This relayer's return of this order failed, and it does not try again.${inToken ? " The escrow holds a refund in one of the route's refund tokens." : ""} ${how}`
+          : `The executor no longer watches this order's escrow and re-shields nothing there now.${inToken ? " The escrow holds a refund in one of the route's refund tokens." : ""} ${how}`,
       "refund_not_watched",
     );
+  }
   patchSwap(stored.orderId, { jobId: job.id, state: job.state, relayerUrl: i.submission.url }, s);
   return job;
 }

@@ -24,6 +24,69 @@ const partial: Tracked = {
   refundedAmount: "10,000 USDC",
 };
 
+describe("the order card of a relayer's 'refunded' over an escrow that still holds the order (the twelfth review round, XH)", () => {
+  const panel = (tracked: Tracked, jobState = "refunded") =>
+    render(
+      <OrderPanel
+        order={{ orderId: "0x" + "0e".repeat(32), state: "funded", endpoint: "0x" + "ee".repeat(20), params: { refundAfter: 1_800_000_000, executorTip: "0" }, quote: { provider: "thorchain", toAmount: "1000000" }, privacy: { score: 80, delaySeconds: [0, 0] } } as never}
+        stored={{ orderId: "0x" + "0e".repeat(32), state: "executing", fundedTx: "0x" + "fa".repeat(32), jobId: "j", params: { refundAfter: 1_800_000_000 } } as never}
+        orderAsset={{ symbol: "ETH", decimals: 18 } as never}
+        target={{ id: "BTC", ref: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, network: "Bitcoin" } as never}
+        destination="bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+        destinationEdited={false}
+        job={{ id: "j", escrow: "0x" + "ee".repeat(20), state: jobState, updatedAt: 1 } as never}
+        tracked={tracked}
+        record={
+          {
+            id: "swap:0x" + "0e".repeat(32),
+            kind: "swap",
+            state: "RECOVERY_REQUIRED",
+            phase: "execution",
+            reason: { code: "execution_window_closed", source: "wallet" },
+            settlement: "REFUND_AVAILABLE",
+            refs: { orderId: "0x" + "0e".repeat(32) },
+            createdAt: 1,
+            updatedAt: 1,
+          } as never
+        }
+        signed={null}
+        checked={null}
+        moved={null}
+        refundLine=""
+        signLint={null}
+        advanced={false}
+        busy=""
+        submission={{ kind: "relayer", url: "http://relayer.test" }}
+        holdActive={false}
+        canExport={false}
+        onFundNow={() => {}}
+        onSign={() => {}}
+        onReturn={() => {}}
+        onExport={() => {}}
+        onMonitor={() => {}}
+      />,
+    );
+  it("DROPPED: Return funds on the card and on its recovery; any other reading with that job: neither", () => {
+    panel({ state: "DROPPED", label: "Needs attention", steps: [true, true, false, false], detail: "…" } as Tracked);
+    expect(screen.getByTestId("order-return")).toBeTruthy();
+    // its hint by the reading: what is held returned, never "The order is not executed" (the twelfth review round, XI's critique)
+    expect(screen.getByTestId("order-return").getAttribute("title")).toBe(t("order.returnHintHeld"));
+    expect(screen.getByTestId("recovery-refund")).toBeTruthy();
+    cleanup();
+    panel({ state: "PROVIDER_EXECUTING", label: "Executing", steps: [true, true, false, false], detail: "…" } as Tracked);
+    expect(screen.queryByTestId("order-return")).toBeNull();
+    expect(screen.queryByTestId("recovery-refund")).toBeNull();
+  });
+
+  it("the Return hint by the reading: a late refund's and a failed re-shield's say what is held is returned, never 'The order is not executed' (XJ)", () => {
+    for (const state of ["LATE_REFUND", "FAILED"] as const) {
+      panel({ state, label: "Needs attention", steps: [true, true, false, false], detail: "…" } as Tracked);
+      expect(screen.getByTestId("order-return").getAttribute("title"), state).toBe(t("order.returnHintHeld"));
+      cleanup();
+    }
+  });
+});
+
 describe("the settlement line (the eleventh review round, the critique of slice 2b)", () => {
   it("a Simple reader sees the label, the four steps and a partial fill's amounts in the catalog's words — never the tracker's sentence, never 'escrow'", () => {
     render(<SettlementLine tracked={partial} />);

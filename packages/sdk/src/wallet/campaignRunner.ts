@@ -9,7 +9,7 @@
 // failure before anything was sent is thrown to the scheduler's backoff (§9: no automatic retry on money movement).
 import type { Hex } from "viem";
 import {
-  canRelease, detectPause, exposure, nextAction, settledBy, swappedInFull, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
+  canRelease, detectPause, exposure, nextAction, notAsAsked, settledBy, swappedInFull, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
   FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, STALL_FACTOR, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
@@ -20,11 +20,13 @@ import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
 import { atLeast } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Deployment } from "../chain";
 import { assetsOf, type Asset } from "../assets";
-import { escrowBalance, trackOrder, type Tracked } from "../orderTracker";
+import { escrowBalance, escrowLeftOf, trackOrder, type Tracked } from "../orderTracker";
 import { priceStore } from "../prices";
 import { ensureSpendable } from "../privateTx";
 import { relayerInfo, relayerSwapStatus, type SwapJob } from "../relayer";
-import { commitOrder, handOverSigned, prepareAndSign, resumeOrder, returnOrderToBalance, type Signed } from "../swapExecute";
+import { commitOrder, handOverSigned, prepareAndSign, RefundRefusal, resumeOrder, returnOrderToBalance, type Signed } from "../swapExecute";
+import { refundVaultsOf } from "../refundVaults";
+import { lateRefundHeld } from "@privacy-wallet/protocol/wallet/settlement";
 import { abandonSwap, fundEscrow, fundingFate, fundingReads, FUNDING_MARGIN_MS, patchSwap, windowEndOf, type FundingFate } from "../swapFunding";
 import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "../swapService";
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
@@ -159,16 +161,13 @@ export function defaultIo(d: IoDeps): CampaignIo {
     },
     fund: (stored, onStatus) => fundEscrow({ masterSeed: d.masterSeed, deployment: d.deployment, stored, session: d.session, onStatus, relayerUrl }),
     fundingFate: async (stored) => (d.deployment && stored.fundingAttempt ? fundingFate(stored.fundingAttempt, fundingReads(d.deployment), undefined, stored.endpoint) : "unknown"),
-    escrowBalance: async (stored) => {
-      if (!d.deployment) return null;
-      const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
-      return escrowBalance(d.deployment, stored.endpoint as `0x${string}`, token && token !== "native" ? (token as `0x${string}`) : null).catch(() => null);
-    },
+    escrowBalance: (stored) => campaignEscrowOf(d.deployment, stored),
     sign: async (stored, acceptMin) => prepareAndSign({ masterSeed: d.masterSeed, deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), submission: d.submission, ...(acceptMin !== undefined ? { acceptMin } : {}), onStatus: (l) => schedulerStatus.progress(l) }),
     handOver: async (stored, signed) => handOverSigned({ deployment: d.deployment, session: d.session, stored, order: await orderFor(stored), signed, submission: d.submission }),
     job: (stored) => (relayerUrl ? relayerSwapStatus(relayerUrl, stored.orderId).catch(() => null) : Promise.resolve(null)),
     track: (stored, stall) => trackOrder(stored, { deployment: d.deployment, relayerUrl, session: d.session, stall }),
-    refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission }),
+    // every job the relayer keeps is checked against what the escrow still holds (swapExecute returnOrderToBalance)
+    refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission, escrowLeft: () => campaignLeftIn(d.deployment, stored) }),
     // an indicative quote carries no destination (the sixth review round, 2026-11-03): the engine quotes a placeholder, and the
     // step's fresh address reaches the chosen provider at its commit — the service had seen the next fresh address at every requote
     quote: (c, amount) => swapService.quote({ from: c.request.from, to: c.request.to, amount: amount.toString(), destination: "", slippageBps: 50, preference: c.request.preference as never, tier: c.tier, mode: c.mode, destinationKind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered", preferNative: c.request.preference === "native" }),
@@ -198,6 +197,15 @@ export interface TickResult { action: Action; before: Campaign; after: Campaign;
 
 const big = (x: string | undefined): bigint => BigInt(x ?? "0");
 const SENT = /handing it to the relayer|submitting through the connected wallet|Waiting for the transaction/i;
+/** The escrow's balance in the order's asset, every endpoint agreeing; null when it was not read. */
+const campaignEscrowOf = (deployment: Deployment | null, stored: StoredSwap): Promise<bigint | null> => {
+  if (!deployment) return Promise.resolve(null);
+  const token = (stored.request as { from?: { asset?: string } })?.from?.asset;
+  return escrowBalance(deployment, stored.endpoint as `0x${string}`, token && token !== "native" ? (token as `0x${string}`) : null).catch(() => null);
+};
+/** What the escrow still holds to return — "asset", "token" or false (orderTracker escrowLeftOf) —, every endpoint agreeing; null when not read. */
+const campaignLeftIn = (deployment: Deployment | null, stored: StoredSwap): Promise<"asset" | "token" | false | null> =>
+  deployment ? escrowLeftOf(stored, deployment.chainId, (token) => escrowBalance(deployment, stored.endpoint as `0x${string}`, token).catch(() => null)) : Promise.resolve(null);
 
 /** The tranche state a tracker reading maps to (§7); `null` keeps the current one (an unknown reading never settles, I3). */
 /** A step's next state from its order's reading (exported for its tests). */
@@ -215,8 +223,33 @@ export function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null
   const partialBack = s === "REFUNDED" && deliveredOut !== undefined && deliveredOut > 0n;
   // what came back: the refund notes the scan found, in the order's own asset (audit round 2, n19)
   const vault = String((stored.params as { refundVault?: string }).refundVault ?? "").toLowerCase();
-  const back = (stored.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + big(x.amount), 0n);
+  const notes = (stored.refunds ?? []).filter((x) => x.vault.toLowerCase() === vault).reduce((a, x) => a + big(x.amount), 0n);
   const amount = big(t.amount);
+  // ... above dust only (the twelfth review round, XF's critique): a note below 1 % of the step is anyone's to make once the order's payload is
+  // public — counted, a stranger's 1 wei had read "what else came back", left a cent in Remaining and raised the replan's question at the end for a
+  // swap of nothing at a privacy fee and a tip. What is below it stays in the private balance, as nothing back of the step
+  const back = lateRefundHeld(notes, amount) ? notes : 0n;
+  // what came back of it in the order's own asset, recorded on a step not delivered as asked (the twelfth review round, C12-7)
+  const backPart = back > 0n ? { refunded: (back > amount ? amount : back).toString() } : {};
+  // what came back in another token (the twelfth review round, C12-4): a swap-first route — Mayan swap-and-lock, LI.FI with a source swap, the
+  // Across swap leg — refunds through refundToken into that token's vault. Counted in no asset of the step, it had waited "refunding" (or
+  // "partial") for good, in flight, every further step held behind it and a pool scan planned each minute. It ends not delivered as asked, what came
+  // back recorded — never planned again in the order's asset — and the campaign pauses for the user
+  // ... a note in one of the route's refund tokens' vaults at that token's floor at least (XB's critique: any other vault's note had counted — a 1-unit
+  // note anyone holding the payload can make had ended the step "came back in another token", its own refund never planned again)
+  const refundVaults = stored.refundVaults ?? {};
+  const otherBack = (stored.refunds ?? []).filter((x) => {
+    const floor = refundVaults[x.vault.toLowerCase()];
+    return x.vault.toLowerCase() !== vault && floor !== undefined && big(x.amount) >= big(floor);
+  });
+  // ... counted only when what came back in the order's own asset is dust at most (with more of it back there, the step settles on that, as n19 pins;
+  // XC's critique: a 1-wei note in the order's own vault — anyone can make one once the payload is public — had turned a refund in USDC into a
+  // "returned step" whose whole value read as its fees), and only on a route that refunds in another token (its refundVaults)
+  const refundedOther = otherBack.length > 0 && back === 0n;
+  const returnedOther = otherBack.map((x) => ({ vault: x.vault, amount: x.amount }));
+  // nothing delivered, it all came back in another token: ended not delivered as asked, what came back recorded
+  if (refundedOther && s === "REFUNDED" && !partialBack)
+    return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, ...backPart, undelivered: "refunded-other-token", returnedOther } }, note: "came back to the private balance in another token than the order's" };
   if (s === "REFUNDED" && !partialBack) {
     // the refund note is what came back — the step's amount less its tip, or the provider's refund less its fees — and what is planned
     // again (the seventh review round, D9): the whole amount had been planned again, and the difference funded a second time. Until
@@ -226,14 +259,19 @@ export function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null
   }
   // an execution that failed with its money in the escrow, and a refund that came back after the executor stopped watching (audit
   // round 2, r36): the step waits for its own refund — after the user's Resume (the seventh review round, D6)
-  if (s === "FAILED" || s === "LATE_REFUND") return { state: "failed", patch, note: tracked.detail };
+  // ... and one its relayer dropped: the relayer says it returned it, its escrow holds it (the twelfth review round, XG's and XH's critiques)
+  if (s === "FAILED" || s === "LATE_REFUND" || s === "DROPPED") return { state: "failed", patch, note: tracked.detail };
   // the step ended at its provider without delivering the order's asset (the seventh review round, D5–D7): failed with nothing back in
   // its escrow, refunded at the destination (Mayan Fast-MCTP: USDC to the fresh address), or delivered in another token (LI.FI's
   // PARTIAL) — out of the balance, never completed or planned again, and the campaign pauses on it. They had settled as completed, or
   // stayed failed or partial for good
-  if (s === "PROVIDER_FAILED") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "lost" } }, note: tracked.detail };
-  if (s === "REFUNDED_AT_DESTINATION") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "refunded-at-destination" } }, note: tracked.detail };
-  if (s === "PARTIAL" && (tracked.otherToken || tracked.deliveredAsset !== undefined) && deliveredOut === undefined) return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, undelivered: "other-token" } }, note: tracked.detail };
+  if (s === "PROVIDER_FAILED") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, ...backPart, undelivered: "lost" } }, note: tracked.detail };
+  if (s === "REFUNDED_AT_DESTINATION") return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, ...backPart, undelivered: "refunded-at-destination" } }, note: tracked.detail };
+  if (s === "PARTIAL" && (tracked.otherToken || tracked.deliveredAsset !== undefined) && deliveredOut === undefined) return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, ...backPart, undelivered: "other-token" } }, note: tracked.detail };
+  // the provider's word of a delivery with no amount, the rest back in another token: how much it delivered is not known, so it is not delivered as asked,
+  // what came back recorded (C12-4: it had stayed "partial", in flight, for good)
+  if (refundedOther && s === "PARTIAL" && deliveredOut === undefined)
+    return { state: "undelivered", patch: { ...patch, outcome: { ...t.outcome, ...backPart, undelivered: "refunded-other-token", returnedOther, deliveredInPart: true } }, note: "part delivered; the rest came back to the private balance in another token than the order's" };
   if (s === "REFUND_PENDING" || s === "PROVIDER_TIMEOUT" || s === "DESTINATION_FAILED") return t.state === "refunding" ? null : { state: "refunding", patch, note: tracked.detail };
   if (s === "EXPIRED" || s === "CANCELLED") return t.state === "committed" ? { state: "skipped", patch, note: "the order expired before it was funded" } : null;
   if (s === "PARTIAL" || partialBack) {
@@ -248,15 +286,22 @@ export function trancheStateOf(t: Tranche, tracked: Tracked, job: SwapJob | null
       return { state: "settled", patch: { ...patch, amount: (amount - refunded).toString(), funded: t.funded ?? t.amount, outcome: { ...outcome, refunded: refunded.toString() }, settledAt: now }, note: "partial fill: the rest returned to the private balance; the provider did not say how much it delivered" };
     }
     const watchEnded = job?.state === "completed" && back === 0n;
-    if (outcome.delivered !== undefined && (back > 0n || watchEnded)) {
+    // ... or its rest came back in another token (C12-4): settled for what it delivered, the rest recorded as come back in another token — counted as
+    // neither delivered nor planned again, and never "did not come back"
+    if (outcome.delivered !== undefined && (back > 0n || watchEnded || refundedOther)) {
       const deliveredIn = big(outcome.delivered) > amount ? amount : big(outcome.delivered);
       // at most what the delivery left (a refund note larger than the rest — a second funding of the same escrow — is never
       // subtracted from the delivery)
       const refunded = back > amount - deliveredIn ? amount - deliveredIn : back;
       // the delivered part: what did not come back once the note is found (the fill's cost is part of it, n19); the delivery alone
       // when nothing more comes back — the rest counts as ended, never as remaining
-      const settled = back > 0n ? amount - refunded : deliveredIn;
-      return { state: "settled", patch: { ...patch, amount: settled.toString(), funded: t.funded ?? t.amount, outcome: { ...outcome, refunded: refunded.toString() }, settledAt: now }, note: back > 0n ? "partial fill: the rest returned to the private balance" : "partial fill: the executor's watch ended with nothing more back; the rest is not swapped again" };
+      // ... and the delivery alone when the rest came back in another token (what came back in the order's own asset beside it is dust)
+      const settled = back > 0n && !refundedOther ? amount - refunded : deliveredIn;
+      return {
+        state: "settled",
+        patch: { ...patch, amount: settled.toString(), funded: t.funded ?? t.amount, outcome: { ...outcome, refunded: refunded.toString(), ...(refundedOther ? { returnedOther } : {}) }, settledAt: now },
+        note: refundedOther ? "partial fill: the rest came back to the private balance in another token" : back > 0n ? "partial fill: the rest returned to the private balance" : "partial fill: the executor's watch ended with nothing more back; the rest is not swapped again",
+      };
     }
     return { state: "partial", patch: { ...patch, outcome }, note: tracked.detail };
   }
@@ -289,10 +334,15 @@ function worstActive(xs: ActiveRead[]): ActiveRead | undefined {
   return xs.reduce<ActiveRead | undefined>((w, a) => (w === undefined || rank(a) < rank(w) ? a : w), undefined);
 }
 
-/** Why a step ended undelivered, for the pause it raises (§9). */
-function undeliveredWords(index: number, how: "refunded-at-destination" | "other-token" | "lost"): string {
+/** Why a step ended undelivered, for the pause it raises (§9; exported for its tests). */
+export function undeliveredWords(index: number, how: "refunded-at-destination" | "other-token" | "lost" | "refunded-other-token", someBack = false, inPart = false): string {
   const step = `Step ${index + 1}`;
-  if (how === "refunded-at-destination") return `${step}: the provider could not deliver and refunded at its fresh destination address, in its own refund asset; nothing came back to your private balance. The next step is not sent to the same route on its own: resume to carry on, or return the rest.`;
+  if (how === "refunded-other-token")
+    return `${step} ${inPart ? "was delivered in part, and the rest came" : "came"} back to your private balance in another token than the order's: it is not swapped again on its own. Resume to carry on with the rest, or return the rest.`;
+  // ... and a step that failed with part of it back says so (XB's critique: "nothing came back" beside what came back and is planned again)
+  if (how === "lost" && someBack)
+    return `${step} failed at its provider; what came back of it returned to your private balance (anything that arrives later is returned from the order's own page). Resume to carry on with the rest, or return the rest.`;
+  if (how === "refunded-at-destination") return `${step}: the provider could not deliver and refunded at its fresh destination address, in its own refund asset; ${someBack ? "what else came back returned to your private balance" : "nothing came back to your private balance"}. The next step is not sent to the same route on its own: resume to carry on, or return the rest.`;
   if (how === "other-token") return `${step}: the route delivered another token at the destination, not the one you asked for. The next step is not sent to the same route on its own: resume to carry on, or return the rest.`;
   return `${step} failed at its provider, and nothing came back while it was watched (anything that arrives later is returned from the order's own page). Resume to carry on with the rest, or return the rest.`;
 }
@@ -308,7 +358,7 @@ async function givenUpOnlyIfDead(stored: StoredSwap, io: CampaignIo): Promise<"n
 }
 
 /** Reconcile every open tranche and track the ones in flight (§9, §6). */
-async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession, now: number, margins: Record<string, number>, rng: () => number): Promise<TrackPass> {
+async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession, now: number, margins: Record<string, number>, rng: () => number, deployment: Deployment | null = null): Promise<TrackPass> {
   let c = c0;
   const justSettled: TrackPass["justSettled"] = [];
   const reads: ActiveRead[] = [];
@@ -317,8 +367,13 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
   let reconcileDetail: string | undefined;
   for (const t of c0.tranches) {
     if (!t.orderId || ["planned", "ready", "settled", "refunded", "skipped", "undelivered"].includes(t.state)) continue;
-    const stored = childOrder(t, s);
+    let stored = childOrder(t, s);
     if (!stored) { c = withTrancheState(c, t.index, "failed", now, {}, "its order is missing from the journal"); reconcileNeeded = true; continue; }
+    // a journal from before the hand-over kept its refund tokens' vaults (XC's critique): derived from the deployment, once
+    if (stored.refundTokens?.length && !stored.refundVaults && deployment) {
+      patchSwap(stored.orderId, { refundVaults: refundVaultsOf(deployment, stored.refundTokens, stored.refundFloors) }, s);
+      stored = childOrder(t, s) ?? stored;
+    }
     // a crash between a send and its journal entry: the facts decide (never a second funding or hand-over)
     if (t.state === "committed") {
       if (stored.fundedTx) c = withTrancheState(c, t.index, "funded", now, {}, "funded (reconciled from the journal)");
@@ -355,7 +410,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
     if (next) {
       c = withTrancheState(c, t.index, next.state, now, next.patch, next.note);
       if (next.state === "refunded") scheduleDiscovery(now, s); // the step's refund note is looked for now
-      if (next.state === "undelivered") undelivered ??= undeliveredWords(t.index, next.patch.outcome?.undelivered ?? "lost");
+      if (next.state === "undelivered") undelivered ??= undeliveredWords(t.index, next.patch.outcome?.undelivered ?? "lost", BigInt(next.patch.outcome?.refunded ?? "0") > 0n, !!next.patch.outcome?.deliveredInPart);
       if (next.state === "settled" && current.state !== "settled") {
         justSettled.push({ index: t.index, deliveredOut: next.patch.outcome?.deliveredOut, minOut: current.expected?.minOut });
         if (current.destination) markAddressSettled(chainKindOf(c.request.to.chain), current.destination, s, now); // §12: a fresh address retires, an entered one is paid
@@ -481,7 +536,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
   const answeredMeanwhile = (): boolean => !Object.is(campaignById(c0.id, s)?.decidedAt, base.decidedAt);
   schedulerStatus.start(a.id, "Protected swap: checking every open step…");
   try {
-    const pass = await reconcileAndTrack(c0, io, s, now, margins, rng);
+    const pass = await reconcileAndTrack(c0, io, s, now, margins, rng, deps.deployment);
     let c = pass.campaign;
     // the facts of §8
     // a resume reassesses on FRESH facts (§8): the minute-old cache is bypassed while reassessing
@@ -845,9 +900,16 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         break;
       }
       case "pause": {
-        c = pauseWith(c, action.reason, action.detail, now, action.index);
+        // a step its relayer dropped (its order reads DROPPED) pauses in its own words, never "the provider failed": no provider saw it (the twelfth
+        // review round, XH's critique) — and never the single swap's "nothing was swapped" beside steps that settled (XI's critique: step_dropped)
+        const droppedStep = action.index !== undefined && c.tranches[action.index] ? childOrder(c.tranches[action.index], s)?.track?.state === "DROPPED" : false;
+        const detail = droppedStep
+          ? `Step ${action.index! + 1}: its executor says it returned the step, but its escrow still holds it, so nothing of it was swapped. Resume returns it through the relayer Settings name; choose another one there first when it is the same.`
+          : action.detail;
+        c = pauseWith(c, action.reason, detail, now, action.index, droppedStep ? "step_dropped" : undefined);
         if (action.replan) c = { ...c, replanAskedAt: now }; // the question before a step that came back is swapped again (B1): a Resume answers it
-        send({ kind: alertKindFor(action.reason, action.detail), title: "Protected swap paused", body: action.detail, campaignId: c.id, words: { key: "paused" } });
+        // ... its notification in the pause's own words too, as the end of a tick's (XI's critique: the toast had read "The provider reported an error")
+        send({ kind: alertKindFor(action.reason, detail), title: "Protected swap paused", body: detail, campaignId: c.id, words: { key: "paused", ...(c.pause?.code ? { vars: { code: c.pause.code } } : {}) } });
         nextAt = now + PAUSED_TRACK_INTERVAL_MS;
         break;
       }
@@ -889,25 +951,47 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         try {
           const job = await io.refund(stored);
           signedCache.delete(stored.orderId.toLowerCase());
-          c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, "after your resume: the failed step returns through a refund-only job; the rest carries on");
+          c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id, refundRefusedAt: undefined }, "after your resume: the failed step returns through a refund-only job; the rest carries on");
           nextAt = now + 1000;
         } catch (e) {
+          // the relayer answers with a job it will not reopen (refund_not_watched; the twelfth review round, XH's critique): paused for the user — another
+          // relayer in Settings returns it at the next Resume —, never thrown at every tick; in the step's own words, which end with that Resume (XI's
+          // critique), and marked on the step, so a "Return the rest" returns the steps behind it first
+          if (e instanceof RefundRefusal && e.code === "refund_not_watched") {
+            c = withTrancheState(pauseWith(c, "anomaly", `Step ${t.index + 1}: ${e.message}`, now, t.index, "step_refund_not_watched"), t.index, t.state, now, { refundRefusedAt: now });
+            nextAt = now + PAUSED_TRACK_INTERVAL_MS;
+            break;
+          }
           const m = (e as Error)?.message ?? String(e);
           c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw new Error(`returning step ${t.index + 1} failed: ${m}`); // the executor was not reached: backoff
         }
         break;
       }
       case "wind-down": {
-        const t = c.tranches.find((x) => x.state === "funded" || x.state === "signed" || x.state === "failed")!;
+        // the held step nextAction names: the first one no relayer refused in the last REFUSED_RETRY_MS (the twelfth review round, XI's critique)
+        const t = c.tranches[action.index];
         const stored = childOrder(t, s);
         if (!stored) { c = withTrancheState(c, t.index, "skipped", now, {}, "its order is missing from the journal"); nextAt = now + 1000; break; }
         schedulerStatus.progress(`Protected swap: returning step ${t.index + 1} to your private balance…`);
         try {
           const job = await io.refund(stored);
           signedCache.delete(stored.orderId.toLowerCase());
-          c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id }, "a refund-only job returns the escrow after its window");
+          c = withTrancheState(c, t.index, "refunding", now, { jobId: job.id, refundRefusedAt: undefined }, "a refund-only job returns the escrow after its window");
           nextAt = now + 1000;
         } catch (e) {
+          // ... while the rest returns: marked on the step, which is asked again after REFUSED_RETRY_MS (Settings may name another relayer by then) while
+          // the steps behind it are returned (nextAction; XI's critique: only the refused step had been asked, every later one held for good); said once,
+          // in an alert and a notification a Simple reader gets (XI's critique: the alert alone reached no Simple screen); never thrown at every tick — and
+          // never paused, which a Resume would turn back to running (XH's critique)
+          if (e instanceof RefundRefusal && e.code === "refund_not_watched") {
+            if (t.refundRefusedAt === undefined) {
+              c = withAlert(c, "paused", `Step ${t.index + 1}: ${e.message}`, now, t.index, "step_refund_not_watched");
+              send({ kind: "paused", title: "A step's return was refused", body: `Step ${t.index + 1}: ${e.message}`, campaignId: c.id, words: { key: "return-refused" } });
+            }
+            c = withTrancheState(c, t.index, t.state, now, { refundRefusedAt: now });
+            nextAt = now + 1000;
+            break;
+          }
           const m = (e as Error)?.message ?? String(e);
           c = putCampaign(c, s); scheduleTick(c.id, now + TRACK_INTERVAL_MS, s); throw new Error(`returning step ${t.index + 1} failed: ${m}`); // the executor was not reached: backoff
         }
@@ -938,16 +1022,18 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         // a cancel whose last step had already been handed over and settled returned nothing: the campaign completed (the third critique)
         const cancelled = c.state === "winding-down" && !swappedInFull(exposure(c));
         const fin = exposure(c);
-        // what did not arrive as asked, never a returned step's fees (the eleventh review round's critique of E11-1)
-        const finished = fin.notDelivered > 0n ? "Every step finished; part of the amount did not arrive as you asked (see the steps)." : fin.kept > 0n ? "Every step settled; a remainder too small to swap on its own stays in your private balance." : "Every step settled.";
+        // what did not arrive as asked, never a returned step's fees (the eleventh review round's critique of E11-1) — what came back in another token
+        // too (the twelfth review round, XB's critique: a step back in USDC had finished "Protected swap completed / Every step settled.")
+        const notAll = notAsAsked(fin) > 0n;
+        const finished = notAll ? "Every step finished; part of the amount did not arrive as you asked (see the steps)." : fin.kept > 0n ? "Every step settled; a remainder too small to swap on its own stays in your private balance." : "Every step settled.";
         // a return after a step not delivered as asked says so too, and the notification carries the distinction in its own key, a
         // warning (the eleventh review round, 2026-11-04, E11-1): the app's words for "completed" and "cancelled" had replaced the runner's —
         // "Every step settled.", "The rest returned to your private balance." — while a step's value was at its destination in another
         // asset, or gone
-        const returned = fin.notDelivered > 0n ? "The rest returned to your private balance; part of the amount did not arrive as you asked (see the steps)." : "The rest returned to your private balance.";
-        const key = cancelled ? (fin.notDelivered > 0n ? "cancelled-not-all" : "cancelled") : fin.notDelivered > 0n ? "completed-not-all" : fin.kept > 0n ? "completed-kept" : "completed";
-        c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : fin.notDelivered > 0n ? "every step finished" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? returned : finished, now);
-        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : fin.notDelivered > 0n ? "Protected swap finished" : "Protected swap completed", body: cancelled ? returned : finished, campaignId: c.id, words: { key }, ...(fin.notDelivered > 0n ? { tone: "warn" as const } : {}) });
+        const returned = notAll ? "The rest returned to your private balance; part of the amount did not arrive as you asked (see the steps)." : "The rest returned to your private balance.";
+        const key = cancelled ? (notAll ? "cancelled-not-all" : "cancelled") : notAll ? "completed-not-all" : fin.kept > 0n ? "completed-kept" : "completed";
+        c = withAlert(withCampaignState(c, cancelled ? "cancelled" : "completed", now, cancelled ? "every step finished or returned" : notAll ? "every step finished" : "every step settled", { pause: undefined, pendingReroute: undefined }), cancelled ? "cancelled" : "completed", cancelled ? returned : finished, now);
+        send({ kind: cancelled ? "cancelled" : "completed", title: cancelled ? "Protected swap cancelled" : notAll ? "Protected swap finished" : "Protected swap completed", body: cancelled ? returned : finished, campaignId: c.id, words: { key }, ...(notAll ? { tone: "warn" as const } : {}) });
         stop();
         break;
       }
