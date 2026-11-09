@@ -15,6 +15,8 @@ import { WETH as ENGINE_WETH, encodeDepositV3 } from "@privacy-wallet/swap-engin
 import { MayanAdapter, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, addressHex32, encodeCreateOrder, encodeSwiftCreateOrder, type SwiftOrder } from "@privacy-wallet/swap-engine/adapters/mayan";
 import { LifiAdapter, verifyLifiTransaction } from "@privacy-wallet/swap-engine/adapters/lifi";
 import { defaultEngine } from "@privacy-wallet/swap-engine/config";
+import { RefundRouteUnavailable } from "@privacy-wallet/swap-engine/types";
+import { ProviderFailure } from "@privacy-wallet/swap-engine/engine";
 import { encodeCall } from "@privacy-wallet/swap-engine/abi";
 
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -197,9 +199,10 @@ describe("D11-4: an honest route keeps its refund target when it is prepared aga
     expect((await mayan.quote(req)).refundTarget, "no committed target: the higher minimum").toBe("destination");
     expect((await mayan.quote({ ...(req as object), refundTarget: "escrow" } as never)).refundTarget).toBe("escrow");
     answering(quotes(now, 60.4, 60.5, net).filter((q) => q.type === "FAST_MCTP"));
-    await expect(mayan.quote({ ...(req as object), refundTarget: "escrow" } as never), "only the other type offered: no quote").rejects.toThrow();
+    // Mayan's own refusal since the twelfth review round (ZB's critique): no quote of the asked type, while it quotes the other
+    await expect(mayan.quote({ ...(req as object), refundTarget: "escrow" } as never), "only the other type offered: refused").rejects.toBeInstanceOf(RefundRouteUnavailable);
   });
-  it("the engine's prepare asks for the committed target, and a route that now refunds elsewhere is the provider's failure — never a call to refuse after the funding", async () => {
+  it("the engine's prepare asks for the committed target, and a route that now refunds elsewhere is the provider's failure — never a call to refuse after the funding (in words naming no escrow since the twelfth review round)", async () => {
     const engine = defaultEngine();
     const asked: unknown[] = [];
     const now = Math.floor(Date.now() / 1000);
@@ -214,7 +217,12 @@ describe("D11-4: an honest route keeps its refund target when it is prepared aga
       },
     };
     const order = { orderId: "0x" + "11".repeat(32), request: { from: USDC_REF, to: SOL, amount: 10_000_000_000n, destination: DEST_SOL, slippageBps: 50 }, params: { executorTip: 2_000_000n, executeDeadline: now + 3000 }, endpoint: ESCROW, policy: "balanced", quote: { provider: "mayan", refundTarget: "escrow" }, destination: { kind: "fresh" } };
-    await expect(engine.prepareExecution(order as never, adapter as never)).rejects.toThrow(/now refunds at the destination, not to the escrow as committed/);
+    // an adapter answering its route of the moment whatever it is asked (LI.FI's facets): a failure, prepared again later — never Mayan's own refusal,
+    // which a delayed funding's check stops on (ZC's critique: one such answer had stopped an order whose next answer was the committed route)
+    const refused = engine.prepareExecution(order as never, adapter as never);
+    await expect(refused).rejects.toBeInstanceOf(ProviderFailure);
+    await expect(refused).rejects.not.toBeInstanceOf(RefundRouteUnavailable);
+    await expect(refused).rejects.toThrow(/mayan's route now refunds a failure at the destination, not to the pool as the order was committed/);
     expect(asked).toEqual(["escrow"]);
   });
 });

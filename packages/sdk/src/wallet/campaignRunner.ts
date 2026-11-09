@@ -148,6 +148,9 @@ export function defaultIo(d: IoDeps): CampaignIo {
         masterSeed: d.masterSeed, deployment: d.deployment, session: d.session,
         request: { from: c.request.from, to: c.request.to, amount: t.amount, destination, slippageBps: 50, preference: c.request.preference as never, tier: c.tier, destinationKind: entered ? "entered" : "fresh", preferNative: c.request.preference === "native", mode: c.mode, executeWindowSeconds: c.bounds.executeWindowSeconds },
         policy: (c.policy ?? "balanced") as never, fromAsset, preference: c.request.preference as never, walletTier: c.tier, schedule: null, campaign: { id: c.id, index: t.index },
+        // the refund target the campaign's Review showed (the twelfth review round, F12-2): a route naming none (THORChain, Chainflip) refunds to the
+        // escrow, as Across does; a reroute never moves it toward the destination — its Review does not say where a failure refunds
+        ...(reviewedRefundTargetOf(c) ? { reviewedRefundTarget: reviewedRefundTargetOf(c) } : {}),
         // V7 (spec v3.0 §3): the piece's funding pays at most its privacy share plus the relayer's F the Review showed (the Review's F × n)
         ...(stepReviewedFee(c.bounds, BigInt(t.amount)) !== undefined ? { reviewedFee: stepReviewedFee(c.bounds, BigInt(t.amount)) } : {}),
         // each merge a step's funding needs pays at most the Review's F (the review round of 2026-11-03, E3)
@@ -170,7 +173,9 @@ export function defaultIo(d: IoDeps): CampaignIo {
     refund: (stored) => returnOrderToBalance({ deployment: d.deployment, session: d.session, stored, submission: d.submission, escrowLeft: () => campaignLeftIn(d.deployment, stored) }),
     // an indicative quote carries no destination (the sixth review round, 2026-11-03): the engine quotes a placeholder, and the
     // step's fresh address reaches the chosen provider at its commit — the service had seen the next fresh address at every requote
-    quote: (c, amount) => swapService.quote({ from: c.request.from, to: c.request.to, amount: amount.toString(), destination: "", slippageBps: 50, preference: c.request.preference as never, tier: c.tier, mode: c.mode, destinationKind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered", preferNative: c.request.preference === "native" }),
+    // the requote asks for the refund target the campaign's Review showed, as its step's commit does (ZA's critique: it had adopted a route the commit
+    // then never took, a pause after every Resume)
+    quote: (c, amount) => swapService.quote({ ...(reviewedRefundTargetOf(c) === "escrow" ? { refundTarget: "escrow" as const } : {}), from: c.request.from, to: c.request.to, amount: amount.toString(), destination: "", slippageBps: 50, preference: c.request.preference as never, tier: c.tier, mode: c.mode, destinationKind: c.bounds.destination.kind === "fresh-per-tranche" ? "fresh" : "entered", preferNative: c.request.preference === "native" }),
     risk: (provider) => swapService.risk(provider).catch(() => null),
     gasPriceWei: () => (relayerUrl ? relayerInfo(relayerUrl).then((i) => i.gasPriceWei).catch(() => null) : Promise.resolve(null)),
     crossRateE18: crossRateFromPrices,
@@ -206,6 +211,16 @@ const campaignEscrowOf = (deployment: Deployment | null, stored: StoredSwap): Pr
 /** What the escrow still holds to return — "asset", "token" or false (orderTracker escrowLeftOf) —, every endpoint agreeing; null when not read. */
 const campaignLeftIn = (deployment: Deployment | null, stored: StoredSwap): Promise<"asset" | "token" | false | null> =>
   deployment ? escrowLeftOf(stored, deployment.chainId, (token) => escrowBalance(deployment, stored.endpoint as `0x${string}`, token).catch(() => null)) : Promise.resolve(null);
+
+/**
+ * The refund target the campaign's Review showed (the twelfth review round, F12-2): its reviewed quote's — a route that names none refunds to the
+ * escrow — or none for a campaign journaled without its reviewed quote.
+ */
+export function reviewedRefundTargetOf(c: Campaign): "escrow" | "destination" | undefined {
+  const quote = (c.riskSnapshot as { quote?: { refundTarget?: string } } | null | undefined)?.quote;
+  if (!quote) return undefined;
+  return quote.refundTarget === "destination" ? "destination" : "escrow";
+}
 
 /** The tranche state a tracker reading maps to (§7); `null` keeps the current one (an unknown reading never settles, I3). */
 /** A step's next state from its order's reading (exported for its tests). */

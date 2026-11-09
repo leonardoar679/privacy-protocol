@@ -103,6 +103,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   cost_unknown: { source: "wallet", fundsClass: "not-moved", actions: ["wait"] },
   // the API's 502: the provider failed or answered what the engine will not build on (whale spec §16); the wallet tries again
   provider_unavailable: { source: "service", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // Mayan, the order's provider, quotes none of the committed route type while it quotes the other, at a rebuild or a prepare (the twelfth review
+  // round, F12-1): another provider's other route is its provider_unavailable
+  refund_route_unavailable: { source: "service", fundsClass: "still-protected", actions: ["continue-monitoring"] },
   user_rejected: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   wallet_disconnected: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },
   chain_mismatch: { source: "wallet", fundsClass: "not-moved", actions: ["check-wallet"] },

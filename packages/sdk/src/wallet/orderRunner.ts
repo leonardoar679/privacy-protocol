@@ -712,7 +712,11 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
               e instanceof ProviderCallMismatch ||
               e instanceof ShieldReceiptMismatch ||
               e instanceof RecordIncomplete ||
-              (e instanceof OrderMismatch && e.field !== "deadline")
+              (e instanceof OrderMismatch && e.field !== "deadline") ||
+              // ... and Mayan quoting none of the committed route type while it quotes the other (refund_route_unavailable): the signing would be
+              // answered so while it does (the twelfth review round, ZA's critique — funded, the order had waited for its refund time); another
+              // provider's other route is its provider_unavailable, a check not made
+              (e instanceof ApiError && e.code === "refund_route_unavailable")
             )
               refused = e.message;
             return null;

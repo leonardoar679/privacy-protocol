@@ -27,6 +27,11 @@ export interface SwapRequest {
   mode?: "balanced" | "max-privacy" | "max-safety" | "best-execution"; executeWindowSeconds?: number;
   /** V6 Stage 12 (spec v2.0 §11.2, §12): a same-chain swap into the protected balance — `destination` is this wallet's shield receiver */
   destinationType?: "protected";
+  /**
+   * the route the user reviewed refunds a failure to the escrow (the twelfth review round, F12-2): Mayan, asked so, quotes its Swift route only —
+   * the one adapter that reads it; another's route refunding at the destination is refused at the commit and the rebuild
+   */
+  refundTarget?: "escrow";
 }
 
 export interface ExecutionPlan { mode: "single" | "streaming" | "dca" | "auction" | "intent"; parts: number; intervalBlocks: number; expectedSeconds: number }
@@ -89,6 +94,13 @@ export interface ResumeRequest {
   preference?: Preference;
   /** the order's one-time key over the request (swapGuard.ts `restoreDigest`; audit round 2, r05): the API rebuilds an order only for its key */
   restoreSignature?: string;
+  /**
+   * where the committed route refunds a failure (the journaled quote's): the API rebuilds the order on a route refunding there, never on a fresh one
+   * refunding elsewhere (the twelfth review round, F12-1) — the tracker reads where a refund went from the journaled quote. Unsigned: the signing
+   * gate refuses a call refunding at the destination unless the journal names it, and one journaled at the destination is kept there by the
+   * service's rebuild and its prepare's binding alone
+   */
+  refundTarget?: "escrow" | "destination";
 }
 export interface TrackResult { track: { state: string; destinationTxHash?: string; deliveredAmount?: string; deliveredAsset?: string; refundedAmount?: string; progress?: { parts: number; done: number }; /** where the provider paid its refund (the sixth review round, 2026-11-03) */ refundedTo?: "escrow" | "destination" }; status: string }
 
@@ -103,7 +115,7 @@ export interface Committed { operationId: string; order: ServiceOrder; scores: R
 export interface Resumed { operationId: string; order: ServiceOrder; status: string; tier?: Tier }
 
 /** What the API rebuilds an order from: the request, the policy, the provider and the on-chain params. */
-const resumeBody = (req: ResumeRequest) => ({
+export const resumeBody = (req: ResumeRequest) => ({
   ...req.request,
   policy: req.policy,
   provider: req.provider,
@@ -111,6 +123,7 @@ const resumeBody = (req: ResumeRequest) => ({
   ...(req.tier ? { tier: req.tier } : {}),
   ...(req.preference ? { preference: req.preference } : {}),
   ...(req.restoreSignature ? { restoreSignature: req.restoreSignature } : {}),
+  ...(req.refundTarget ? { refundTarget: req.refundTarget } : {}),
 });
 
 /** `operation`: the order's operation, named when the wallet suspects a stalled settlement — the API times it itself */

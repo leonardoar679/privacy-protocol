@@ -52,6 +52,11 @@ export interface CommitInput {
   fromAsset: Asset;
   /** the quote the user saw: its minimum is the one approved (whale spec §3) */
   shown?: ServiceQuote;
+  /**
+   * where the route the user reviewed refunds a failure, when no quote is `shown` — a campaign step, whose campaign's Review showed the route (the
+   * twelfth review round, F12-2): the commit never moves it toward the destination, as `shown.refundTarget` does not
+   */
+  reviewedRefundTarget?: "escrow" | "destination";
   competition?: CompetitionEntry[] | null;
   lint?: LintItem[] | null;
   preference: Preference;
@@ -120,7 +125,12 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   if (i.shield) markAddressUsed("evm", i.shield.fallbackRecipient, attemptId, s, now);
   if (req.to?.chain && req.destination && !shield) markAddressUsed(chainKindOf(req.to.chain), req.destination, attemptId, s, now);
   // a receipt goes with its commit: the service vouches for it once it is this order's (audit gap 47)
-  const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}), ...(i.shownTip !== undefined ? { executorTip: i.shownTip.toString() } : {}) });
+  // the refund target reviewed — the Review's quote's, else the campaign's (F12-2): a commit that moves it toward the destination is refused below;
+  // where it is the escrow the service is asked so, and Mayan then quotes its Swift route only (a move toward the pool is better: never asked against)
+  const reviewedTarget = i.shown ? i.shown.refundTarget : i.reviewedRefundTarget;
+  const reviewed = !!i.shown || i.reviewedRefundTarget !== undefined;
+  const askTarget = reviewedTarget === "escrow" ? ("escrow" as const) : undefined;
+  const response = await swapService.order({ ...req, policy: i.policy, provider: i.provider, orderSigner: key.address, refundOwnerCommitment: refund.ownerCommitment.toString(), refundNoteSecret: refund.noteSecret.toString(), refundNoteDataHash: refund.noteDataHash, ...(shield ? { shield: shield.params } : {}), ...(i.shownTip !== undefined ? { executorTip: i.shownTip.toString() } : {}), ...(askTarget ? { refundTarget: askTarget } : {}) });
   // the escrow is recomputed here from OUR factory and the params; every field we chose is checked, and the tip against
   // this wallet's own estimate of the execution's gas (V6, spec v2.0 §3), read before the service was asked
   checkOrder(response.order, { factory, orderSigner: key.address as Address, refund, amount: BigInt(req.amount), asset: i.fromAsset, maxTip });
@@ -130,7 +140,7 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   if (asked !== undefined && response.order.quote.provider !== asked)
     throw new OrderMismatch("provider", `the service committed the order on ${response.order.quote.provider}, not on the ${asked} you reviewed`);
   // a move toward a refund at the destination only — outside the pool, where the reviewed route refunded to it; one toward the pool is better
-  if (i.shown && i.shown.refundTarget !== "destination" && response.order.quote.refundTarget === "destination")
+  if (reviewed && reviewedTarget !== "destination" && response.order.quote.refundTarget === "destination")
     throw new OrderMismatch("refundTarget", "the committed route refunds a failure at your destination address, outside the pool, while the route you reviewed refunds to your protected balance");
   sameOpening(); // the service's answer came back to the opening that asked (D-1): journaled nowhere else
   const order = response.order;
@@ -202,9 +212,13 @@ async function resumeRequestOf(stored: StoredSwap, s: WalletSession, deployment:
   const request = stored.request as ResumeRequest["request"];
   const text = restoreRequestText({ from: request.from, to: request.to, destination: String(request.destination ?? ""), provider: stored.provider });
   const key = deriveOrderKey(seed, stored.attemptId as Hex);
+  // where the committed route refunds a failure, journaled with its quote (the twelfth review round, F12-1): the API rebuilds the order on a route
+  // refunding there — the tracker reads where a refund went from this quote, so a rebuild never changes it, toward the pool either
+  const target = (stored.quote as { refundTarget?: string } | undefined)?.refundTarget;
   return {
     request, policy: stored.policy as Policy, provider: stored.provider, params: stored.params as any,
     ...(stored.tier ? { tier: stored.tier as ServiceTier } : {}), ...(stored.preference ? { preference: stored.preference as Preference } : {}),
+    ...(target === "escrow" || target === "destination" ? { refundTarget: target } : {}),
     restoreSignature: await signExecutionDigest(key.privateKey, restoreDigest(BigInt(deployment.chainId), stored.endpoint as Address, text)),
   };
 }

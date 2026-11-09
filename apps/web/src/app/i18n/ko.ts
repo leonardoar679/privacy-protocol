@@ -665,6 +665,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.provider_unavailable.title": "제공자가 응답하지 않습니다",
   "op.error.provider_unavailable.reason":
     "제공자가 실패했거나 응답하지 않았습니다. 지갑이 스스로 다시 시도하며, 서명하거나 보내기 전에 상태를 먼저 확인합니다.",
+  "op.error.refund_route_unavailable.title": "이 스왑이 설정된 경로를 지금은 제공하지 않습니다",
+  "op.error.refund_route_unavailable.reason":
+    "제공자가 이제 실패 시 이 스왑에 설정된 환불 위치와 다른 곳으로 환불하는 경로만 제공합니다. 지갑이 스스로 다시 시도하며, 설정된 경로가 제때 다시 제공되지 않으면 환불 시간이 지난 뒤 자금이 보호 잔액으로 돌아옵니다.",
   "op.error.capacity.title": "릴레이어의 처리 용량이 가득 찼습니다",
   "op.error.capacity.reason": "지금 릴레이어에 진행 중인 스왑 작업이 너무 많습니다. 아무것도 전송되지 않았습니다. 잠시 후 다시 시도하세요.",
   "op.error.admin_closed.title": "운영자가 릴레이어를 일시 중지했습니다",

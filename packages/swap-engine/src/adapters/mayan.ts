@@ -33,7 +33,7 @@ import { escrowCanReshield } from "../escrowAssets";
 import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Valuer } from "../valuation";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
-import { AdapterRefusal, SINGLE_PLAN, categoryOf } from "../types";
+import { AdapterRefusal, RefundRouteUnavailable, SINGLE_PLAN, categoryOf } from "../types";
 
 export const MAYAN_PRICE_API = process.env.MAYAN_PRICE_API ?? "https://price-api.mayan.finance/v3";
 export const MAYAN_EXPLORER_API = process.env.MAYAN_EXPLORER_API ?? "https://explorer-api.mayan.finance/v3";
@@ -312,16 +312,23 @@ export class MayanAdapter implements ProviderAdapter {
 
   async quote(req: QuoteRequest): Promise<Quote> {
     const from = mayanToken(req.from), to = mayanToken(req.to);
+    // every route type it offers when one is bound (the twelfth review round, ZC's critique): with fullList=false the price API answers its single best
+    // route only, and a bound type behind it read as not offered — a prepare refused, a rebuild answered as a route refunding elsewhere, while it was quoted
     const qs = new URLSearchParams({
-      wormhole: "false", swift: String(this.orderTypes.includes("SWIFT")), mctp: "false", shuttle: "false", fastMctp: String(this.orderTypes.includes("FAST_MCTP")), gasless: "false", onlyDirect: "false", fullList: "false", guaranteedOutput: "true", monoChain: "true",
+      wormhole: "false", swift: String(this.orderTypes.includes("SWIFT")), mctp: "false", shuttle: "false", fastMctp: String(this.orderTypes.includes("FAST_MCTP")), gasless: "false", onlyDirect: "false", fullList: req.refundTarget ? "true" : "false", guaranteedOutput: "true", monoChain: "true",
       solanaProgram: MAYAN_SOLANA_PROGRAM, forwarderAddress: MAYAN_FORWARDER, amountIn64: req.amount.toString(), fromToken: from.contract, fromChain: from.chain,
       toToken: to.contract, toChain: to.chain, slippageBps: String(req.slippageBps), gasDrop: "0", destinationAddress: req.destination, sdkVersion: MAYAN_SDK_VERSION,
     });
     const { data, status } = await getJson<{ quotes?: MayanQuote[]; code?: string; msg?: string }>(`${MAYAN_PRICE_API}/quote?${qs}`);
     if (status !== 200) throw new Error(`Mayan quote: HTTP ${status} ${JSON.stringify(data).slice(0, 200)}`);
-    // at a prepare, only the committed route type's refund target (the eleventh review round): Swift refunds the escrow, Fast-MCTP the destination
+    // at a prepare, a commit or a rebuild, only the committed (or reviewed) route type's refund target (the eleventh and twelfth review rounds):
+    // Swift refunds the escrow, Fast-MCTP the destination
     const types = req.refundTarget === "escrow" ? ["SWIFT"] : req.refundTarget === "destination" ? ["FAST_MCTP"] : this.orderTypes;
     const offered = (data.quotes ?? []).filter((x) => this.orderTypes.includes(x.type as MayanOrderType) && types.includes(x.type as MayanOrderType));
+    // the committed (or reviewed) type not quoted while the other one is (the twelfth review round, ZB's critique): Mayan's own answer to this request,
+    // never an outage — a rebuild and a prepare answer it refund_route_unavailable, where a second, unbound ask had read a one-off failure as it
+    const other = req.refundTarget && !offered.length ? (data.quotes ?? []).find((x) => this.orderTypes.includes(x.type as MayanOrderType) && !types.includes(x.type as MayanOrderType)) : undefined;
+    if (other) throw new RefundRouteUnavailable(`Mayan: no ${types.join("/")} quote now, only ${other.type}`, other.type === "SWIFT" ? "escrow" : "destination");
     const leg = await this.legPrice(req, Math.floor(Date.now() / 1000));
     const built: Quote[] = [], refused: string[] = [];
     for (const q of offered) {

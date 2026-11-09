@@ -51,9 +51,10 @@ export interface QuoteRequest {
    *  wallet's shield receiver (a placeholder while indicative); absent or "external": an address */
   destinationType?: "protected" | "external";
   /**
-   * The committed route's refund target, at a prepare (the eleventh review round, 2026-11-04): an adapter that chooses its route type afresh at
-   * every quote (Mayan's Swift or Fast-MCTP, LI.FI's Mayan facet) offers only one that refunds there — the wallet signs a call refunding at the
-   * destination only where the committed quote said so.
+   * The committed (or reviewed) route's refund target, at a prepare (the eleventh review round, 2026-11-04), a commit and a rebuild (the twelfth,
+   * F12-1, F12-2): Mayan, which chooses its route type afresh at every quote, offers only the type that refunds there — the one adapter that reads
+   * it (LI.FI's Mayan facet reports the target its calldata names, and its other answer is refused where the target binds) — the wallet signs a
+   * call refunding at the destination only where the committed quote said so.
    */
   refundTarget?: "escrow" | "destination";
 }
@@ -180,6 +181,22 @@ export interface Capabilities {
  * opened a provider's breaker for every user.
  */
 export class AdapterRefusal extends Error {}
+/**
+ * The provider quotes only a route refunding a failure elsewhere than the request's `refundTarget` (the twelfth review round, F12-1, and ZB's
+ * critique): its answer to this request, never an outage — asked with every route type it offers (ZC's critique: its single best one had hidden a
+ * bound type it quoted). A rebuild and a prepare of a committed order answer it `refund_route_unavailable`, where a second, unbound competition
+ * had read a one-off failure of the bound ask as such a route, and asked every provider twice.
+ */
+export class RefundRouteUnavailable extends AdapterRefusal {
+  constructor(message: string, readonly refundsAt: "escrow" | "destination", readonly provider?: string) {
+    super(message);
+  }
+}
+/** Its words for the wallet — whose route, and where it now refunds, or that it does not say — never naming the escrow: they reach a Simple screen. */
+export const refundRouteWords = (provider: string, refundsAt: "escrow" | "destination" | undefined): string =>
+  refundsAt === undefined
+    ? `${provider}'s route no longer says where it would refund a failure; retry later`
+    : `${provider}'s route now refunds a failure ${refundsAt === "destination" ? "at the destination, not to the pool" : "to the pool, not at the destination"} as the order was committed; retry later`;
 
 /** Provider adapter interface — spec §4; whale spec §5. */
 export interface ProviderAdapter {

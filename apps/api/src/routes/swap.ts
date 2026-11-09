@@ -25,6 +25,8 @@ import { maxGapBpsFor, PriceGuardError } from "@privacy-wallet/swap-engine/scori
 import {
   isPolicy,
   isPreference,
+  RefundRouteUnavailable,
+  refundRouteWords,
   type AssetRef,
   type Order,
   type OrderParams,
@@ -160,6 +162,12 @@ function asset(a: any): AssetRef {
     throw new BadRequest("an asset is { chain, asset, decimals (0–36), symbol }");
   return { chain: a.chain, asset: a.asset, decimals, symbol: a.symbol };
 }
+/** The request without its refund target: what an order is built on, its price guard's competition asked as an unbound one (ZC's critique). */
+function withoutTarget(r: QuoteRequest): QuoteRequest {
+  const u = { ...r };
+  delete u.refundTarget;
+  return u;
+}
 function request(b: any): QuoteRequest {
   // a uint256 (the eighth review round, A-L3): 78 digits reach past 2^256, and such an amount reached every provider and the planner
   if (!isUint256(b?.amount)) throw new BadRequest("amount must be base units");
@@ -170,6 +178,12 @@ function request(b: any): QuoteRequest {
   if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps > 10_000) throw new BadRequest("slippageBps must be an integer from 0 to 10000");
   if (b.destination !== undefined && typeof b.destination !== "string") throw new BadRequest("destination must be a string");
   if (typeof b.destination === "string" && b.destination.length > 256) throw new BadRequest("destination is too long");
+  // where the committed (or reviewed) route refunds a failure, when the wallet names it (the twelfth review round, F12-1, F12-2): Mayan, which
+  // chooses its route type afresh, quotes only that one — the one adapter that reads it —, and a rebuild refuses any provider's quote refunding
+  // elsewhere (rebuilt). Unsigned: the wallet's signing gate refuses a call refunding at the destination unless its journal names it, and an order
+  // journaled at the destination is kept there by the rebuild and the prepare's binding alone
+  if (b.refundTarget !== undefined && b.refundTarget !== "escrow" && b.refundTarget !== "destination")
+    throw new BadRequest("refundTarget must be escrow or destination");
   return {
     from: asset(b.from),
     to: asset(b.to),
@@ -180,6 +194,7 @@ function request(b: any): QuoteRequest {
     ...(b.destinationKind === "entered" ? { destinationKind: "entered" as const } : {}),
     ...(b.preferNative === true ? { preferNative: true } : {}),
     ...(b.destinationType === "protected" ? { destinationType: "protected" as const } : {}),
+    ...(b.refundTarget === "escrow" || b.refundTarget === "destination" ? { refundTarget: b.refundTarget as "escrow" | "destination" } : {}),
   };
 }
 function paramsOf(p: any): OrderParams {
@@ -429,8 +444,10 @@ export class SwapApi {
       throw new BadRequest(
         "the order needs orderSigner (an address), refundOwnerCommitment and refundNoteSecret (base units) and refundNoteDataHash (32 bytes)",
       );
+    // built on the request without its refund target (ZC's critique): kept as the order's, it had bound the price guard's competition at every prepare,
+    // and the same order rebuilt after a lock was guarded on another one
     const order = this.engine.buildOrder(
-      req,
+      withoutTarget(req),
       set.policy,
       quote,
       {
@@ -563,7 +580,7 @@ export class SwapApi {
       }),
     };
   }
-  private async rebuilt(b: Record<string, unknown>, req: QuoteRequest): Promise<Order | Answer> {
+  private async rebuilt(b: Record<string, unknown>, req: QuoteRequest, committed?: "escrow" | "destination"): Promise<Order | Answer> {
     const provider = providerOf(b.provider ?? null, (id) => !!this.adapterOf(id))!; // required, and one of the service's (A-L3)
     const params = paramsOf(b.params); // checked before any provider is asked
     // never a refund time further ahead than this service sets one (the audit round of 2026-10-16, c18): a restore records
@@ -574,9 +591,30 @@ export class SwapApi {
     if (!restoreSigned(this.engine.cfg.chainId, b, params, predictEscrow(this.engine.cfg.factory, this.engine.cfg.escrowCreationCode, params)))
       return restoreUnsigned;
     // the order's tip is fixed in its escrow: quoted net of it, never priced again (audit round 2, r35)
-    const set = await this.engine.quoteAll(req, policyOf(b), { ...hintsOf(b), executorTip: params.executorTip });
-    const quote = set.quotes.find((q) => q.provider === provider);
-    if (!quote)
+    // on the committed route type (the twelfth review round, F12-1), both ways: rebuilt on a fresh quote refunding elsewhere, the next prepare had
+    // bound the new target — one refunding at the destination, and the wallet refused its call after the funding; one refunding to the escrow, and
+    // a Swift refund there was read as paid at the destination, the wallet reading where a refund went from the quote it journaled at the commit
+    // (its tracker's refundTargetOf; ZA's critique had the second accepted). The wallet's target, else this service's own record of the commit (the
+    // blob, before its finalize); a quote naming none, where one is bound, is refused as one of another type (ZC's critique: taken, the next prepare had
+    // bound nothing)
+    const target = req.refundTarget ?? committed;
+    const unbound = withoutTarget(req);
+    const asked: QuoteRequest = target ? { ...unbound, refundTarget: target } : unbound;
+    const hints = { ...hintsOf(b), executorTip: params.executorTip };
+    const set = await this.engine.quoteAll(asked, policyOf(b), hints);
+    const found = set.quotes.find((q) => q.provider === provider);
+    // ... Mayan's own refusal — it quotes none of the committed type while it quotes the other (RefundRouteUnavailable) — answers in its own words, true of
+    // a funded order too (ZA's critique: "no route; nothing left your balance" had been said of a funded step): the signing tries again, and a delayed
+    // funding's check stops the order unfunded (it had funded an order held to its refund time). A provider that failed or quoted nothing is an outage,
+    // no quote below: a second, unbound ask had read a one-off failure as such a route and asked every provider twice (ZB's critique)
+    const refused = target && !found ? set.refundsElsewhere?.[provider] : undefined;
+    if (refused) return { status: 400, body: { error: refundRouteWords(provider, refused), code: "refund_route_unavailable" } };
+    // ... while a quote of another route type, or one naming none, is the provider's answer of the moment — LI.FI's facets cannot be asked for one —: its
+    // failure, tried again, never stored for the next prepare to bind (ZC's critique: answered as a route refunding elsewhere, one such answer had stopped
+    // a delayed order for good, where its next answer was the committed route)
+    if (target && found && found.refundTarget !== target)
+      return { status: 502, body: { error: refundRouteWords(provider, found.refundTarget), code: "provider_unavailable" } };
+    if (!found)
       return {
         status: 400,
         body: {
@@ -586,7 +624,7 @@ export class SwapApi {
           competition: redactUrlsDeep(set.competition),
         },
       };
-    return this.engine.restoreOrder(req, set.policy, quote, params, assessmentOf(set), preferenceOf(b));
+    return this.engine.restoreOrder(unbound, set.policy, found, params, assessmentOf(set), preferenceOf(b));
   }
 
   /** GET /v1/operations/:id: the record's state — never the order, the escrow, an amount or a destination. */
@@ -617,7 +655,10 @@ export class SwapApi {
     const row = this.operation(id);
     if (!row) return unknownOperation;
     const b = body as Record<string, unknown>;
-    const order = await this.rebuilt(b, this.request(b));
+    // the committed refund target as this service recorded it, while the blob stands: a wallet that names none is rebuilt on it (F12-1)
+    const raw = this.d.store.blob(id);
+    const committed = raw ? decodeBlob<Blob>(raw).order.quote.refundTarget : undefined;
+    const order = await this.rebuilt(b, this.request(b), committed);
     if ("status" in order) return order;
     if (order.orderId.toLowerCase() !== row.orderId || !sameEscrow(row.escrow, order.endpoint)) return otherOrder;
     this.d.store.setBlobUnlessFinalized(id, blobOf({ order, ...this.chosenOf(id) })); // never into a finalized row (the fifth review round, 2026-11-03)
@@ -688,6 +729,9 @@ export class SwapApi {
     } catch (e) {
       if (e instanceof MinimumMovedError)
         return { status: 409, body: wire({ error: e.message, code: "minimum_moved", approvedMin: e.approvedMin, newMin: e.newMin }) };
+      // a route that now refunds elsewhere than the order was committed, as a rebuild answers it (the twelfth review round, ZB's critique): with its
+      // blob standing — no lock since the commit —, a delayed funding's check had read the 502 as an outage and funded the order
+      if (e instanceof RefundRouteUnavailable) return { status: 400, body: { error: e.message, code: "refund_route_unavailable" } };
       if (e instanceof PriceGuardError) {
         // V3 §10: repeated divergence opens the breaker, counted only where no caller's choice makes it (a V6 follow-up of 2026-10-16)
         if (await this.divergenceCounts(blob)) this.engine.tracker.recordQuoteDivergence(e.provider as ProviderId, e.gapBps, id);

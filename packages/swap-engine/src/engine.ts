@@ -4,7 +4,7 @@
 // per-order wallet-derived key.
 import { randomBytes } from "crypto";
 import type { AssetRef, CompetitionEntry, Order, OrderParams, Policy, Preference, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress, Tier } from "./types";
-import { AdapterRefusal, CATEGORY_PREFERENCE, categoryOf } from "./types";
+import { AdapterRefusal, CATEGORY_PREFERENCE, RefundRouteUnavailable, categoryOf, refundRouteWords } from "./types";
 import { chooseRoute, policyFor, priceGuard, scoreRoutes, type RouteScore } from "./scoring";
 import { privacyScore } from "./privacyScore";
 import { isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
@@ -65,6 +65,8 @@ export interface QuoteSet {
   links: Partial<Record<ProviderId, { public: boolean; evidence: string }>>;
   quotes: Quote[];
   errors: Partial<Record<ProviderId, string>>;
+  /** the providers that quote only a route refunding a failure elsewhere than the request's refundTarget, and where it refunds (the twelfth review round, ZB's critique) */
+  refundsElsewhere?: Partial<Record<ProviderId, "escrow" | "destination">>;
   health: Record<ProviderId, Health>;
   scores: RouteScore[];
   chosen?: RouteScore;
@@ -301,6 +303,7 @@ export class PrivateSwapEngine {
     const budget = this.cfg.quoteTimeoutMs ?? QUOTE_TIMEOUT_MS;
     const competition: CompetitionEntry[] = [];
     const skipped: Partial<Record<ProviderId, string>> = {};
+    const refundsElsewhere: Partial<Record<ProviderId, "escrow" | "destination">> = {};
     // a fresh incident on the feed — the risk database's or the operator's own (INCIDENTS_FILE) — opens its provider's breaker
     // (the audit round of 2026-10-16, c22: nothing called recordIncident, so an operator's incident stopped no route)
     const feed = incidents(now);
@@ -330,6 +333,7 @@ export class PrivateSwapEngine {
         const msg = String((e as Error)?.message ?? e);
         const timeout = e instanceof QuoteTimeout;
         if (timeout || (!(e instanceof AdapterRefusal) && isOutage(msg))) this.tracker.recordFailure(a.id, Date.now());
+        if (e instanceof RefundRouteUnavailable) refundsElsewhere[a.id] = e.refundsAt; // its answer, never an outage: kept for a rebuild (ZB's critique)
         competition.push({ provider: a.id, outcome: timeout ? "timeout" : "refused", reason: msg, ms: Date.now() - t0 });
         return { id: a.id, health, quote: undefined, error: msg };
       }
@@ -351,7 +355,7 @@ export class PrivateSwapEngine {
       const quote = quotes.find((x) => x.provider === c.provider), s = scores.find((x) => x.provider === c.provider);
       if (quote && s) c.normalized = normalizeQuote(quote, { req: gross, score: s, health: health[c.provider], breakerOpen: !!skipped[c.provider], linkPublic: this.linkPublic(c.provider), now });
     }
-    const set: QuoteSet = { quotes, errors, health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition, executorTip, ...(shieldTip !== undefined ? { shieldTip } : {}) };
+    const set: QuoteSet = { quotes, errors, ...(Object.keys(refundsElsewhere).length ? { refundsElsewhere } : {}), health, scores, chosen: chooseRoute(scores), links, value: assessment.value, tier, policy, competition, executorTip, ...(shieldTip !== undefined ? { shieldTip } : {}) };
     // V3 (High-Value Protection spec §10): the recommendation rides on the competition from the enhanced tier; the USD per source unit comes from the same valuation as the tier
     const units = Number(gross.amount) / 10 ** gross.from.decimals;
     const usdPerUnit = "usd" in assessment.value && units > 0 ? assessment.value.usd / units : null;
@@ -456,11 +460,18 @@ export class PrivateSwapEngine {
     };
     // the committed route's refund target (the eleventh review round, 2026-11-04): an adapter choosing its route type afresh offers only that one,
     // and a route that now refunds elsewhere is this provider's failure — prepared again later, never a call the wallet refuses after its funding
+    // ... Mayan's own refusal, asked for the committed type, answered as one (the twelfth review round, ZB's critique): a 502 had read as an outage at a
+    // delayed funding's check, which then funded an order its signing met so until its refund time — as a rebuild answers it
     const committedRefund = order.quote.refundTarget;
     if (committedRefund) req.refundTarget = committedRefund;
-    const quote = boundedQuote(await adapter.quote(req).catch(failed), Math.floor(Date.now() / 1000)); // re-quote with the escrow as sender (spec §5)
-    if (committedRefund && quote.refundTarget !== committedRefund)
-      throw new ProviderFailure(adapter.id, `${adapter.id}: the route now refunds ${quote.refundTarget === "destination" ? "at the destination" : quote.refundTarget === "escrow" ? "to the escrow" : "where it does not say"}, not ${committedRefund === "escrow" ? "to the escrow" : "at the destination"} as committed`);
+    const elsewhere = (at: "escrow" | "destination"): never => {
+      throw new RefundRouteUnavailable(refundRouteWords(adapter.id, at), at, adapter.id);
+    };
+    const quote = boundedQuote(await adapter.quote(req).catch((e: unknown) => (e instanceof RefundRouteUnavailable ? elsewhere(e.refundsAt) : failed(e))), Math.floor(Date.now() / 1000)); // re-quote with the escrow as sender (spec §5)
+    // ... while a quote of another route type, or one naming none, is the provider's answer of the moment — LI.FI's facets cannot be asked for one —: its
+    // failure, prepared again later (ZC's critique: answered as a route refunding elsewhere, one such answer had stopped a delayed order for good), in
+    // words that never name the escrow (shown on a Simple screen)
+    if (committedRefund && quote.refundTarget !== committedRefund) throw new ProviderFailure(adapter.id, refundRouteWords(adapter.id, quote.refundTarget));
     if (quote.minOutVerified === false && order.policy !== "fastest") throw new ProviderFailure(adapter.id, `${adapter.id}: the minimum output cannot be verified locally in the calldata; refused under policy ${order.policy}`);
     if (approvedMin !== undefined && quote.toAmountMin < approvedMin) throw new MinimumMovedError(approvedMin, quote.toAmountMin);
     if (guard) priceGuard(quote, guard.alternatives, guard.maxGapBps);

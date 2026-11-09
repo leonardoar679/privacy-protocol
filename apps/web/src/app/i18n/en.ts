@@ -672,6 +672,9 @@ export const en = {
   "op.error.provider_unavailable.title": "The provider is not answering",
   "op.error.provider_unavailable.reason":
     "The provider failed or did not answer. The wallet tries again on its own and checks where things stand before anything is signed or sent.",
+  "op.error.refund_route_unavailable.title": "The route this swap was set up on is not offered right now",
+  "op.error.refund_route_unavailable.reason":
+    "The provider now offers only a route that, if the swap failed, would refund somewhere other than where this swap was set up to refund. The wallet tries again on its own; if the route it was set up on does not come back in time, the funds return to your protected balance after the refund time.",
   "op.error.capacity.title": "The relayer is at capacity",
   "op.error.capacity.reason": "The relayer has too many open swap jobs right now. Nothing was sent; try again shortly.",
   "op.error.admin_closed.title": "The relayer is paused by its operator",
