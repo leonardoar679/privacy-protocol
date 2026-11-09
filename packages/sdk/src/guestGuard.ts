@@ -24,6 +24,13 @@ export interface CheckedGuest { depositAddress: string; memo: string; minOut: bi
 const UTXO = ["BTC", "LTC", "DOGE", "BCH"];
 const UTXO_MEMO_BYTES = 80;
 
+/** THORChain has halted the chain a guest's swap pays out on (the twelfth review round, F12-5): its own words on the screen, never the gateways'. */
+export class GuestDestinationHalted extends ProviderCallUnverified {
+  constructor(readonly chain: string) {
+    super("thorchain", `THORChain has halted ${chain}: it would refund the swap at once, less its outbound fee`);
+  }
+}
+
 export async function checkGuestInstruction(ins: GuestInstruction, e: {
   from: AssetRef; to: AssetRef; destination: string; amount: bigint;
   /** the minimum the guest saw in the quote; a lower one throws MinimumMoved (shown, then accepted or not) */
@@ -39,6 +46,10 @@ export async function checkGuestInstruction(ins: GuestInstruction, e: {
   const v = await (e.inbound ?? ((c: string) => thornodeInbound(c)))(chain);
   // a halt is THORChain's outage, not an instruction that does something else: not shown now, and no mismatch either
   if (v.halted) throw new ProviderCallUnverified("thorchain", `THORChain has halted ${chain} inbound`);
+  // ... nor into a halted destination chain (the twelfth review round, F12-5; the order guard reads it so, D11-9): THORChain refunds the swap at once,
+  // less its outbound fee, to the address the guest sent from — an exchange's hot wallet, often. Not shown now, asked again
+  const destChain = THOR_CHAIN[e.to.chain];
+  if (destChain && v.haltedChains?.includes(destChain)) throw new GuestDestinationHalted(destChain);
   // the refusal never repeats the address the service named: a guest must have nothing to copy
   let gateways = v.agreeing.length;
   if (!v.address || ins.ingress.to.toLowerCase() !== v.address.toLowerCase()) {

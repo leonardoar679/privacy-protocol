@@ -40,3 +40,19 @@ describe("a LI.FI quote its execution would refuse (audit round 2, n08)", () => 
     await expect(answering(tampered).quote(req)).rejects.toThrow(/outputAmountMultiplier|below the quoted minimum/);
   });
 });
+
+describe("the twelfth review round, F12-4: a LI.FI Across V4 quote carries its exclusive relayer's window, for the competition", () => {
+  it("an exclusive relayer (word 6) for an hour (word 9) is on the quote; the answer as LI.FI gave it names none", async () => {
+    expect((await answering(raw).quote(req)).exclusivitySeconds).toBeUndefined();
+    const tampered = structuredClone(raw);
+    const data: string = tampered.transactionRequest.data;
+    const relayer = setWord(data, 4 + facetOff(data) + 6 * 32, 0xbad1n);
+    tampered.transactionRequest.data = setWord(relayer, 4 + facetOff(relayer) + 9 * 32, 3600n);
+    expect((await answering(tampered).quote(req)).exclusivitySeconds).toBe(3600);
+    // word 9 past a year: a timestamp, read against the clock in seconds (ZF's critique)
+    const at = structuredClone(raw);
+    at.transactionRequest.data = setWord(relayer, 4 + facetOff(relayer) + 9 * 32, BigInt(Math.floor(Date.now() / 1000) + 3600));
+    const read = (await answering(at).quote(req)).exclusivitySeconds!;
+    expect(read >= 3599 && read <= 3600, `a timestamp an hour ahead read as ${read} s`).toBe(true);
+  });
+});

@@ -22,6 +22,7 @@
 import { hexBuf } from "../abi";
 import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
 import { AdapterRefusal, SINGLE_PLAN, categoryOf, type Fee, type Ingress, type Quote, type QuoteRequest } from "../types";
+import { exclusivityWindow } from "./acrossBounds";
 
 /** SpokePoolPeriphery on Ethereum (Across, `contracts/periphery/SpokePoolPeriphery.sol`, Sourcify exact match). */
 export const ACROSS_PERIPHERY: Record<string, string> = { ethereum: "0x97ccdbea4632140639ad5ea9b944aa034eb15fd4" };
@@ -98,7 +99,7 @@ export function verifyAcrossSwapCall(
   pins: { periphery: string; spokePool: string; weth: string; chainId: Record<string, number>; outputToken: string; handler?: string; emitter?: string; nativeOut?: boolean },
   /** at quote time the escrow may not be known yet; prepareIngress always checks the depositor */
   opts: { requireDepositor?: boolean } = { requireDepositor: true },
-): { minOut: bigint; refundTokens: string[]; verified: string[]; call: SwapAndBridge } {
+): { minOut: bigint; refundTokens: string[]; verified: string[]; call: SwapAndBridge; exclusivitySeconds?: number } {
   if (opts.requireDepositor !== false && !req.source) throw new Error("Across swap: the escrow address (req.source) is required as the depositor (refund target)");
   if (String(tx.to).toLowerCase() !== pins.periphery) throw new Error(`Across swap: transaction target ${tx.to} is not the pinned SpokePoolPeriphery`);
   if (tx.chainId !== undefined && Number(tx.chainId) !== pins.chainId[req.from.chain]) throw new Error(`Across swap: transaction chainId ${tx.chainId} is not ${req.from.chain}`);
@@ -113,6 +114,8 @@ export function verifyAcrossSwapCall(
   if (c.spokePool !== pins.spokePool) throw new Error(`Across swap: deposits into ${c.spokePool}, not the pinned SpokePool (the periphery would approve it for the swapped tokens)`);
   if (req.source && c.depositData.depositor !== req.source.toLowerCase()) throw new Error("Across swap: the depositor is not the escrow (an unfilled deposit is refunded to the depositor)");
   if (c.depositData.destinationChainId !== BigInt(pins.chainId[req.to.chain] ?? -1)) throw new Error(`Across swap: destinationChainId ${c.depositData.destinationChainId} is not ${req.to.chain}`);
+  // the exclusive relayer's window (the twelfth review round, F12-4): on the quote, for the competition to set one the wallet would refuse aside
+  const exclusive = exclusivityWindow(c.depositData.exclusiveRelayer, c.depositData.exclusivityParameter, Math.floor(Date.now() / 1000));
   if (!c.depositData.outputToken.equals(b32(pins.outputToken))) throw new Error("Across swap: the output token is not the destination asset");
   const dest = req.destination.toLowerCase(), output = pins.outputToken.toLowerCase();
   if (c.depositData.message.length === 0) {
@@ -171,7 +174,7 @@ export function verifyAcrossSwapCall(
   if (!asset || !sameAsset(asset.symbol, req.to.symbol)) throw new Error(`Across swap: bridges ${bridged}${asset ? ` (${asset.symbol})` : " (a token this adapter does not know)"} for ${req.to.symbol}; the swap's floor must be counted in the asset delivered, or an unfilled deposit refunds less than the output is worth`);
   if (!covers(c.minExpectedInputTokenAmount, asset.decimals, c.depositData.outputAmount, req.to.decimals)) throw new Error(`Across swap: the swap's own floor ${c.minExpectedInputTokenAmount} does not cover the deposit's output ${c.depositData.outputAmount} (the exchange could keep the order; an unfilled deposit refunds only the floor)`);
   verified.push("swap floor covers the output");
-  return { minOut: c.depositData.outputAmount, refundTokens: foreignRefundTokens(req.from, [bridged]), verified, call: c };
+  return { minOut: c.depositData.outputAmount, refundTokens: foreignRefundTokens(req.from, [bridged]), verified, call: c, ...(exclusive !== null ? { exclusivitySeconds: exclusive } : {}) };
 }
 
 const DEAD = "0x000000000000000000000000000000000000dEaD";
@@ -217,6 +220,7 @@ export async function acrossSwapQuote(req: QuoteRequest, api: string, base: { sp
   return {
     provider: "uniswap-across", category: categoryOf(req.from, req.to), toAmount: toAmount < v.minOut ? v.minOut : toAmount, toAmountMin: v.minOut, fees, etaSeconds: Number(data.expectedFillTime ?? 0),
     expiresAt, nativeAssets: false, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow", plan: SINGLE_PLAN(Number(data.expectedFillTime ?? 0)),
+    ...(v.exclusivitySeconds !== undefined ? { exclusivitySeconds: v.exclusivitySeconds } : {}),
     hops: [`${req.from.chain}:${req.from.symbol} -> swap (${swap?.swapProvider?.name ?? "?"}) -> ${swap?.tokenOut?.symbol ?? v.call.depositData.inputToken} -> Across -> ${req.to.chain}:${req.to.symbol}`],
     raw: data, obtainedAt: Date.now(),
   };

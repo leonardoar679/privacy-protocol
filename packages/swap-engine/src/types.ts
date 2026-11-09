@@ -90,6 +90,9 @@ export interface Quote {
   shieldTip?: bigint;
   /** where a provider-level refund lands: the escrow (re-shieldable) or the fresh destination address (spec §7) */
   refundTarget?: "escrow" | "destination";
+  /** Across's exclusive relayer window, seconds from the deposit, where one is named (the twelfth review round, F12-4): the competition sets one
+   *  longer than the wallet signs aside (adapters/acrossBounds.ts) */
+  exclusivitySeconds?: number;
   hops: string[];
   raw: unknown;
   obtainedAt: number;

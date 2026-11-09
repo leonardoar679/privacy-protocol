@@ -13,6 +13,7 @@ import { encodeCall } from "../abi";
 import { acrossSwapIngress, acrossSwapQuote } from "./acrossSwap";
 import type { AssetRef, Capabilities, Fee, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { SINGLE_PLAN, categoryOf } from "../types";
+import { exclusivityWindow } from "./acrossBounds";
 
 export const ACROSS_API = process.env.ACROSS_API ?? "https://app.across.to/api";
 export const CHAIN_ID: Record<string, number> = { ethereum: 1, optimism: 10, polygon: 137, base: 8453, arbitrum: 42161, bsc: 56 };
@@ -84,6 +85,8 @@ export class AcrossAdapter implements ProviderAdapter {
     const q = data;
     if (q.isAmountTooLow) throw new Error("Across: amount below the minimum deposit");
     if (q.spokePoolAddress.toLowerCase() !== SPOKE_POOL[req.from.chain]) throw new Error(`Across: unexpected SpokePool ${q.spokePoolAddress}`);
+    // the exclusive relayer's window, which the deposit carries (the twelfth review round, F12-4): the competition sets one the wallet would refuse aside
+    const exclusive = exclusivityWindow(q.exclusiveRelayer, q.exclusivityDeadline, Math.floor(Date.now() / 1000));
     const out = BigInt(q.outputAmount);
     // Across's totalRelayFee is lpFee + relayerCapitalFee + relayerGasFee (outputAmount = amount − totalRelayFee.total): the LP fee is
     // listed once, as liquidity, and the relayer's two parts as network (the sixth review round, 2026-11-03: the LP fee had been
@@ -102,7 +105,7 @@ export class AcrossAdapter implements ProviderAdapter {
     return {
       provider: "uniswap-across", category: categoryOf(req.from, req.to), toAmount: out, toAmountMin: out, fees, etaSeconds: q.estimatedFillTimeSec,
       expiresAt: Math.min(ts + DEPOSIT_QUOTE_TIME_BUFFER, fill - 600), nativeAssets: true, minOutEncoded: true, minOutVerified: true, refundTarget: "escrow",
-      plan: SINGLE_PLAN(q.estimatedFillTimeSec), impactBps: 0, limits, sizeSignals,
+      plan: SINGLE_PLAN(q.estimatedFillTimeSec), impactBps: 0, limits, sizeSignals, ...(exclusive !== null ? { exclusivitySeconds: exclusive } : {}),
       hops: [`${req.from.chain}:${req.from.symbol} -> Across -> ${req.to.chain}:${req.to.symbol} (exact fill)`], raw: { ...q, inputToken, outputToken }, obtainedAt: Date.now(),
     };
   }

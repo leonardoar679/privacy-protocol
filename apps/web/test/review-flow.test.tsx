@@ -59,11 +59,15 @@ const request = (b: any): QuoteRequest => ({ from: { ...b.from, decimals: Number
 const score = { provider: "thorchain", total: 80, components: { price: 80, security: 90, privacy: 70, latency: 60, liquidity: 80, reliability: 90 } };
 const calls: string[] = [];
 const jobs = new Map<string, string>();
+/** the policy the quote set names (the twelfth review round, F12-7: a prototype key among them), and the ones the commits sent */
+let quotePolicy = "privacy-execution";
+const sentPolicies: unknown[] = [];
 
 async function service(path: string, body: any): Promise<Response> {
   switch (path) {
-    case "/quote": return json({ quotes: [thorQuote()], scores: [score], errors: {}, chosen: score, links: { thorchain: { public: true, evidence: "memo" } }, policy: "privacy-execution", tier: "high-value", competition: [{ provider: "thorchain", outcome: "quoted", ms: 900 }, { provider: "chainflip", outcome: "refused", reason: "insufficient liquidity", ms: 1200 }] });
+    case "/quote": return json({ quotes: [thorQuote()], scores: [score], errors: {}, chosen: score, links: { thorchain: { public: true, evidence: "memo" } }, policy: quotePolicy, tier: "high-value", competition: [{ provider: "thorchain", outcome: "quoted", ms: 900 }, { provider: "chainflip", outcome: "refused", reason: "insufficient liquidity", ms: 1200 }] });
     case "/order": {
+      sentPolicies.push(body.policy);
       const order = engine.buildOrder(request(body), body.policy, { ...thorQuote(), executorTip: BigInt(request(body).amount) / 400n }, { orderSigner: body.orderSigner, refundOwnerCommitment: BigInt(body.refundOwnerCommitment), refundNoteSecret: BigInt(body.refundNoteSecret), refundNoteDataHash: body.refundNoteDataHash });
       orders.set(order.orderId, { order });
       return json({ order: { ...order, tier: "high-value", value: { usd: 3_400_000, at: Date.now(), source: "chainlink" } }, scores: [score], status: "Pending" });
@@ -139,7 +143,7 @@ beforeAll(() => {
 let root: Root | null = null;
 afterEach(() => {
   if (root) { act(() => root!.unmount()); root = null; }
-  session.forget(); settings.reset(); calls.length = 0; orders.clear(); jobs.clear();
+  session.forget(); settings.reset(); calls.length = 0; orders.clear(); jobs.clear(); quotePolicy = "privacy-execution"; sentPolicies.length = 0;
   delete (navigator as any).credentials; delete (globalThis as any).PublicKeyCredential;
 });
 
@@ -295,5 +299,53 @@ describe("the high-value Review (happy-dom, real engine)", () => {
     HTMLAnchorElement.prototype.click = function () { clicked.push((this as HTMLAnchorElement).download); };
     try { await act(async () => { exportButton!.click(); }); } finally { HTMLAnchorElement.prototype.click = origClick; }
     expect(clicked[0]).toMatch(/^privacy-wallet-order-[0-9a-f]{8}\.json$/);
+  });
+});
+
+describe("F12-7: the funding window under a quote set's policy (the twelfth review round)", () => {
+  const funded = (c: HTMLElement) => [...c.querySelectorAll("p.ds-note")].map((p) => p.textContent ?? "").find((s) => s.startsWith("Funded at a random time")) ?? "";
+  it("a policy the wallet knows and the commit takes — as strict as the preference or stricter — is the service's: High privacy's 6–72 h under Balanced", async () => {
+    settings.set({ preference: "balanced" });
+    quotePolicy = "high-privacy";
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    expect(funded(container)).toContain("within 6 h–72 h");
+  });
+  it("a looser one is the preference's, as the commit journals it (ZE's critique): Best privacy's 6–72 h, never Privacy execution's 1–24 h", async () => {
+    settings.set({ preference: "best-privacy" });
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    expect(funded(container)).toContain("within 6 h–72 h");
+  });
+  it("and its commit sends the policy shown, journaled so (ZF's critique): Best privacy's, never the quote set's looser Privacy execution — its funding inside its execute window", async () => {
+    settings.set({ preference: "best-privacy" });
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    await act(async () => { button(container, "Review Swap")!.click(); });
+    await act(async () => { button(container, "I accept the single quote")!.click(); });
+    await hold(container);
+    await vi.waitFor(() => expect(sentPolicies.length).toBeGreaterThan(0));
+    expect(sentPolicies.at(-1)).toBe("best-privacy");
+    const stored = session.journal().swaps.at(-1)!;
+    expect(stored.policy).toBe("best-privacy");
+    const funding = session.journal().schedule.find((a) => a.kind === "fund-escrow" && a.orderId === stored.orderId);
+    expect(funding, "a funding scheduled").toBeTruthy();
+    expect(funding!.dueAt / 1000, "funded before its execute deadline").toBeLessThan(Number((stored.params as { executeDeadline: number }).executeDeadline));
+  });
+  it("Fastest only where chosen: a Balanced user's line keeps its 1–24 h, and the route's time its scheduled funding", async () => {
+    settings.set({ preference: "balanced" });
+    quotePolicy = "fastest";
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    expect(funded(container)).toContain("within 1 h–24 h");
+    expect(container.textContent).toContain("after the scheduled funding");
+  });
+  it("a prototype key is never a policy: the preference's 6–72 h, never a window read off Object", async () => {
+    settings.set({ preference: "best-privacy" });
+    quotePolicy = "constructor";
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    expect(funded(container)).toContain("within 6 h–72 h");
+    expect(funded(container)).not.toMatch(/undefined|NaN/);
   });
 });

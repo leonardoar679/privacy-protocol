@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
 import { api, ApiError, ApiTimeout } from "@privacy-wallet/sdk/api/client";
 import type { AssetRef, QuoteSet } from "@privacy-wallet/sdk/swapService";
-import { checkGuestInstruction, GuestInstructionMismatch, type CheckedGuest } from "@privacy-wallet/sdk/guestGuard";
+import { checkGuestInstruction, GuestDestinationHalted, GuestInstructionMismatch, type CheckedGuest } from "@privacy-wallet/sdk/guestGuard";
 import { MinimumMoved, ProviderCallMismatch, ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
 import { TransportRefusal } from "@privacy-wallet/privacy-engine/transport/http";
 import { fmtUnits, parseUnitsSafe } from "@privacy-wallet/sdk/format";
 import { parseDestination } from "@privacy-wallet/protocol/wallet/destinations";
+import { guestKnownRecipients } from "../features/recipients";
 import { DestinationCard } from "./DestinationCard";
 
 // Walletless mode (plan §49): no seed, no pool, no keys. The user says what they sell and where the
@@ -17,6 +18,7 @@ import { DestinationCard } from "./DestinationCard";
 // the vault THORChain's public gateways report, the memo must pay the typed destination and enforce at
 // least the quoted minimum; a lower minimum is shown and needs the guest's consent.
 // Statuses are the plan's (§33): Pending / Executing / Completed / Partial / Refunding / Refunded / Failed.
+const GUEST_KNOWN = guestKnownRecipients();
 const SOURCES: Record<string, AssetRef> = { BTC: { chain: "bitcoin", asset: "native", decimals: 8, symbol: "BTC" }, LTC: { chain: "litecoin", asset: "native", decimals: 8, symbol: "LTC" }, DOGE: { chain: "doge", asset: "native", decimals: 8, symbol: "DOGE" } };
 const TARGETS: Record<string, AssetRef> = { ETH: { chain: "ethereum", asset: "native", decimals: 18, symbol: "ETH" }, "USDC on Ethereum": { chain: "ethereum", asset: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6, symbol: "USDC" } };
 interface Instruction { provider: string; quote: { toAmount: string; toAmountMin: string; etaSeconds: number }; ingress: { to: string; memo?: string; amount: string; expiresAt: number; verified: string[] }; status: string }
@@ -41,9 +43,13 @@ const MISMATCH: Record<string, string> = {
   "memo asset": "its memo swaps into another asset than the one you chose",
   receiver: "its memo pays another address than the one you typed",
 };
+const CHAIN_NAME: Record<string, string> = { ETH: "Ethereum", BTC: "Bitcoin", LTC: "Litecoin", DOGE: "Dogecoin", BCH: "Bitcoin Cash" };
 function refusalWords(e: unknown): string {
   if (e instanceof GuestInstructionMismatch) return `The deposit instruction does not match what you asked for${MISMATCH[e.field] ? `: ${MISMATCH[e.field]}` : ""}. It is not shown.`;
   if (e instanceof ProviderCallMismatch) return "THORChain's public gateways do not agree on its deposit details, so nothing is shown. Try again later.";
+  // the chain the swap pays out on, halted (the twelfth review round, F12-5; ZE's critique: the gateways' sentence had named two other causes)
+  if (e instanceof GuestDestinationHalted)
+    return `THORChain has paused swaps into ${CHAIN_NAME[e.chain] ?? e.chain} right now: a swap sent now would come back to the address you send from, less its fee. Nothing is shown; try again later.`;
   if (e instanceof ProviderCallUnverified)
     return "THORChain's deposit address cannot be confirmed right now: too few of its public gateways agree, or it has paused deposits of this coin. Nothing is shown; try again in a moment.";
   if (e instanceof ApiTimeout) return "The swap service did not answer in time. Try again in a moment.";
@@ -77,7 +83,8 @@ export function Guest({ onBack, freshDestination }: { onBack: () => void; freshD
   const from = SOURCES[source], to = TARGETS[target];
   const units = () => parseUnitsSafe(amount, from.decimals).toString();
   // the typed destination is parsed for Ethereum (whale spec §21): a Bitcoin or Solana address is refused by name
-  const parsedDest = destination ? parseDestination("evm", destination) : null;
+  // ... never a token's own contract (the twelfth review round, F12-8: the swap screens refuse them; THORChain would pay USDC to the USDC contract)
+  const parsedDest = destination ? parseDestination("evm", destination, GUEST_KNOWN) : null;
   const destError = parsedDest && !parsedDest.ok ? parsedDest.reason : "";
   const request = () => ({ from, to, amount: units(), destination, slippageBps: 100, policy: "best-price" });
 

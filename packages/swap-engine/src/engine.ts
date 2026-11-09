@@ -5,6 +5,7 @@
 import { randomBytes } from "crypto";
 import type { AssetRef, CompetitionEntry, Order, OrderParams, Policy, Preference, ProviderAdapter, ProviderId, Quote, QuoteRequest, Health, Execution, Ingress, Tier } from "./types";
 import { AdapterRefusal, CATEGORY_PREFERENCE, RefundRouteUnavailable, categoryOf, refundRouteWords } from "./types";
+import { ACROSS_MAX_EXCLUSIVITY_SECONDS } from "./adapters/acrossBounds";
 import { chooseRoute, policyFor, priceGuard, scoreRoutes, type RouteScore } from "./scoring";
 import { privacyScore } from "./privacyScore";
 import { isBucketOf } from "@privacy-wallet/protocol/wallet/amounts";
@@ -344,6 +345,11 @@ export class PrivateSwapEngine {
     const unexecutable = Object.fromEntries(ordered.filter((a) => a.capabilities().contractSender === false).map((a) => [a.id, "ingress from a contract sender unconfirmed by the provider"])) as Partial<Record<ProviderId, string>>;
     const filteredBy: Partial<Record<ProviderId, string>> = {};
     if (preferNative && quotes.some((q) => q.nativeAssets)) for (const q of quotes) if (!q.nativeAssets) filteredBy[q.provider] = "a wrapped or bridged leg (a native route quoted; preference: native assets)";
+    // an exclusive relayer for longer than the wallet signs (the twelfth review round, F12-4): never ranked, chosen and funded — set aside here, at
+    // the competition only: a committed order's prepare and rebuild take its quote, and the wallet's own check meets it — before a delayed
+    // one-confirm funding, which then stops the order unfunded; an order funded at once, or on the Advanced screen's schedule, meets it at its
+    // signing after the funding (stated)
+    for (const q of quotes) if (q.exclusivitySeconds !== undefined && q.exclusivitySeconds > ACROSS_MAX_EXCLUSIVITY_SECONDS) filteredBy[q.provider] = `only one relayer may fill the deposit for ${q.exclusivitySeconds} s (at most ${ACROSS_MAX_EXCLUSIVITY_SECONDS} s, as the wallet signs)`;
     // a receiver pays its tip only from a delivery of at least a hundred tips (its 1 % rule): a smaller minimum cannot be shielded
     if (shieldTip !== undefined) for (const q of quotes) if (q.toAmountMin < shieldTip * SHIELD_TIP_DIVISOR) filteredBy[q.provider] = `the minimum output cannot pay the shield's gas (${shieldTip} of ${req.to.symbol}'s base units) within 1 %`;
     const scores = scoreRoutes(quotes, health, policy, now, unexecutable, { tier, amount: req.amount, chains: [req.from.chain, req.to.chain], skipped, filteredBy });

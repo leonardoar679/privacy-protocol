@@ -26,6 +26,7 @@ import { boundMiddle, MAYAN_FAST_MCTP, MAYAN_SWIFT_V2, SEL_CREATE_ORDER, SEL_SWI
 import { availablePrice } from "@privacy-wallet/protocol/wallet/valuation";
 import type { Valuer } from "../valuation";
 import { WETH as ACROSS_WETH } from "./across";
+import { exclusivityWindow } from "./acrossBounds";
 import { covers, escrowCanReshield, foreignRefundTokens, reshieldableAsset, sameAsset } from "../escrowAssets";
 import type { AssetRef, Capabilities, Health, Ingress, ProviderAdapter, Quote, QuoteRequest, TrackStatus } from "../types";
 import { AdapterRefusal, SINGLE_PLAN, categoryOf, isEvm } from "../types";
@@ -124,7 +125,7 @@ export function decodeLifiCall(calldata: string): DecodedLifiCall {
 }
 
 /** Everything checked locally about a LI.FI `transactionRequest` before it may be signed. Throws on the first mismatch; returns the list of verified facts. */
-export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice): { to: string; calldata: `0x${string}`; value: bigint; verified: string[]; refundTokens: string[] } {
+export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice): { to: string; calldata: `0x${string}`; value: bigint; verified: string[]; refundTokens: string[]; exclusivitySeconds?: number } {
   const tr = q.transactionRequest;
   if (!tr?.to || !tr?.data) throw new Error("LI.FI quote has no transactionRequest");
   if (!req.source) throw new Error("LI.FI: the escrow address (req.source) is required as the sender");
@@ -233,6 +234,7 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
       verified.push("the order inside locks what the facet hands Mayan");
     }
   }
+  let exclusive: number | null = null;
   if (acrossV4) {
     // AcrossV4Data { receiverAddress, refundAddress, sendingAssetId, receivingAssetId (bytes32 each), outputAmount, outputAmountMultiplier, exclusiveRelayer, quoteTimestamp, fillDeadline, exclusivityParameter, message }
     const F = (i: number) => d.facetData.subarray(i * 32, i * 32 + 32);
@@ -243,6 +245,8 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
     if (bd.sendingAssetId !== ZERO && asAddress(F(2)) !== bd.sendingAssetId) throw new Error(`LI.FI/Across calldata: sendingAssetId ${asAddress(F(2))} is not the bridged token ${bd.sendingAssetId}`);
     const wantReceiving = req.to.asset === "native" ? ACROSS_WETH[req.to.chain] : req.to.asset;
     if (!wantReceiving || asAddress(F(3)) !== wantReceiving.toLowerCase()) throw new Error(`LI.FI/Across calldata: receivingAssetId ${asAddress(F(3))} is not the destination asset`);
+    // the exclusive relayer's (word 6) window (word 9, the exclusivity parameter; the twelfth review round, F12-4): on the quote, for the competition
+    exclusive = exclusivityWindow(F(6), u(F(9)), Math.floor(Date.now() / 1000));
     const outputAmount = u(F(4)), multiplier = u(F(5));
     const claimed = BigInt(q.estimate?.toAmountMin ?? -1);
     if (bd.hasSourceSwaps) {
@@ -273,7 +277,7 @@ export function verifyLifiTransaction(req: QuoteRequest, q: any, leg?: LegPrice)
     if (!bd.hasSourceSwaps && !covers(bd.minAmount, asset.decimals, facetWord(4), req.to.decimals)) throw new Error(`LI.FI/Across calldata: outputAmount ${facetWord(4)} is more than the ${bd.minAmount} bridged`);
     verified.push("bridged amount backs the output");
   }
-  return { to: diamond, calldata: tr.data as `0x${string}`, value, verified, refundTokens: bd.hasSourceSwaps ? foreignRefundTokens(req.from, [bd.sendingAssetId]) : [] };
+  return { to: diamond, calldata: tr.data as `0x${string}`, value, verified, refundTokens: bd.hasSourceSwaps ? foreignRefundTokens(req.from, [bd.sendingAssetId]) : [], ...(exclusive !== null ? { exclusivitySeconds: exclusive } : {}) };
 }
 
 export class LifiAdapter implements ProviderAdapter {
@@ -317,8 +321,9 @@ export class LifiAdapter implements ProviderAdapter {
     // round 2, n08): a quote failing the floors — the bridged token not the one delivered, a minimum the bridged amount does
     // not back — was ranked, chosen and funded, and its execution could not be prepared: the escrow waited for its refund time
     const leg = await this.legPrice(req);
+    let checked: ReturnType<typeof verifyLifiTransaction>;
     try {
-      verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q, leg);
+      checked = verifyLifiTransaction({ ...req, source: String(q.action?.fromAddress ?? ""), destination: String(q.action?.toAddress ?? "") }, q, leg);
     } catch (e) {
       throw new AdapterRefusal(String((e as Error)?.message ?? e)); // its answer to this request, never an outage (the eighth review round, D-M2)
     }
@@ -339,6 +344,7 @@ export class LifiAdapter implements ProviderAdapter {
       etaSeconds: Number(est.executionDuration ?? 0), expiresAt: Math.floor(Date.now() / 1000) + 60, // LI.FI quotes are short-lived; re-quote at commit
       nativeAssets: !bridged, minOutEncoded: true, minOutVerified: isAcrossV4Call(q.transactionRequest?.data ?? ""), plan: SINGLE_PLAN(Number(est.executionDuration ?? 0)),
       refundTarget: lifiRefundTarget(q.transactionRequest?.data ?? ""),
+      ...(checked.exclusivitySeconds !== undefined ? { exclusivitySeconds: checked.exclusivitySeconds } : {}),
       hops: [`${q.tool}`, ...hops], raw: q, obtainedAt: Date.now(),
     };
   }

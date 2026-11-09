@@ -15,6 +15,27 @@ export const DELAY_WINDOW: Record<Policy, [number, number]> = {
   "high-privacy": [6 * 3600, 72 * 3600],
 };
 
+/**
+ * A policy this wallet knows: an own key of DELAY_WINDOW (the twelfth review round, F12-7) — a service's `policy: "constructor"` (or "toString",
+ * "__proto__") had passed `!!DELAY_WINDOW[p]` and been journaled, every resume of the order then refused by the API as an unknown policy.
+ */
+export const isKnownPolicy = (p: unknown): p is Policy => typeof p === "string" && Object.hasOwn(DELAY_WINDOW, p);
+/**
+ * Looser than the policy wanted (the eleventh review round, D11-11): Fastest — which alone accepts a call that binds no minimum — where the user
+ * did not choose it, or a shorter funding delay than the preference's. The commit never journals one.
+ */
+export const looserThan = (p: Policy, wanted: Policy): boolean => (p === "fastest" && wanted !== "fastest") || DELAY_WINDOW[p][0] < DELAY_WINDOW[wanted][0];
+/**
+ * The policy a quote set names where the wallet knows it and the commit would take it (not looser than the preference's), else the preference's —
+ * the swap screen's funding line and the policy its commit sends, as the commit journals them when the service answers the policy it was sent
+ * (F12-7; ZE's critique: a looser one had been promised on screen while the order was funded on the preference's window; ZF's: an answer of
+ * another known policy, within the preference's bound, is journaled as answered — stated).
+ */
+export const quotedPolicy = (quoted: unknown, preference: Preference): Policy => {
+  const wanted = policyFromPreference(preference);
+  return isKnownPolicy(quoted) && !looserThan(quoted, wanted) ? quoted : wanted;
+};
+
 /** The policy a preference maps to before the tier override (the service applies the override; "native" is balanced plus a filter). */
 export const policyFromPreference = (p: Preference): Policy => (p === "native" ? "balanced" : p);
 

@@ -44,7 +44,7 @@ import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, pars
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { relayerInfo, relayerSwapStatus, type SwapJob } from "@privacy-wallet/sdk/relayer";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
-import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
+import { DELAY_WINDOW, quotedPolicy } from "@privacy-wallet/sdk/policy";
 import { holdersAbove } from "@privacy-wallet/sdk/poolDeposits";
 import { abandonSwap, assetOfStored, fundEscrow, fundingUnderWay, isOpenSwap, patchSwap, swapFactoryOf } from "@privacy-wallet/sdk/swapFunding";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
@@ -150,7 +150,8 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   const destCheck = destinationEdited && parsedDestination?.ok ? destinationCheck(chain, destination, { tier }) : null;
   const destinationLocked = controls.destinationLock && !!destCheck && !destCheck.ok;
   useEffect(() => { if (priced) void priceStore.refresh(deployment); }, [deployment, priced]);
-  const policy: Policy = quotes?.policy ?? policyFromPreference(preference);
+  // the service's quote-set policy only where the wallet knows it (the twelfth review round, F12-7): a prototype key had been looked up as a window
+  const policy: Policy = quotedPolicy(quotes?.policy, preference);
   // V6 (spec v2.0 §3): the escrow is funded with W = A − p(A) − F, one fee note p(A) + F; the relayer's terms are read when
   // the user asks for a quote (nothing is fetched before) and the providers quote what W can buy. A swap funded by the
   // connected wallet pays no relayer and no fee note: W = A.

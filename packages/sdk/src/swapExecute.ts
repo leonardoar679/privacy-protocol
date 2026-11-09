@@ -23,7 +23,7 @@ import { deriveOrderKey, deriveRefundNote, signExecutionDigest, type RefundNote 
 import { relayerInfo, relayerShieldRegister, relayerSwapExecute, relayerSwapRefund, type SwapJob } from "./relayer";
 import { patchSwap, swapFactoryOf } from "./swapFunding";
 import { agreedUsd } from "./prices";
-import { DELAY_WINDOW, policyFromPreference } from "./policy";
+import { DELAY_WINDOW, isKnownPolicy, looserThan, policyFromPreference } from "./policy";
 import { noteStore } from "./wallet/notes";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
 import type { Submission } from "./wallet/settings";
@@ -150,10 +150,11 @@ export async function commitOrder(i: CommitInput): Promise<Committed> {
   // bounded by the wallet's own reading of the user's preference (the eleventh review round, D11-11, after its critique): Fastest — which alone
   // accepts a call that binds no minimum — only where the user chose Fastest, and never a shorter funding delay than the preference's. The
   // screens pass the policy the service answered at quote time, and its answer here had been journaled as it came
-  const wanted: Policy = i.preference ? policyFromPreference(i.preference) : i.policy;
-  const tooLoose = (p: Policy): boolean => (p === "fastest" && wanted !== "fastest") || DELAY_WINDOW[p][0] < DELAY_WINDOW[wanted][0];
+  // a policy the wallet knows only (F12-7): the screens' quote-time policy is the service's answer too
+  const wanted: Policy = i.preference ? policyFromPreference(i.preference) : isKnownPolicy(i.policy) ? i.policy : "balanced";
+  const tooLoose = (p: Policy): boolean => looserThan(p, wanted);
   const answered = order.policy ?? response.policy;
-  const orderPolicy: Policy = [answered, i.policy].find((p): p is Policy => p !== undefined && !!DELAY_WINDOW[p] && !tooLoose(p)) ?? wanted;
+  const orderPolicy: Policy = [answered, i.policy].find((p): p is Policy => isKnownPolicy(p) && !tooLoose(p)) ?? wanted;
   // institutional (spec §24): the funding is scheduled no earlier than the review hold, whatever the policy's window drew
   const reviewHoldUntil = i.schedule?.reviewHoldUntil;
   const sampled = i.schedule ? (orderPolicy === "fastest" ? undefined : sampleDueAt(DELAY_WINDOW[orderPolicy], now)) : undefined;
