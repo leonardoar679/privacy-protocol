@@ -80,7 +80,10 @@ export interface StaleReads {
   walletTx?(hash: Hex, sender: string | undefined): Promise<"success" | "reverted" | "pending" | "unknown" | null>;
 }
 
-/** While a deposit its wallet reported nothing for is this young, the scan runs each minute (../wallet/discovery.ts; the critique of F11-10). */
+/**
+ * While a deposit its wallet reported nothing for is this young, the scan runs each minute while its reads succeed — a failed read is tried
+ * again after 1, 2, 4, then 8 minutes (../wallet/discovery.ts heldRetryMs) — (the critique of F11-10).
+ */
 export const DEPOSIT_RESCAN_WINDOW_MS = 15 * 60_000;
 /** The live flow's deposit its wallet reported nothing for (`deposit_unconfirmed`, marked `noteAwaited` by its page: VA-N1). */
 const awaitsNote = (r: OperationRecord): boolean =>

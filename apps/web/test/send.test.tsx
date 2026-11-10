@@ -23,6 +23,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { bookOf } from "@privacy-wallet/sdk/wallet/addressBook";
@@ -69,6 +70,8 @@ vi.mock("@privacy-wallet/sdk/keys/chainKeys", async (importOriginal) => {
     },
   };
 });
+/** the note scan's action as the transfer found it when it began (the twelfth review round, ZK's critique: the demand made before it) */
+const engineSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>();
   return {
@@ -93,6 +96,9 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
       onEvent?: (e: EngineEvent) => void;
       onStatus?: (s: string) => void;
     }) => {
+      const { session: s } = await import("@privacy-wallet/sdk/wallet/session");
+      engineSaw.at = Date.now();
+      engineSaw.scan = s.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null;
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
       if (behaviour === "fee-moved") {
         o.onStatus?.(ENGINE_LINE); // the engine's own English progress line, before it stops
@@ -309,6 +315,34 @@ describe("Send (spec v2.0 §7.4)", () => {
       "V7: the proof and the submission are lines of their own; the hash and the receipt one state",
     ).toEqual(["DRAFT", "READY_TO_REVIEW", "AWAITING_AUTHORIZATION", "PREPARING_PROOF", "SUBMITTING", "SOURCE_CONFIRMING", "COMPLETED"]);
     expect(fetchSpy, "the relayer terms came from the mocked engine; nothing else was fetched").not.toHaveBeenCalled();
+  });
+
+  it("the counters waiting on a scan that keeps failing: a Send's confirmation asks for it at once, its failures counted afresh (the twelfth review round, W6 §5)", async () => {
+    await unlocked();
+    const to = otherWallet();
+    mount();
+    typeTo(to);
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      const before = Date.now();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("review-confirm"));
+      });
+      await screen.findByTestId("send-done");
+      expect(engineSaw.scan, "asked for before the transfer took its change counter").toBeTruthy();
+      expect(engineSaw.scan!.dueAt).toBeLessThanOrEqual(engineSaw.at);
+      expect(engineSaw.scan!.heldFailures ?? 0).toBe(0);
+      const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      expect(scan!.dueAt, "due at the confirmation").toBeGreaterThanOrEqual(before);
+      expect(scan!.dueAt).toBeLessThanOrEqual(Date.now());
+      expect(scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+    } finally {
+      noteStore.releaseCounters(0);
+    }
   });
 
   it("the public path: the fresh address of this wallet is one tap away in the book and reserved at the confirmation; after the exit the field is cleared and the next exit gets the next address", async () => {

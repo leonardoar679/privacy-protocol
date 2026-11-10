@@ -32,14 +32,20 @@ import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { activityOf } from "@privacy-wallet/sdk/wallet/activity";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import { DEPOSIT_SCAN_DELAY_MS } from "@privacy-wallet/sdk/wallet/discovery";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const APPROVE = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { native: unknown[]; erc20: unknown[] } = { native: [], erc20: [] };
 let nativeBehaviour: "ok" | "rejected" | "reverted" | "lost" | "unconfirmed" = "ok";
+/** the note scan's action as the deposit found it when it began (the twelfth review round, ZK's critique: the demand made before it) */
+const engineSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   shieldNative: async (o: { amount: bigint; onEvent?: (e: EngineEvent) => void; onStatus?: (s: string) => void }) => {
+    const { session: s } = await import("@privacy-wallet/sdk/wallet/session");
+    engineSaw.at = Date.now();
+    engineSaw.scan = s.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null;
     calls.native.push(o.amount);
     o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
     o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1 });
@@ -354,6 +360,34 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(scan?.dueAt, "the scan half a minute on").toBeGreaterThanOrEqual(before + DEPOSIT_SCAN_DELAY_MS);
     expect(scan!.dueAt).toBeLessThanOrEqual(Date.now() + DEPOSIT_SCAN_DELAY_MS);
     expect(screen.queryByTestId("protect-back"), "never a second deposit from the form").toBeNull();
+  });
+
+  it("the counters waiting on a scan that keeps failing: the confirmation asks for the scan at once, its failures counted afresh (the twelfth review round, W6 §5)", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    nativeBehaviour = "ok";
+    // the scan the counters wait on, backed off after three failures in a row
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      mount();
+      type(screen.getByTestId("amount-input"), "0.5");
+      fireEvent.click(screen.getByTestId("protect-review"));
+      const before = Date.now();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("review-confirm"));
+      });
+      await screen.findByTestId("protect-done");
+      expect(engineSaw.scan, "asked for before the deposit took its counter").toBeTruthy();
+      expect(engineSaw.scan!.dueAt).toBeLessThanOrEqual(engineSaw.at);
+      expect(engineSaw.scan!.heldFailures ?? 0).toBe(0);
+      const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      expect(scan!.dueAt, "due at the confirmation").toBeGreaterThanOrEqual(before);
+      expect(scan!.dueAt).toBeLessThanOrEqual(Date.now());
+      expect(scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+    } finally {
+      noteStore.releaseCounters(0);
+    }
   });
 
   it("an ERC-20 protect: the approval first (1 of 2), then the deposit, one operation; the common sizes under Advanced; the recovery-information card is shown once per session", async () => {

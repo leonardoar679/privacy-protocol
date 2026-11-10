@@ -42,6 +42,7 @@ import { recoverSwapRefunds } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { assetByVault, assetsOf, bucketBelowFor, formatAmount, isBucketFor, parseAmount, type Asset, isWholeNote } from "@privacy-wallet/sdk/assets";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { demandScan } from "@privacy-wallet/sdk/wallet/discovery";
 import { relayerInfo, relayerSwapStatus, type SwapJob } from "@privacy-wallet/sdk/relayer";
 import { fmtUnits } from "@privacy-wallet/sdk/format";
 import { DELAY_WINDOW, quotedPolicy } from "@privacy-wallet/sdk/policy";
@@ -260,6 +261,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     const reviewHoldUntil = controls.reviewHold ? Date.now() + reviewHoldMinutes() * 60_000 : undefined; // institutional (spec §24)
     // the relayer's fee the Review showed bounds the funding, scheduled or "Fund now" (c46; audit round 2, r12: this page journaled none)
     const reviewedFee = funding && funding.amount === units ? funding.amount - funding.split.delivered : undefined;
+    demandScan(); // the refund note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, W6 §5)
     const res = await run(t("swap.committing"), () => commitOrder({ masterSeed, deployment, request: req, policy, provider, fromAsset, shown, competition, lint: committedLint, preference, walletTier: assessment ? tier : null, schedule: { reviewHoldUntil }, ...(reviewedFee !== undefined ? { reviewedFee } : {}), ...(funding && funding.amount === units ? { reviewedMergeFee: funding.terms.minimum } : {}), ...(quotes?.executorTip !== undefined ? { shownTip: BigInt(quotes.executorTip) } : {}) }));
     if (!res) return;
     reset();
@@ -302,6 +304,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
   }
   async function fundNow() {
     if (!stored) return;
+    demandScan(); // the funding's change note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, ZK)
     const w = await run(t("swap.fundingNow"), async () => {
       const r = await fundEscrow({ masterSeed, deployment, stored, onStatus: setBusy, relayerUrl: submission.kind === "relayer" ? submission.url : null, replaceDead: true });
       setStored((s) => (s ? { ...s, fundedTx: r.txHash, state: "funded" } : s));
@@ -430,6 +433,7 @@ export function Swap({ masterSeed, deployment, account = null, onBack, prefill =
     // the plan the Review showed (the seventh review round, B7): its amount — the steps' own at the count it makes — and its seed
     const amount = f.amount;
     if (amount <= 0n) { setError(t("swap.tooSmallForFees")); return; }
+    demandScan(); // the first step's refund note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, ZL)
     const c = await run(t("swap.startingProtected"), async () => startCampaign({
       ...base, amount, quotedAmount: escrowAmount, leaves: units, // what may leave, the steps' fee notes included (audit round 2, r18)
       crossRateE18: crossRateFromPrices({ request: { from: refOf(fromAsset), to: to.ref } } as never), gasPriceWei,

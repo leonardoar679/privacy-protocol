@@ -11,7 +11,7 @@ import { runScheduledAction } from "@privacy-wallet/sdk/swapFunding";
 import { runCampaignTick } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { runOrderTick } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
-import { discoveryWanted, runDiscovery, scheduleDiscovery } from "@privacy-wallet/sdk/wallet/discovery";
+import { discoverAtUnlock, discoveryWanted, runDiscovery } from "@privacy-wallet/sdk/wallet/discovery";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { useNotes, useScheduler, useSession, useSettings } from "../hooks";
 import { startOperationNotifications } from "./notifications";
@@ -39,8 +39,9 @@ export function Background() {
   useEffect(() => { if (s.status === "unlocked" && housekeeping.enabled && notes.length) scheduleHousekeeping(deployment); }, [s.status, housekeeping.enabled, notes, deployment]);
   useEffect(() => { if (s.status === "unlocked" && s.seed) mirrorExperience(); }, [s.status, s.seed]);
   // the notes in the pool after every unlock: a phrase restore, a transfer received, a refund (the scan repeats while
-  // unlocked); a first launch stays request-free until the wallet holds something (spec v2.0 §10)
-  useEffect(() => { if (s.status === "unlocked" && deployment && discoveryWanted()) scheduleDiscovery(); }, [s.status, deployment]);
+  // unlocked); a first launch stays request-free until the wallet holds something (spec v2.0 §10); an unlock starts a failing scan's
+  // backoff again (the twelfth review round, W6 §5)
+  useEffect(() => { if (s.status === "unlocked" && deployment && discoveryWanted()) discoverAtUnlock(); }, [s.status, deployment]);
   // V6 Stage 15 (doc §76): the five operation notifications while unlocked
   useEffect(() => (s.status === "unlocked" ? startOperationNotifications() : undefined), [s.status]);
   // V7 Stage 16 (spec v3.0 §9): the browser is asked once to keep this origin's storage (the journal, the keystore) out of its eviction

@@ -15,6 +15,7 @@ import { displayAmount } from "../src/features/amounts";
 import { getOperation, newOperation, putOperation, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
 import { recordActivity } from "@privacy-wallet/sdk/wallet/activity";
+import { isDue } from "@privacy-wallet/sdk/wallet/schedule";
 import { resetDiscoveryMemory } from "@privacy-wallet/sdk/wallet/discovery";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { session } from "@privacy-wallet/sdk/wallet/session";
@@ -115,6 +116,7 @@ describe("the screens (spec §3.10)", () => {
     expect(rows[0].textContent).toContain("0.25 ETH");
     expect(screen.queryByTestId("activity-funding-warning"), "a note scan that failed retries by itself and moves nothing").toBeNull();
     expect(session.journal().schedule.find((a) => a.id === "discovery:pool")!.dueAt, "the scan is now, not in ten minutes").toBeLessThanOrEqual(Date.now());
+    expect(isDue(session.journal().schedule.find((a) => a.id === "discovery:pool")!, Date.now()), "due now: no backoff left on it (ZK's critique)").toBe(true);
     cleanup();
     session.update((j) => {
       j.schedule = [...j.schedule, { id: `fund-escrow:${ORDER}`, kind: "fund-escrow", orderId: ORDER, dueAt: NOW, error: "fetch failed", attempts: 1 }];

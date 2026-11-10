@@ -73,6 +73,7 @@ import { campaignLineText, notDeliveredWords, returnedOtherText } from "./protec
 import { crossRateFromPrices } from "@privacy-wallet/sdk/wallet/campaignRunner";
 import { relayerInfo } from "@privacy-wallet/sdk/relayer";
 import { walletSwapProvider } from "@privacy-wallet/sdk/swapProvider";
+import { demandScan } from "@privacy-wallet/sdk/wallet/discovery";
 import { swapRecordId } from "@privacy-wallet/sdk/operations/swapRecords";
 import { CATALOG, classify, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { DELAY_WINDOW, policyFromPreference } from "@privacy-wallet/sdk/policy";
@@ -522,6 +523,7 @@ export function SwapScreen(p: SwapScreenProps) {
     }
     setBusy(true);
     setStatus("");
+    demandScan(); // the first step's refund note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, ZL)
     try {
       const at = Date.now();
       const gasPriceWei =
@@ -591,6 +593,7 @@ export function SwapScreen(p: SwapScreenProps) {
     }
     setBusy(true);
     setStatus("");
+    demandScan(); // the refund note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, W6 §5)
     try {
       // the fresh address is reserved now; into the protected balance the order pays a shield receiver built at the commit,
       // and a fresh address of this wallet is its fallback for a token the pool cannot hold

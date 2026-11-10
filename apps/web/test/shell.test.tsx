@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { prefs } from "../src/storage/prefs";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
 import { renderApp } from "./helpers/render";
@@ -47,6 +48,17 @@ describe("the application shell (spec §2)", () => {
     await act(async () => { session.lock(); });
     await act(async () => { expect(await session.unlock("a strong password")).toBe(true); });
     await waitFor(() => expect(session.journal().schedule.some((a) => a.kind === "discovery")).toBe(true), LAZY);
+    // a scan failing in a row, backed off: the next unlock starts its count again, the scan due at once (the twelfth review round, W6 §5)
+    await act(async () => { scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session); });
+    await act(async () => { session.lock(); });
+    const unlockedAt = Date.now();
+    await act(async () => { expect(await session.unlock("a strong password")).toBe(true); });
+    await waitFor(() => {
+      const scan = session.journal().schedule.find((a) => a.kind === "discovery")!;
+      expect(scan.heldFailures ?? 0, "the count started again (a failure since, at most)").toBeLessThan(2);
+      // due at the unlock — or, the unlock holding the counters until its scan, a minute after its one failure since — never the old four minutes
+      expect(scan.dueAt).toBeLessThanOrEqual(unlockedAt + 2 * 60_000);
+    }, LAZY);
   });
   it("a device without a wallet lands on the welcome with the plan's words; Simple is the default; Continue leads to create", async () => {
     const { pathname } = await renderApp("/");

@@ -418,7 +418,8 @@ export async function returnFunds(orderId: string, deps: OrderDeps): Promise<"re
   }
   const job = await io.refund(stored);
   // a relayer's "refunded" taken as true (nothing left in the escrow: swapExecute returnOrderToBalance) closes nothing here: the order is read at once —
-  // the escrow's flag, the provider — and closes on the tracker's own reading, its refund note looked for now (the twelfth review round, XJ's critique:
+  // the escrow's flag, the provider — and closes on the tracker's own reading, its refund note looked for now, unless a scan failing in a row
+  // keeps its backoff (scheduleDiscovery) (the twelfth review round, XJ's critique:
   // journaled and synced from the job, an executed order's delivery read since had never been recorded, a dropped one's live reads said executing)
   if (job.state === "refunded") {
     patchSwap(orderId, { paused: undefined, jobId: job.id }, s);
@@ -510,7 +511,7 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
     const st = journaled(a.orderId, s) ?? read;
     syncSwapRecord(st, r.tracked, r.job, now, s);
     if (!isOpenSwap(st)) {
-      // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan
+      // a refund re-shielded the escrow: its note is looked for now, not at the next periodic scan (a scan failing in a row keeps its backoff)
       if (r.tracked.state === "REFUNDED" || r.job?.state === "refunded") scheduleDiscovery(now, s);
       cancelAction(a.id, s);
       return { step: "settled", stored: st };

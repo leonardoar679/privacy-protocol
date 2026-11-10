@@ -4,6 +4,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { rpcUrlsOf } from "@privacy-wallet/sdk/rpcUrls";
 import { privateWithdrawal } from "@privacy-wallet/sdk/privateTx";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { demandScan } from "@privacy-wallet/sdk/wallet/discovery";
 import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
 import { useFeeTerms } from "../features/fees/useFeeTerms";
 import { Scorecard } from "./Scorecard";
@@ -140,6 +141,7 @@ function PrivateAIScreen({ masterSeed, deployment }: { masterSeed: Uint8Array; d
       // second funding of the same address was allowed — the link C-L2 closes
       const markFunded = () => session.update((j) => { j.aiFunding = { index: fundingIndex, funded: fundingIndex }; });
       let r: Awaited<ReturnType<typeof privateWithdrawal>>;
+      demandScan(); // a change note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, W6 §5)
       try {
         r = await privateWithdrawal({ masterSeed, deployment, amount: total, recipient: fresh.address, ...(funding ? { maxFee: funding.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}), onStatus: setStatus, onEvent: (e) => { if (e.type === "submitting") markFunded(); } });
       } catch (e) {

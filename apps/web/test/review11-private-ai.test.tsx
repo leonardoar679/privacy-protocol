@@ -65,8 +65,26 @@ vi.mock("../src/zkapi/sdk", () => ({
   zkapiEnabled: () => true,
 }));
 
+/** the note scan's action as the funding's withdrawal found it when it began (the twelfth review round, ZN's critique: the demand made before it) */
+const fundSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
+vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
+  feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),
+  privateWithdrawal: async () => {
+    const { session: s } = await import("@privacy-wallet/sdk/wallet/session");
+    fundSaw.at = Date.now();
+    fundSaw.scan = s.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null;
+    return { txHash: "0x" + "77".repeat(32), proofMs: 1, verifiedLocally: false, spent: [0], submittedBy: "relayer" };
+  },
+}));
+
+import { getAddress } from "viem";
+import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { session } from "@privacy-wallet/sdk/wallet/session";
+import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { PrivateAI } from "../src/components/PrivateAI";
+import { Providers } from "../src/app/Providers";
 
 afterEach(() => {
   cleanup();
@@ -94,6 +112,41 @@ async function enabledAndWithdrawing(): Promise<void> {
   });
   await waitFor(() => expect(h.st.resolveWithdraw).not.toBeNull());
 }
+
+describe("the twelfth review round, ZN's critique: Private AI's funding asks for a scan the counters wait on", () => {
+  it("the counters waiting on a scan that keeps failing: the funding's withdrawal finds it asked for at once, its failures counted afresh", async () => {
+    const ETH_VAULT = getAddress("0x00000000000000000000000000000000000000e7");
+    const deployment: Deployment = { chainId: 1, core: getAddress("0x00000000000000000000000000000000000000c0"), ethVault: ETH_VAULT, rpcUrl: "http://127.0.0.1:1", rpcUrls: ["http://127.0.0.1:1"], fromBlock: 0n, erc20Vaults: [] };
+    await session.create("password-1");
+    session.acknowledgePhrase();
+    noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    render(
+      <Providers deployment={deployment}>
+        <PrivateAI masterSeed={session.state().seed!} deployment={deployment} />
+      </Providers>,
+    );
+    const enable = await screen.findByText("Enable private AI");
+    await waitFor(() => expect((enable as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => {
+      fireEvent.click(enable);
+    });
+    const fund = await screen.findByText(/1 · Fund the fresh address from the pool/);
+    await waitFor(() => expect((fund as HTMLButtonElement).disabled).toBe(false));
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      await act(async () => {
+        fireEvent.click(fund);
+      });
+      await waitFor(() => expect(fundSaw.scan, "the funding's withdrawal begun").toBeTruthy());
+      expect(fundSaw.scan!.dueAt, "already asked for when the withdrawal began").toBeLessThanOrEqual(fundSaw.at);
+      expect(fundSaw.scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+    } finally {
+      noteStore.releaseCounters(0);
+      noteStore.clear();
+    }
+  });
+});
 
 describe("Private AI's withdrawal advances the funding address (H11-2)", () => {
   it("on the screen: the next fresh address, the funded mark cleared", async () => {

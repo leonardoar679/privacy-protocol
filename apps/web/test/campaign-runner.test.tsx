@@ -33,9 +33,11 @@ import {
 } from "@privacy-wallet/sdk/wallet/campaigns";
 import { MAX_ALERTS, withAlert } from "@privacy-wallet/sdk/wallet/alerts";
 import { withCampaignState, REFUSED_RETRY_MS, REPLAN_PAUSE } from "@privacy-wallet/protocol/wallet/campaign";
-import { addAddress, approveAddress, retireAddress, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
+import { addAddress, approveAddress, findEntry, retireAddress, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
+import { consumeFreshAddress, lastUnusedFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { pieceCeiling, protectionOf, replanRemainder, withRoute } from "@privacy-wallet/sdk/wallet/campaigns";
 import { runCampaignTick, resetRunnerMemory, SIGN_RETRIES_BEFORE_BACKOFF, type CampaignIo } from "@privacy-wallet/sdk/wallet/campaignRunner";
+import { HELD_SCAN_RETRY_MS, heldRetryMs } from "@privacy-wallet/sdk/wallet/discovery";
 import { activityOf, activityStatusLabel, KIND_LABELS, isFinished } from "@privacy-wallet/sdk/wallet/activity";
 import type { WalletNotification } from "@privacy-wallet/sdk/wallet/notifications";
 import { RefundRefusal, type Signed } from "@privacy-wallet/sdk/swapExecute";
@@ -1134,6 +1136,208 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     clock += 61_000;
     expect((await tick(c))?.action.kind, "committed once the hold has passed").toBe("commit");
     expect(current(c).tranches[0].state).toBe("committed");
+  });
+
+  it("while the counters are held, a commit tick reserves no destination and asks no commit: it ticks again a second after the scan's next attempt (the twelfth review round, W6 §5)", async () => {
+    const c = await fresh();
+    let reserved = 0;
+    const own = world.freshDestination.bind(world);
+    world.freshDestination = (x: Campaign) => {
+      reserved++;
+      return own(x);
+    };
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: clock + 4 * 60_000 }, session); // the scan, backed off
+    noteStore.holdCounters();
+    try {
+      const r = await tick(c);
+      expect(r?.action.kind).toBe("commit");
+      expect(r?.nextAt, "a second after the scan's next attempt").toBe(clock + 4 * 60_000 + 1000);
+      expect(world.calls.filter((x) => x.startsWith("commit:")), "nothing asked of the service").toEqual([]);
+      expect(reserved, "no fresh destination reserved").toBe(0);
+      expect(current(c).tranches[0].state, "the step not made ready").toBe("planned");
+      expect(current(c).state, "never paused").not.toBe("paused");
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+    clock += 4 * 60_000 + 1000;
+    expect((await tick(c))?.action.kind).toBe("commit");
+    expect(current(c).tranches[0].state, "committed once the counters are free").toBe("committed");
+    expect(reserved).toBe(1);
+  });
+
+  it("a commit refused for the counters held meanwhile: the step follows the scan — its next tick a second after the scan's next attempt —, its destination kept (the twelfth review round, W6 §5)", async () => {
+    const c = await fresh();
+    let reserved = 0;
+    const own = world.freshDestination.bind(world);
+    world.freshDestination = (x: Campaign) => {
+      reserved++;
+      return own(x);
+    };
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: clock + 2 * 60_000 }, session);
+    world.commitThrows = Object.assign(new Error("the wallet is still looking for its notes in the pool"), { code: "notes_loading" });
+    const r = await tick(c);
+    expect(r?.nextAt).toBe(clock + 2 * 60_000 + 1000);
+    expect(current(c).tranches[0].state).toBe("ready");
+    clock = r!.nextAt!;
+    expect((await tick(c))?.action.kind).toBe("commit");
+    expect(current(c).tranches[0].state).toBe("committed");
+    expect(reserved, "one destination for both attempts").toBe(1);
+  });
+
+  it("a step whose cost cannot be checked keeps its destination, tried again less often each time — 1, 2, 4, 8, 10 minutes —, never paused (the twelfth review round, W6 §5)", async () => {
+    const c = await fresh();
+    let reserved = 0;
+    const own = world.freshDestination.bind(world);
+    world.freshDestination = (x: Campaign) => {
+      reserved++;
+      return own(x);
+    };
+    const waits: number[] = [];
+    for (let i = 1; i <= 6; i++) {
+      world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs to check this swap's execution fee"), {
+        code: "cost_unknown",
+      });
+      const r = await tick(c);
+      expect(r?.action.kind).toBe("commit");
+      expect(r!.nextAt! - clock, `failure ${i}`).toBe(heldRetryMs(i));
+      waits.push((r!.nextAt! - clock) / 60_000);
+      clock = r!.nextAt!;
+    }
+    expect(waits).toEqual([1, 2, 4, 8, 10, 10]);
+    expect(reserved, "one destination for every attempt").toBe(1);
+    expect(current(c).state).not.toBe("paused");
+    const destination = current(c).tranches[0].destination;
+    expect((await tick(c))?.action.kind).toBe("commit");
+    expect(current(c).tranches[0]).toMatchObject({ state: "committed", destination });
+  });
+
+  it("a waiting step's destination is its own: Receive never offers it to a payer, and the order it becomes takes the use over — one use (ZK's critique)", async () => {
+    const c = await fresh();
+    world.freshDestination = (x: Campaign) => consumeFreshAddress(seed, "bitcoin", session) as never;
+    world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs"), { code: "cost_unknown" });
+    const r = await tick(c);
+    const d = current(c).tranches[0].destination!;
+    expect(current(c).tranches[0].state).toBe("ready");
+    expect(lastUnusedFreshAddress(seed, "bitcoin", session)?.address, "never offered by Receive while the step waits").not.toBe(d);
+    expect(findEntry("bitcoin", d, session)).toMatchObject({ lifecycle: "used", usedBy: [`step:${c.id}:0`] });
+    clock = r!.nextAt!;
+    await tick(c);
+    const t0 = current(c).tranches[0];
+    expect(t0).toMatchObject({ state: "committed", destination: d });
+    expect(findEntry("bitcoin", d, session)!.usedBy, "one use: the order's").toEqual([t0.orderId]);
+  });
+
+  it("a waiting step whose destination was retired, or taken by another operation, meanwhile commits with a fresh one (ZK's critique)", async () => {
+    for (const taken of ["retired", "another"] as const) {
+      const c = await fresh();
+      world.freshDestination = (x: Campaign) => consumeFreshAddress(seed, "bitcoin", session) as never;
+      world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs"), { code: "cost_unknown" });
+      const r = await tick(c);
+      const d = current(c).tranches[0].destination!;
+      const e = findEntry("bitcoin", d, session)!;
+      if (taken === "retired") retireAddress(e.id, session);
+      else session.update((j) => {
+        const x = j.addressBook!.find((y) => y.id === e.id)!;
+        x.usedBy = [...x.usedBy, "send:another"];
+      });
+      clock = r!.nextAt!;
+      await tick(c);
+      expect(current(c).tranches[0].state, taken).toBe("committed");
+      expect(current(c).tranches[0].destination, taken).not.toBe(d);
+    }
+  });
+
+  it("a step planned again after its order was given up commits with a fresh destination, never the one the first provider saw (ZK's critique)", async () => {
+    const c = await fresh();
+    let reserved = 0;
+    const own = world.freshDestination.bind(world);
+    world.freshDestination = (x: Campaign) => {
+      reserved++;
+      return own(x);
+    };
+    world.sizeChosen = "chainflip";
+    await tick(c);
+    const first = current(c).tranches[0].destination;
+    expect(current(c).tranches[0].state, "the other provider's order given up").toBe("planned");
+    acceptReroute(c.id, true, session, clock);
+    clock += current(c).tranches[0].notBefore! - clock + 1000;
+    await tick(c);
+    expect(current(c).tranches[0]).toMatchObject({ state: "committed", provider: "chainflip" });
+    expect(reserved).toBe(2);
+    expect(current(c).tranches[0].destination).not.toBe(first);
+  });
+
+  it("the cost's count ends with a failure of another kind: after its pause and a Resume, the next refusal waits a minute (ZL's critique)", async () => {
+    const c = await fresh();
+    const cost = () => Object.assign(new Error("This wallet could not read the network fees or prices it needs"), { code: "cost_unknown" });
+    for (const n of [1, 2, 3]) {
+      world.commitThrows = cost();
+      const r = await tick(c);
+      expect(r!.nextAt! - clock, `failure ${n}`).toBe(heldRetryMs(n));
+      clock = r!.nextAt!;
+    }
+    world.commitThrows = new Error("the provider is down"); // another kind: the step paused
+    await tick(c);
+    expect(current(c).state).toBe("paused");
+    resumeCampaign(c.id, session, clock);
+    let r = await tick(c);
+    expect(r?.action.kind).toBe("requote");
+    // the resumed step's cadence passes; its first commit is refused for its cost again
+    for (let i = 0; i < 10; i++) {
+      clock = Math.max(clock + 1000, r?.nextAt ?? clock + 1000);
+      world.commitThrows = cost();
+      r = await tick(c);
+      world.commitThrows = null;
+      if (r?.action.kind === "commit") break;
+    }
+    expect(r?.action.kind).toBe("commit");
+    expect(r!.nextAt! - clock, "the first wait again").toBe(heldRetryMs(1));
+  });
+
+  it("a step left ready by an earlier build, its address never marked: committed with a fresh one, never the address Receive may have given out (ZL's critique)", async () => {
+    const c = await fresh();
+    world.freshDestination = (x: Campaign) => consumeFreshAddress(seed, "bitcoin", session) as never;
+    world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs"), { code: "cost_unknown" });
+    const r = await tick(c);
+    const d = current(c).tranches[0].destination!;
+    // as a build before this one left it: the step ready with d, d's entry unmarked
+    const e = findEntry("bitcoin", d, session)!;
+    session.update((j) => {
+      const x = j.addressBook!.find((y) => y.id === e.id)!;
+      x.usedBy = [];
+      x.lifecycle = "verified";
+    });
+    expect(lastUnusedFreshAddress(seed, "bitcoin", session)?.address, "Receive offers it").toBe(d);
+    clock = r!.nextAt!;
+    await tick(c);
+    expect(current(c).tranches[0].state).toBe("committed");
+    expect(current(c).tranches[0].destination).not.toBe(d);
+  });
+
+  it("the cost's count is of failures in a row: a commit that went through, and a lock (the runner's memory), start it again (ZK's critique)", async () => {
+    const c = await fresh();
+    const cost = () => Object.assign(new Error("This wallet could not read the network fees or prices it needs"), { code: "cost_unknown" });
+    for (const n of [1, 2, 3]) {
+      world.commitThrows = cost();
+      const r = await tick(c);
+      expect(r!.nextAt! - clock, `failure ${n}`).toBe(heldRetryMs(n));
+      clock = r!.nextAt!;
+    }
+    resetRunnerMemory(); // a lock
+    world.commitThrows = cost();
+    let r = await tick(c);
+    expect(r!.nextAt! - clock, "after a lock: the first wait again").toBe(heldRetryMs(1));
+    clock = r!.nextAt!;
+    // a commit that went through (to a provider the step then gives up), the step planned again: its next failure is a first
+    world.sizeChosen = "chainflip";
+    await tick(c);
+    expect(current(c).tranches[0].state).toBe("planned");
+    acceptReroute(c.id, true, session, clock);
+    clock = Math.max(clock, current(c).tranches[0].notBefore ?? clock) + 1000;
+    world.commitThrows = cost();
+    r = await tick(c);
+    expect(r?.action.kind).toBe("commit");
+    expect(r!.nextAt! - clock, "after a commit that went through: the first wait again").toBe(heldRetryMs(1));
   });
 
   it("a step whose tips the wallet cannot check yet waits and is committed once it can: never a pause (audit round 2, critic gap 4)", async () => {
@@ -2429,6 +2633,81 @@ describe("the seventh review round (2026-11-03): the campaign engine", () => {
     clock += 15_000;
     await tick(c);
     expect(current(c)).toMatchObject({ state: "paused", pause: { reason: "provider-error" } });
+  });
+
+  for (const waiting of ["the counters held", "a commit refused notes_loading"] as const)
+    it(`a parallel plan's next step waiting for a backed-off scan (${waiting}) while another is in flight: the tick still comes back each minute (ZL's critique)`, async () => {
+      const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 600 };
+      const c = start({ quotes: { ...quoteSet("near-intents"), protection: r2 }, provider: "near-intents", tier: "high-value", usd: 5_000_000, confirmations: {} });
+      await toInFlight(c);
+      world.tracked.set(current(c).tranches[0].orderId!, "DESTINATION_SUBMITTED");
+      clock += 15_000;
+      await tick(c);
+      const flying = () => current(c).tranches.some((t) => t.state === "executing" || t.state === "source-confirmed");
+      for (let i = 0; i < 40 && !flying(); i++) {
+        clock += 120_000;
+        await tick(c);
+      }
+      expect(flying(), "the second step in flight").toBe(true);
+      scheduleAction({ kind: "discovery", orderId: "pool", dueAt: clock + 8 * 60_000, heldFailures: 4 }, session); // the scan, eight minutes off
+      if (waiting === "the counters held") noteStore.holdCounters();
+      try {
+        let waits = 0;
+        let longest = 0;
+        for (let i = 0; i < 80 && waits < 3; i++) {
+          if (waiting !== "the counters held") world.commitThrows = Object.assign(new Error("the wallet is still looking for its notes in the pool"), { code: "notes_loading" });
+          const at = clock;
+          const r = await tick(c);
+          world.commitThrows = null;
+          if (r?.action.kind === "commit" && flying()) {
+            waits++;
+            longest = Math.max(longest, r.nextAt! - at);
+          }
+          clock = Math.max(at + 1000, r?.nextAt ?? at + 120_000);
+        }
+        expect(waits, "three of the next step's ticks waiting with a step in flight").toBe(3);
+        expect(longest, "never past a minute: the scan's own eight").toBeLessThanOrEqual(HELD_SCAN_RETRY_MS);
+      } finally {
+        noteStore.releaseCounters(0);
+      }
+    });
+
+  it("a parallel plan's next step refused for its cost while another is in flight: the tick still comes back each minute to read it (ZK's critique)", async () => {
+    const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 600 };
+    const c = start({ quotes: { ...quoteSet("near-intents"), protection: r2 }, provider: "near-intents", tier: "high-value", usd: 5_000_000, confirmations: {} });
+    await toInFlight(c);
+    world.tracked.set(current(c).tranches[0].orderId!, "DESTINATION_SUBMITTED"); // the first step settles at its gate
+    clock += 15_000;
+    await tick(c);
+    expect(current(c).tranches[0].state).toBe("settled");
+    const flying = () => current(c).tranches.some((t) => t.state === "executing" || t.state === "source-confirmed");
+    // the second step goes out (its cadence draw passes), and stays in flight
+    for (let i = 0; i < 40 && !flying(); i++) {
+      clock += 120_000;
+      await tick(c);
+    }
+    expect(flying(), "the second step in flight").toBe(true);
+    let failures = 0;
+    let inFlightFailures = 0;
+    let longest = 0;
+    for (let i = 0; i < 80 && failures < 4; i++) {
+      world.commitThrows = Object.assign(new Error("This wallet could not read the network fees or prices it needs"), { code: "cost_unknown" });
+      const at = clock;
+      const r = await tick(c);
+      world.commitThrows = null;
+      if (r?.action.kind === "commit") {
+        failures++;
+        if (flying()) {
+          inFlightFailures++;
+          longest = Math.max(longest, r.nextAt! - at);
+        }
+      }
+      clock = Math.max(at + 1000, r?.nextAt ?? at + 120_000);
+    }
+    expect(failures, "four of the next step's commits refused for their cost").toBe(4);
+    expect(inFlightFailures, "the other step in flight all along").toBe(4);
+    // the fourth failure's own wait is eight minutes: never past a minute while a step is in flight (before the cap, eight)
+    expect(longest).toBeLessThanOrEqual(HELD_SCAN_RETRY_MS);
   });
 
   it("D13: a step another copy of the wallet handed over is tracked — never given up when the route changed, never reported as returned", async () => {

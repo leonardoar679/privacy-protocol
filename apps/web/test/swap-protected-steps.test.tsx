@@ -14,6 +14,7 @@ import { feeForWithdrawal, swapFunding } from "@privacy-wallet/protocol/wallet/f
 import type { Protection, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { campaignById, campaignsOf, putCampaign } from "@privacy-wallet/sdk/wallet/campaigns";
@@ -356,6 +357,25 @@ describe("V7 Stage 13: protected steps only when staged or asked (spec v3.0 §4)
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
     expect(campaignsOf(session.journal())).toHaveLength(1);
     expect(session.journal().swaps).toHaveLength(0);
+  });
+  it("the counters waiting on a scan that keeps failing: the protected steps' confirmation asks for it at once, its failures counted afresh (the twelfth review round, ZL's and ZM's critiques)", async () => {
+    world.protection = stagedPlan;
+    await wallet();
+    const router = mount();
+    await typeAndReview("32");
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      const before = Date.now();
+      await holdToConfirm();
+      await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/steps\/0x[0-9a-f]{64}$/));
+      const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      expect(scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+      expect(scan!.dueAt, "due at the confirmation").toBeGreaterThanOrEqual(before);
+      expect(scan!.dueAt).toBeLessThanOrEqual(Date.now());
+    } finally {
+      noteStore.releaseCounters(0);
+    }
   });
   it("the steps carry the Review's terms: the relayer's minimum and percentage the Review showed bound every step's funding (spec v3.0 §3; the review round of 2026-11-02)", async () => {
     world.protection = stagedPlan;

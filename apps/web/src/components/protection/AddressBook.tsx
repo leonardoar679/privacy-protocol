@@ -12,6 +12,7 @@ import { session } from "@privacy-wallet/sdk/wallet/session";
 import { HoldButton } from "@privacy-wallet/ui";
 import { exactOutput } from "@privacy-wallet/protocol/wallet/fees";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { demandScan } from "@privacy-wallet/sdk/wallet/discovery";
 import { useFeeTerms } from "../../features/fees/useFeeTerms";
 import { holdMs } from "@privacy-wallet/sdk/tiers";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
@@ -28,6 +29,8 @@ import { destinationStatusWords, destinationWords } from "../../features/destina
 // factor (the separate device at institutional), the hold; all journaled, nothing sent anywhere. Every word comes from the
 // message catalog (audit round 2, r55): these are the safety steps of a large payment, and a Korean reader had read them in
 // English. The phrase an immediate use types stays as it is, like the words other confirmations compare.
+/** The operations that paid an entry: a campaign step's reservation of its fresh address (`step:…`, until its order takes it over) pays nothing (the twelfth review round, ZM's critique). */
+const paidBy = (e: AddressBookEntry): string[] => e.usedBy.filter((by) => !by.startsWith("step:"));
 const LIFECYCLE_WORDS: Record<AddressBookEntry["lifecycle"], MessageKey> = { generated: "book.lifecycle.generated", verified: "book.lifecycle.verified", approved: "book.lifecycle.approved", used: "book.lifecycle.used", settled: "book.lifecycle.settled", retired: "book.lifecycle.retired" };
 const METHOD_WORDS: Record<VerificationMethod, MessageKey> = { derived: "book.method.derived", "groups-read": "book.method.groups-read", "signed-message": "book.method.signed-message", "test-transaction": "book.method.test-transaction" };
 export const OVERRIDE_PHRASE = "I ACCEPT THE RISK";
@@ -105,6 +108,7 @@ function TestTransaction({ entry, masterSeed, deployment, onVerified }: { entry:
     setBusy(true);
     // the catalog's words, not the engine's English progress lines (audit round 2, r55)
     setStatus(t("dest.test.sending"));
+    demandScan(); // a change note takes a counter: a scan the counters wait for is asked for now (the twelfth review round, W6 §5)
     try {
       // each merge it needs first at most the relayer's F read here (the seventh review round)
       const r = await privateWithdrawal({ masterSeed, deployment, amount: piece, recipient: entry.normalized as Address, vault: asset.vault, ...(split ? { maxFee: split.fee } : {}), ...(fees.status === "ready" && fees.terms ? { maxMergeFee: fees.terms.minimum } : {}) });
@@ -239,7 +243,7 @@ export function AddressBookPanel({ deployment }: { deployment: Deployment | null
         return (
           <div key={e.id} className="list-row" style={{ alignItems: "flex-start" }} data-testid="book-entry" data-lifecycle={e.lifecycle} data-source={e.source}>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div><b>{labelWords(t, e) || t("book.noLabel")}</b> <span className="muted small">· {chainOfEntry(e)} · {t(e.source === "fresh" ? "book.source.fresh" : "book.source.entered")} · {t(LIFECYCLE_WORDS[e.lifecycle])}{e.verification.method ? ` · ${t(METHOD_WORDS[e.verification.method])}` : ""}{e.usedBy.length ? ` · ${t("book.paidBy", { n: e.usedBy.length, plural: e.usedBy.length === 1 ? "" : "s" })}` : ""}</span></div>
+              <div><b>{labelWords(t, e) || t("book.noLabel")}</b> <span className="muted small">· {chainOfEntry(e)} · {t(e.source === "fresh" ? "book.source.fresh" : "book.source.entered")} · {t(LIFECYCLE_WORDS[e.lifecycle])}{e.verification.method ? ` · ${t(METHOD_WORDS[e.verification.method])}` : ""}{paidBy(e).length ? ` · ${t("book.paidBy", { n: paidBy(e).length, plural: paidBy(e).length === 1 ? "" : "s" })}` : ""}</span></div>
               <code className="small" style={{ wordBreak: "break-all" }} translate="no">{groupAddress(e.address)}</code>
               <div className={check.ok ? "muted small" : "small level-Reduced"}>{destinationStatusWords(t, check, now)}</div>
               {verifying === e.id && (e.verification.status !== "verified" || check.reason === "stale") && masterSeed && <VerifyEntry entry={e} masterSeed={masterSeed} deployment={deployment} onDone={() => setVerifying(null)} />}

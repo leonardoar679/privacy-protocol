@@ -164,9 +164,11 @@ export interface StoredShield {
 
 /**
  * A scheduled action (plan §30; V2 Stage 4): `attempts` and `nextAttemptAt` are the runner's backoff after a
- * failure (10 min, doubling, at most 6 h); an abandoned order's action is removed, never retried.
+ * failure (10 min, doubling, at most 6 h); an abandoned order's action is removed, never retried. `heldFailures` is the note scan's own count
+ * of failures in a row while the counters are held or an awaited deposit waits on it (wallet/discovery.ts heldRetryMs; the twelfth review
+ * round, W6 §5): never the scheduler's — one count for both had carried a short backoff's failures into the long one, and back.
  */
-export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick" | "discovery"; orderId: string; dueAt: number; done?: boolean; error?: string; /** the catalog's code of that error when it had one (a V7 follow-up, audit gap 59: the operation's detail names it) */ errorCode?: string; attempts?: number; nextAttemptAt?: number }
+export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick" | "discovery"; orderId: string; dueAt: number; done?: boolean; error?: string; /** the catalog's code of that error when it had one (a V7 follow-up, audit gap 59: the operation's detail names it) */ errorCode?: string; attempts?: number; nextAttemptAt?: number; heldFailures?: number }
 
 /** One line of the Activity screen (whale spec §25, plan V2 §49–§50): local only, never sent anywhere. */
 export interface ActivityRecord {

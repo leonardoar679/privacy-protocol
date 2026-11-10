@@ -23,7 +23,7 @@ import { controlsFor, holdMs } from "@privacy-wallet/sdk/tiers";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
 import { engineListener } from "@privacy-wallet/sdk/operations/engineEvents";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
-import { scanForDeposit } from "@privacy-wallet/sdk/wallet/discovery";
+import { demandScan, scanForDeposit } from "@privacy-wallet/sdk/wallet/discovery";
 import { OperationProgress } from "../operations/OperationProgress";
 import { ProgressView } from "../progress/View";
 import { furthestLine, progressModelOf } from "../progress/model";
@@ -240,6 +240,8 @@ export function ProtectScreen(p: ProtectScreenProps) {
     const onEvent = engineListener((ev) => {
       applyEvent(rec.id, ev);
     });
+    // the deposit's note takes a counter: a scan the counters wait for is asked for now, past its backoff (the twelfth review round, W6 §5)
+    demandScan();
     try {
       const r = asset.token
         ? await shieldERC20({

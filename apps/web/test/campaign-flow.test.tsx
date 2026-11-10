@@ -24,7 +24,7 @@ import { reviewHoldMinutes } from "@privacy-wallet/sdk/tiers";
 const REVIEW_HOLD_MINUTES = reviewHoldMinutes();
 import { campaignsOf } from "@privacy-wallet/sdk/wallet/campaigns";
 import { runCampaignTick, resetRunnerMemory } from "@privacy-wallet/sdk/wallet/campaignRunner";
-import { pendingActions } from "@privacy-wallet/sdk/wallet/schedule";
+import { pendingActions, scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { PrivateSwapEngine, type PreparedExecution } from "@privacy-wallet/swap-engine/engine";
 import { buildMemo, encodeDepositWithExpiry } from "@privacy-wallet/swap-engine/adapters/thorchain";
@@ -374,6 +374,26 @@ describe("a protected execution on the Swap screen (happy-dom, real engine and r
     expect(moved.textContent).toContain("Nothing returns on its own");
     expect(moved.textContent).not.toMatch(/never confirmed returns to your private balance/);
   });
+  it("the counters waiting on a scan that keeps failing: the protected execution's confirmation asks for it at once, its failures counted afresh (the twelfth review round, ZL's critique)", async () => {
+    const container = document.createElement("div");
+    await quoted(container, "400");
+    await throughWizard(container);
+    await act(async () => { button(container, "I accept the single quote")!.click(); });
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      const before = Date.now();
+      await hold(container);
+      await vi.waitFor(() => expect(campaignsOf(session.journal())).toHaveLength(1), { timeout: 20_000 });
+      const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      expect(scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+      expect(scan!.dueAt, "due at the confirmation").toBeGreaterThanOrEqual(before);
+      expect(scan!.dueAt).toBeLessThanOrEqual(Date.now());
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+  });
+
   it("$5M: the authenticator is asked after the hold and the confirmation is journaled with the campaign", async () => {
     settings.set({ secondFactor: { enabled: true, credentialId: "AQID" } });
     const get = vi.fn(async (o: any) => ({ rawId: o.publicKey.allowCredentials[0].id.buffer }));

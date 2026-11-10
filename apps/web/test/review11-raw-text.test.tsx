@@ -14,6 +14,7 @@ import { thornodeGateways } from "@privacy-wallet/sdk/providerCall";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
 import { withAlert } from "@privacy-wallet/sdk/wallet/alerts";
@@ -33,12 +34,17 @@ import { deployment, ETH_VAULT, fetchMock, resetWorld, world } from "./helpers/s
 
 // the commit's answer: what apiCall builds from the API's refusal, `new ApiError(status, code, error)` (apps/api routes/swap.ts)
 const commit = vi.hoisted(() => ({ error: null as unknown }));
+/** the note scan's action as the commit found it when it began (the twelfth review round, ZK's critique: the demand made before it) */
+const engineSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
 vi.mock("@privacy-wallet/sdk/swapProvider", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@privacy-wallet/sdk/swapProvider")>();
   return {
     ...orig,
     walletSwapProvider: () => ({
       prepare: async () => {
+        const { session: s } = await import("@privacy-wallet/sdk/wallet/session");
+        engineSaw.at = Date.now();
+        engineSaw.scan = s.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null;
         throw commit.error;
       },
     }),
@@ -273,6 +279,28 @@ async function askInstruction() {
     fireEvent.click(await screen.findByText("Show my deposit instruction"));
   });
 }
+
+describe("the twelfth review round, W6 §5: the swap's one confirmation asks for a scan the counters wait on", () => {
+  it("the counters waiting on a scan that keeps failing: the confirmation asks for it at once, its failures counted afresh", async () => {
+    await wallet();
+    commit.error = new Error("the service is down");
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      const before = Date.now();
+      await confirmRefused();
+      expect(engineSaw.scan, "asked for before the commit took its refund counter").toBeTruthy();
+      expect(engineSaw.scan!.dueAt).toBeLessThanOrEqual(engineSaw.at);
+      expect(engineSaw.scan!.heldFailures ?? 0).toBe(0);
+      const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      expect(scan!.dueAt, "due at the confirmation").toBeGreaterThanOrEqual(before);
+      expect(scan!.dueAt).toBeLessThanOrEqual(Date.now());
+      expect(scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+  });
+});
 
 describe("E11-10 (2): the guest screen says a refusal in its own fixed words, never a service's or a gateway's", () => {
   it("THORChain's quote error — the first gateway to answer decides it — never reaches the screen", async () => {

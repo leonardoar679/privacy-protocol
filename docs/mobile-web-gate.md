@@ -88,7 +88,8 @@ None yet — the owner's to run. One row per device and wallet; a scenario that 
 - WalletConnect's RPC host is not in the policy (audit gap 64): the wallet reads the chain through its own endpoints, and a
   wallet flow that routed a read there would fail under the policy — the real-device run is where it would show. A Protect's
   receipts are such reads: the Protect ends "Sent — your wallet did not report the result" (`deposit_unconfirmed`) and its deposit is
-  recorded from the pool by a scan half a minute later, or one each minute after it (never held for finality), an ERC-20's approvals
+  recorded from the pool by a scan half a minute later, or one each minute after it while its reads succeed — a failed read tried again
+  after 1, 2, 4, then 8 minutes — (never held for finality), an ERC-20's approvals
   are read from the first endpoint (audit gap 100; the eleventh review round, F11-10).
 - One Protect or Send at a time: the Review's blocker says how the earlier one resolves when its page is gone — the wallet
   settles it from the chain: the pool's own spend event names a transaction whose answer was lost as soon as the next scan

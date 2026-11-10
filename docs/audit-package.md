@@ -706,7 +706,8 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     fail stops at its approval (`approval_unconfirmed`), one that answered before is read on to the time. The deposit's receipt is never
     read there: the Protect ends "sent — your wallet did not report the result" (`deposit_unconfirmed`; no "needs your attention"
     notification for it); the record awaits its note, which a scan half a minute later — planned past the scheduler's backoff — and then
-    each minute for a quarter of an hour (a failed read retried in a minute meanwhile) records from the endpoints' agreed view at once:
+    each minute for a quarter of an hour (a failed read retried after 1, 2, 4, then 8 minutes — the scan's own count, the twelfth review
+    round, W6 §5; past the window a failure is the scheduler's, from its first ten minutes) records from the endpoints' agreed view at once:
     never held for finality, half an hour on mainnet. That is the trust the receipt's fallback to the endpoints had, for that case alone —
     a page closed after its send, or a lock, leaves its note to the proof as before —, at one leaf only and with no note of its counter
     stored; a copy of a note at a second leaf goes once the other stands at a proven leaf, and the proven pool still drops a note it

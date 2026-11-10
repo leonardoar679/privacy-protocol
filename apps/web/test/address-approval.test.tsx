@@ -7,7 +7,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { APPROVAL_IDLE_MS, COOLING_OFF_MS } from "@privacy-wallet/protocol/wallet/addressBook";
 import { AddressBookPanel, DestinationStatus } from "../src/components/protection/AddressBook";
-import { addAddress, approveAddress, destinationCheck, findEntry, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
+import { addAddress, approveAddress, destinationCheck, findEntry, markAddressUsed, transferUse, verifyAddress } from "@privacy-wallet/sdk/wallet/addressBook";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 
@@ -22,6 +22,20 @@ async function mount(node: React.ReactElement): Promise<HTMLElement> {
 }
 const EVM = "0x1111111111111111111111111111111111111111";
 const button = (c: ParentNode, text: string) => [...c.querySelectorAll("button")].find((b) => b.textContent?.trim() === text) as HTMLButtonElement | undefined;
+
+describe("the twelfth review round, ZM's critique: a campaign step's reservation is no payment", () => {
+  it("an address a step reserved, its order not yet taking it over, is in use and paid by no operation; once the order takes the use over, by one", async () => {
+    await session.create("a strong password"); session.acknowledgePhrase();
+    addAddress({ chain: "evm", address: EVM, label: "a step's" });
+    markAddressUsed("evm", EVM, "step:0xc:0", session);
+    let panel = await mount(<AddressBookPanel deployment={null} />);
+    expect(findEntry("evm", EVM)).toMatchObject({ lifecycle: "used", usedBy: ["step:0xc:0"] });
+    expect(panel.querySelector('[data-testid="book-entry"]')!.textContent).not.toMatch(/paid by/);
+    transferUse("evm", EVM, "step:0xc:0", "0xorder", session);
+    panel = await mount(<AddressBookPanel deployment={null} />);
+    expect(panel.querySelector('[data-testid="book-entry"]')!.textContent).toContain("paid by 1 operation");
+  });
+});
 
 describe("the approval step (V4)", () => {
   it("a verified entry out of its cooling-off is approved by the user in the book; the typed-destination status offers the same", async () => {

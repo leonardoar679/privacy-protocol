@@ -26,6 +26,7 @@ import { Advanced } from "../src/features/more/Advanced";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { consumeFreshAddress, peekFreshAddress } from "@privacy-wallet/sdk/keys/chainKeys";
 import { approveAddress, addAddress, bookOf, challengeMessage, destinationCheck, entryIdFor, findEntry, markAddressSettled, markAddressUsed, methodsFor, overrideCoolingOff, retireAddress, verifyAddress, verifySignedChallenge } from "@privacy-wallet/sdk/wallet/addressBook";
 import { OVERRIDE_PHRASE, VerifyEntry } from "../src/components/protection/AddressBook";
@@ -38,10 +39,15 @@ import type { Protection, QuoteSet } from "@privacy-wallet/sdk/swapService";
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 // the relayer's terms (Send quotes with them): read from the engine, never fetched here
 const withdrawals = vi.hoisted(() => [] as { amount: bigint; maxFee?: bigint }[]);
+/** the note scan's action as the test transaction found it when it began (the twelfth review round, ZK's critique: the demand made before it) */
+const engineSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()),
   feeTerms: async () => ({ url: "http://relayer.test", info: { feePercentBps: 100 }, fee: { amount: 10n ** 15n, ownerCommitment: 0n, viewPub: new Uint8Array(32), vault: 0n } }),
   privateWithdrawal: async (o: { amount: bigint; maxFee?: bigint }) => {
+    const { session: s } = await import("@privacy-wallet/sdk/wallet/session");
+    engineSaw.at = Date.now();
+    engineSaw.scan = s.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null;
     withdrawals.push({ amount: o.amount, ...(o.maxFee !== undefined ? { maxFee: o.maxFee } : {}) });
     return { txHash: "0x" + "77".repeat(32), proofMs: 1, verifiedLocally: false, spent: [0], submittedBy: "relayer" };
   },
@@ -148,6 +154,37 @@ describe("the journaled address book (spec §12)", () => {
     await vi.waitFor(() => expect(withdrawals).toHaveLength(1));
     const piece = bucketsFor(18)[0];
     expect(withdrawals[0], "the piece, and never more fee than it said").toEqual({ amount: piece, maxFee: exactOutput(piece, { minimum: 10n ** 15n, feePercentBps: 100 }).fee });
+  });
+
+  it("the counters waiting on a scan that keeps failing: the test transaction asks for it at once, its failures counted afresh (the twelfth review round, W6 §5)", async () => {
+    await unlocked();
+    noteStore.add({ note: { vaultId: BigInt(ETH_VAULT), amount: 10n ** 18n, ownerCommitment: 1n, noteSecret: 2n }, leafIndex: 0, noteData: "0x", spent: false });
+    const r = addAddress({ chain: "evm", address: EVM, label: "exchange" });
+    if (!r.ok) throw new Error(r.reason);
+    const c = await mount(
+      <Providers deployment={deployment}>
+        <VerifyEntry entry={r.entry} masterSeed={session.state().seed!} deployment={deployment} />
+      </Providers>,
+    );
+    await act(async () => { (c.querySelector('[data-method="test-transaction"]') as HTMLButtonElement).click(); });
+    await vi.waitFor(() => expect(c.querySelector('[data-testid="verify-test-cost"]')!.textContent).toMatch(/leaves it/));
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    try {
+      const before = Date.now();
+      withdrawals.length = 0;
+      await act(async () => { (c.querySelector('[data-testid="verify-test-send"]') as HTMLButtonElement).click(); });
+      await vi.waitFor(() => expect(withdrawals).toHaveLength(1));
+      expect(engineSaw.scan, "asked for before the withdrawal took its change counter").toBeTruthy();
+      expect(engineSaw.scan!.dueAt).toBeLessThanOrEqual(engineSaw.at);
+      expect(engineSaw.scan!.heldFailures ?? 0).toBe(0);
+      const scan = session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      expect(scan!.dueAt, "due at the test transaction").toBeGreaterThanOrEqual(before);
+      expect(scan!.dueAt).toBeLessThanOrEqual(Date.now());
+      expect(scan!.heldFailures ?? 0, "its failures counted afresh").toBe(0);
+    } finally {
+      noteStore.releaseCounters(0);
+    }
   });
 
   it("signed messages: an EVM signature recovers to the address, a Solana ed25519 signature verifies; the wrong key fails", async () => {

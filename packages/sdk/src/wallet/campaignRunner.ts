@@ -10,7 +10,7 @@
 import type { Hex } from "viem";
 import {
   canRelease, detectPause, exposure, nextAction, notAsAsked, settledBy, swappedInFull, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
-  FINALITY_MARGIN_SECONDS, PAUSED_TRACK_INTERVAL_MS, STALL_FACTOR, TRACK_INTERVAL_MS, RATE_SCALE,
+  FINALITY_MARGIN_SECONDS, IN_FLIGHT, PAUSED_TRACK_INTERVAL_MS, STALL_FACTOR, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
 import { velocityExceeded } from "@privacy-wallet/protocol/wallet/exposurePolicy";
@@ -32,14 +32,14 @@ import { swapService, type QuoteSet, type RiskView, type ServiceOrder } from "..
 import { ProviderCallUnverified, type MinimumMoved } from "../providerCall";
 import { ApiError } from "../api/client";
 import { chainKindOf, consumeFreshAddress } from "../keys/chainKeys";
-import { destinationCheck, markAddressSettled, markAddressUsed } from "./addressBook";
+import { destinationCheck, findEntry, markAddressSettled, markAddressUsed, transferUse } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
 import { campaignById, childOrder, expectedOut, fitPlanned, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, pieceCeiling, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, stepReviewedFee, withRoute, cryptoUniform, TERMINAL_STATES } from "./campaigns";
 import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
 import { cancelAction, sampleDueAt, schedulerStatus } from "./schedule";
-import { HELD_SCAN_RETRY_MS, scheduleDiscovery } from "./discovery";
+import { HELD_SCAN_RETRY_MS, heldRetryMs, nextScanAt, scheduleDiscovery } from "./discovery";
 import { session as defaultSession, type WalletSession } from "./session";
 import { settings as defaultSettings, type Settings } from "./settings";
 
@@ -86,7 +86,7 @@ async function cached<T>(key: string, now: number, read: () => Promise<T>, fresh
   return value;
 }
 /** Tests: forget what the runner keeps in memory. */
-export function resetRunnerMemory(): void { orders.clear(); signedCache.clear(); factCache.clear(); signRetries.clear(); }
+export function resetRunnerMemory(): void { orders.clear(); signedCache.clear(); factCache.clear(); signRetries.clear(); costUnknownInARow.clear(); }
 /**
  * How many ticks in a row a step's signing may fail for a passing reason — the gateways did not answer, the network failed before
  * anything was signed — and be tried again at the next tick, before the scheduler's backoff applies (the sixth review round,
@@ -95,6 +95,16 @@ export function resetRunnerMemory(): void { orders.clear(); signedCache.clear();
 export const SIGN_RETRIES_BEFORE_BACKOFF = 5;
 /** the passing failures in a row of each campaign's current signing (not journaled: a reload starts the count again) */
 const signRetries = new Map<string, number>();
+/** a step's commits in a row that could not check its cost (cost_unknown), by campaign and step (not journaled: a reload starts again) */
+const costUnknownInARow = new Map<string, number>();
+/** A step waiting for the scan ticks again a second after the scan's next attempt (the twelfth review round, W6 §5). */
+const afterScan = (now: number, s: WalletSession): number => Math.max(now + 1000, (nextScanAt(s) ?? now + HELD_SCAN_RETRY_MS) + 1000);
+/**
+ * A step's wait that keeps the steps in flight read each minute, as before (ZK's critique: a parallel plan's next step, waiting up to ten
+ * minutes for the scan or its cost, had held back the reading of those in flight — their settlement, a refund, a stall).
+ */
+const tracking = (c: Campaign, now: number, at: number): number =>
+  c.tranches.some((x) => IN_FLIGHT.includes(x.state) || x.state === "refunding") ? Math.min(at, now + HELD_SCAN_RETRY_MS) : at;
 
 /**
  * Audit gap 44: why a route the campaign has left behind may not carry a step it already funded (§8, §10) — its breaker
@@ -424,7 +434,7 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
     const next = trancheStateOf(current, r.tracked, r.job, stored, current.gate ?? c.plan.gate, c.request.to.chain, now, margins);
     if (next) {
       c = withTrancheState(c, t.index, next.state, now, next.patch, next.note);
-      if (next.state === "refunded") scheduleDiscovery(now, s); // the step's refund note is looked for now
+      if (next.state === "refunded") scheduleDiscovery(now, s); // the step's refund note is looked for now (a scan failing in a row keeps its backoff)
       if (next.state === "undelivered") undelivered ??= undeliveredWords(t.index, next.patch.outcome?.undelivered ?? "lost", BigInt(next.patch.outcome?.refunded ?? "0") > 0n, !!next.patch.outcome?.deliveredInPart);
       if (next.state === "settled" && current.state !== "settled") {
         justSettled.push({ index: t.index, deliveredOut: next.patch.outcome?.deliveredOut, minOut: current.expected?.minOut });
@@ -436,7 +446,8 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
       }
     }
     const after = c.tranches[t.index];
-    // the executor re-shielded the escrow and the scan has not found the note yet (D9): looked for now, then at most once a minute
+    // the executor re-shielded the escrow and the scan has not found the note yet (D9): looked for now, then at most once a minute — a scan
+    // failing in a row keeps its backoff (scheduleDiscovery)
     if (r.tracked.state === "REFUNDED" && after.state !== "refunded" && after.state !== "settled") scheduleDiscovery(stored.track?.state === "REFUNDED" ? now + 60_000 : now, s);
     // a step its provider failed (at the destination, or by never answering) comes back as `refunding`: its facts are the
     // pass's too, so the campaign pauses instead of sending the next step to the same provider (the audit round of 2026-10-16, c53)
@@ -616,7 +627,24 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         if (c.state !== "running") c = withCampaignState(c, "running", now, "the first step starts");
         const sinceS = Math.floor(now / 1000);
         if (sinceS >= c.bounds.expiry) { c = pauseWith(c, "bounds", "The operation's expiry passed before this step; nothing more is committed.", now, t.index); break; }
-        const dest = io.freshDestination(c);
+        // the counters held — after an unlock or a restore, until one complete scan —: no destination reserved and nothing asked, the step
+        // waits for the scan, its next tick the scan's next attempt (the twelfth review round, W6 §5); retried each minute under the hold, its
+        // commit had reserved a fresh address each time and read the endpoints for its tips
+        if (noteStore.countersHeld()) { nextAt = tracking(c, now, afterScan(now, s)); break; }
+        // a step left ready by a commit that failed before the service was asked (the counters held, its cost not checkable) commits with the
+        // destination it was journaled with (W6 §5) — while that address is still this step's alone: not retired, used by no other operation
+        // (ZK's critique); a fresh one at every attempt had used up the wallet's addresses
+        const step = `step:${c.id}:${t.index}`;
+        const freshPerStep = c.bounds.destination.kind === "fresh-per-tranche";
+        const destKind = chainKindOf(c.request.to.chain);
+        const kept = freshPerStep && t.state === "ready" && t.destination ? findEntry(destKind, t.destination, s) : null;
+        // ... marked as this step's by this step (ZL's critique: an entry with no mark — a journal from before, or a backup's step merged onto a
+        // device whose Receive had given that index out — had been reused as if it were the step's)
+        const reuse = freshPerStep && t.state === "ready" && !!t.destination && (!kept || (kept.lifecycle !== "retired" && kept.usedBy.includes(step) && kept.usedBy.every((by) => by === step)));
+        const dest = reuse ? { address: t.destination!, ...(t.destinationIndex !== undefined ? { index: t.destinationIndex } : {}) } : io.freshDestination(c);
+        // the fresh address is this step's from now (ZK's critique): Receive never offers it to a payer while the step waits, and the order it
+        // becomes takes the use over below — one use, as commitOrder's own attempt hands its use over (A11-5)
+        if (freshPerStep) markAddressUsed(destKind, dest.address, step, s, now);
         c = withTrancheState(c, t.index, "ready", now, { destination: dest.address, ...(dest.index !== undefined ? { destinationIndex: dest.index } : {}), provider: c.provider, attempt: t.attempt + 1 });
         c = putCampaign(c, s); // journaled before the call (§9)
         if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)
@@ -629,7 +657,16 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           // for it, never a pause that blamed the provider and asked the user to resume; so does a step whose tips the wallet
           // cannot check yet (audit round 2, critic gap 4: no fee read or price) — committed once it can estimate the gas
           const code = (e as { code?: unknown })?.code;
-          if (code === "notes_loading" || code === "cost_unknown") { nextAt = now + HELD_SCAN_RETRY_MS; break; }
+          // ... the counters held meanwhile: the step follows the scan; its cost not checkable: tried again sooner than a pause, less often each
+          // time (1, 2, 4, 8 minutes, then ten: W6 §5), its destination kept
+          if (code === "notes_loading") { nextAt = tracking(c, now, afterScan(now, s)); break; }
+          if (code === "cost_unknown") {
+            const n = (costUnknownInARow.get(`${c.id}:${t.index}`) ?? 0) + 1;
+            costUnknownInARow.set(`${c.id}:${t.index}`, n);
+            nextAt = tracking(c, now, now + heldRetryMs(n));
+            break;
+          }
+          costUnknownInARow.delete(`${c.id}:${t.index}`);
           // the last step, a remainder too small to swap on its own (its executor tip would pass the escrow's 1 %), stays in the private
           // balance and the campaign completes without it (the seventh review round, D14): it had paused at every Resume for good
           if (code === "amount_too_small" && lastSmallStep(c, t)) { c = withTrancheState(c, t.index, "skipped", now, { outcome: { ...t.outcome, kept: true } }, `too small to swap on its own (${m}): it stays in your private balance`); nextAt = now + 1000; break; }
@@ -643,6 +680,8 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           c = pauseWith(c, /no quote|filtered|refus/i.test(m) ? "route-degraded" : "provider-error", `Step ${t.index + 1} could not be committed: ${m}`, now, t.index, own);
           break;
         }
+        costUnknownInARow.delete(`${c.id}:${t.index}`);
+        if (freshPerStep) transferUse(destKind, dest.address, step, r.stored.orderId, s, now);
         const q = r.order.quote;
         // the competition at this size chose another provider (§8): a route change is reviewed, or adopted below the second-confirmation tier when allowed
         if (c.provider && q.provider !== c.provider) {

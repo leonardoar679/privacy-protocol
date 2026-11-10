@@ -15,6 +15,7 @@ import { Swap } from "../src/features/swap/Swap";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { PINNED, thorAsset } from "@privacy-wallet/sdk/providerCall";
 import { reviewHoldMinutes } from "@privacy-wallet/sdk/tiers";
@@ -28,6 +29,20 @@ import { v1Adapter } from "./helpers/apiV1";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({ ...(await importOriginal<typeof import("@privacy-wallet/sdk/privateTx")>()), recoverSwapRefunds: async () => [] }));
+/** the note scan's action as Fund now's funding found it when it began (the twelfth review round, ZL's critique: the demand made before it) */
+const fundSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
+vi.mock("@privacy-wallet/sdk/swapFunding", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@privacy-wallet/sdk/swapFunding")>();
+  return {
+    ...orig,
+    fundEscrow: async (...a: Parameters<typeof orig.fundEscrow>) => {
+      const { session: s } = await import("@privacy-wallet/sdk/wallet/session");
+      fundSaw.at = Date.now();
+      fundSaw.scan = s.journal().schedule.find((x) => x.id === "discovery:pool" && !x.done) ?? null;
+      return orig.fundEscrow(...a);
+    },
+  };
+});
 
 const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8"));
 const FACTORY = getAddress("0x00000000000000000000000000000000000000f1");
@@ -332,6 +347,62 @@ describe("F12-7: the funding window under a quote set's policy (the twelfth revi
     expect(funding, "a funding scheduled").toBeTruthy();
     expect(funding!.dueAt / 1000, "funded before its execute deadline").toBeLessThan(Number((stored.params as { executeDeadline: number }).executeDeadline));
   });
+  it("the counters waiting on a scan that keeps failing: the commit asks for it at once, its failures counted afresh (the twelfth review round, W6 §5)", async () => {
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    await act(async () => { button(container, "Review Swap")!.click(); });
+    await act(async () => { button(container, "I accept the single quote")!.click(); });
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    // the scan as the commit finds it when it waits for it (ZL's critique: the demand made before the counter, never after)
+    const seen: { scan: { dueAt: number; heldFailures?: number } | null; at: number }[] = [];
+    const own = noteStore.untilScanned.bind(noteStore);
+    const spy = vi.spyOn(noteStore, "untilScanned").mockImplementation((ms?: number) => {
+      seen.push({ scan: session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null, at: Date.now() });
+      return own(ms);
+    });
+    try {
+      const before = Date.now();
+      await hold(container);
+      const scan = () => session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      await vi.waitFor(() => expect(scan()!.heldFailures ?? 0, "its failures counted afresh").toBe(0));
+      expect(scan()!.dueAt, "due at the commit").toBeGreaterThanOrEqual(before);
+      expect(scan()!.dueAt).toBeLessThanOrEqual(Date.now());
+      await vi.waitFor(() => expect(seen.length, "the commit waited for the scan").toBeGreaterThan(0));
+      expect(seen[0].scan!.dueAt, "already asked for when the commit waited").toBeLessThanOrEqual(seen[0].at);
+      expect(seen[0].scan!.heldFailures ?? 0).toBe(0);
+    } finally {
+      spy.mockRestore();
+      noteStore.releaseCounters(0);
+    }
+  });
+
+  it("Fund now asks for a scan the counters wait on, as the funding's change takes a counter (the twelfth review round, ZK's critique)", async () => {
+    const container = document.createElement("div");
+    await quotedLarge(container);
+    await act(async () => { button(container, "Review Swap")!.click(); });
+    await act(async () => { button(container, "I accept the single quote")!.click(); });
+    await hold(container);
+    await vi.waitFor(() => expect(session.journal().swaps.length).toBeGreaterThan(0), { timeout: 20_000 });
+    await vi.waitFor(() => expect(button(container, /Fund now/)?.disabled).toBe(false));
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: Date.now() + 4 * 60_000, heldFailures: 3 }, session);
+    noteStore.holdCounters();
+    fundSaw.scan = undefined;
+    try {
+      const before = Date.now();
+      await act(async () => { button(container, /Fund now/)!.click(); });
+      const scan = () => session.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done);
+      await vi.waitFor(() => expect(scan()!.heldFailures ?? 0, "its failures counted afresh").toBe(0));
+      expect(scan()!.dueAt, "due at the tap").toBeGreaterThanOrEqual(before);
+      expect(scan()!.dueAt).toBeLessThanOrEqual(Date.now());
+      await vi.waitFor(() => expect(fundSaw.scan, "the funding begun").toBeTruthy());
+      expect(fundSaw.scan!.dueAt, "already asked for when the funding began").toBeLessThanOrEqual(fundSaw.at);
+      expect(fundSaw.scan!.heldFailures ?? 0).toBe(0);
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+  });
+
   it("Fastest only where chosen: a Balanced user's line keeps its 1–24 h, and the route's time its scheduled funding", async () => {
     settings.set({ preference: "balanced" });
     quotePolicy = "fastest";

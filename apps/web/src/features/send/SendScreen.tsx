@@ -32,6 +32,7 @@ import { downloadText } from "@privacy-wallet/sdk/download";
 import { destinationCheck, markAddressSettled, markAddressUsed } from "@privacy-wallet/sdk/wallet/addressBook";
 import { scheduleHousekeeping } from "@privacy-wallet/sdk/wallet/housekeeping";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { demandScan } from "@privacy-wallet/sdk/wallet/discovery";
 import { mergeSchedule } from "@privacy-wallet/sdk/wallet/mergeSchedule";
 import { topBucket, walletLint } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
@@ -312,6 +313,8 @@ export function SendScreen(p: SendScreenProps) {
       // withdrawal paid as unused, and an entered one never counted as reused
       if (ev.type === "submitted" && dest.kind === "public") markAddressUsed("evm", recipient, rec.id);
     });
+    // a change note takes a counter: a scan the counters wait for is asked for now, past its backoff (the twelfth review round, W6 §5)
+    demandScan();
     try {
       if (dest.kind === "private") {
         const r = await privateTransfer({
