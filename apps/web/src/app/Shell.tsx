@@ -15,6 +15,8 @@ import { useT } from "./i18n/useT";
 import type { MessageKey } from "./i18n/en";
 // V6 Stage 16: the runners and the scheduler load after the shell renders (they are not on Home's critical path)
 const Background = lazy(() => import("./Background").then((m) => ({ default: m.Background })));
+// the notice of a scan the counters wait on that failed (the twelfth review round, W6 §5.4), loaded with them: discovery.ts is not on the first route
+const ScanHeldNotice = lazy(() => import("./ScanHeldNotice").then((m) => ({ default: m.ScanHeldNotice })));
 import { NotificationToasts } from "./notifications";
 import { StorageNotice } from "./StorageNotice";
 import { PublicWalletNotice } from "./PublicWalletNotice";
@@ -111,6 +113,9 @@ export function Shell() {
       </Suspense>
       <NotificationToasts />
       <ConnectionBanner />
+      <Suspense fallback={null}>
+        <ScanHeldNotice />
+      </Suspense>
       <StorageNotice />
       <PublicWalletNotice />
       {s.journalUnreadable ? (

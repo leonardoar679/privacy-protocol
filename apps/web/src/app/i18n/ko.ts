@@ -658,7 +658,22 @@ export const ko: Record<MessageKey, string> = {
     "이전 버전의 지갑이 이전 활동과 연결될 수 있는 방식으로 설정해, 자금을 넣기 전에 멈췄습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 스왑하려면 새 견적을 받으세요.",
   "op.error.notes_loading.title": "아직 노트를 찾고 있습니다",
   "op.error.notes_loading.reason":
-    "복원한 뒤 지갑은 새 노트를 만들기 전에 풀을 한 번 읽어, 이미 체인에 있는 노트와 겹치지 않게 합니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 잠시 후 다시 시도하세요.",
+    "지갑은 열릴 때마다, 그리고 복원한 뒤에 새 노트를 만들기 전에 풀을 읽어, 이미 체인에 있는 노트와 겹치지 않게 합니다. 아직 다 읽지 못해 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 다 읽은 뒤 다시 시도하세요.",
+  // the scan the counters wait on (the twelfth review round, W6 §5.4): the notice over every screen while it fails, the line under a refusal
+  "scan.held.title": "지갑이 풀을 읽지 못했습니다",
+  "scan.held.restore":
+    "복원한 뒤나 이 기기의 지갑 기록을 읽지 못했을 때, 지갑은 새 노트를 만들기 전에 풀 전체를 한 번 읽어 이미 체인에 있는 노트와 겹치지 않게 합니다.",
+  "scan.held.unlock": "지갑은 열릴 때마다 새 노트를 만들기 전에 풀을 읽어, 이미 체인에 있는 노트와 겹치지 않게 합니다.",
+  "scan.held.blocked": "그때까지는 보호, 스왑, 그리고 대부분의 보내기를 마칠 수 없습니다.",
+  "scan.held.reading": "지갑이 지금 풀을 읽고 있습니다…",
+  "scan.held.lastFailed": "지갑이 풀을 읽으려던 마지막 시도가 실패했습니다.",
+  "scan.held.causeDisagree": "RPC 엔드포인트들이 서로 다른 체인 상태를 반환했습니다.",
+  "scan.held.next": "다음 시도는 {when}입니다.",
+  "scan.held.nextOffline": "다음 시도는 {when}이며, 그보다 늦게 연결이 돌아오면 그때 시도합니다.",
+  "scan.held.planned": "지갑이 곧 풀을 읽습니다.",
+  "scan.held.offline": "연결이 돌아오면 지갑이 풀을 읽습니다.",
+  "scan.held.retry": "지금 다시 시도",
+  "scan.held.read": "그 뒤 지갑이 풀을 다 읽었습니다. 이제 다시 시도할 수 있습니다.",
   "op.error.cost_unknown.title": "네트워크 비용을 확인할 수 없습니다",
   "op.error.cost_unknown.reason":
     "지갑이 이 스왑의 실행 수수료를 확인하는 데 필요한 네트워크 수수료를 읽지 못해 스왑을 설정하지 않았습니다. 아무것도 전송되지 않았고 자금은 이동하지 않았습니다. 잠시 후 다시 시도하세요.",

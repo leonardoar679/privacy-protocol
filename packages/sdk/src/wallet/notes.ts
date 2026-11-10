@@ -232,6 +232,13 @@ export class NoteStore {
     return this.held || this.scanHold;
   }
   /**
+   * Whether the hold is a restore's — a start without the whole journal (`holdCounters`), kept in the journal until one complete scan — and
+   * not this unlock's alone (the twelfth review round, W6 §5.4: the screens say which).
+   */
+  restoreHeld(): boolean {
+    return this.held;
+  }
+  /**
    * Resolves once the unlock's hold is released — the scan after the unlock has read the pool — or at once when there is none;
    * after `timeoutMs` it resolves too, and the allocation that follows throws CountersHeld. A restore's hold is not waited on:
    * the screens show that scan. (A Protect started a second after an unlock had failed on the hold before the scan could run.)

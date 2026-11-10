@@ -84,6 +84,7 @@ import { Review } from "../review/ReviewScreen";
 import { BLOCKER_WORDS, ReviewView, feeRowsText, type ReviewModel } from "../review/View";
 import { OperationProgress } from "../operations/OperationProgress";
 import { AttemptLine, attemptIdOf } from "../operations/AttemptLine";
+import { ScanHoldLine } from "../operations/ScanHoldLine";
 import { ProgressView } from "../progress/View";
 import { campaignProgressModel, furthestLine, progressModelOf } from "../progress/model";
 import { amountFrom, amountOf, centsOf, displayAmount } from "../amounts";
@@ -162,7 +163,10 @@ export function SwapScreen(p: SwapScreenProps) {
   const [destAck, setDestAck] = useState(false);
   const [routeAck, setRouteAck] = useState(false);
   const [blocked, setBlocked] = useState<BlockerCode | null>(null);
-  const [status, setStatus] = useState("");
+  /** `scan`: the one order's commit was refused while the counters wait on the scan — its line says where the scan stands (the twelfth review round, W6 §5.4) */
+  const [statusLine, setStatusLine] = useState<{ text: string; scan?: true }>({ text: "" });
+  const status = statusLine.text;
+  const setStatus = (text: string) => setStatusLine({ text });
   const [busy, setBusy] = useState(false);
   const [holders, setHolders] = useState<number | null>(null);
   const [stepsSeed, setStepsSeed] = useState(() => cryptoSeed()); // V7 Stage 13: the pieces of this quote's steps (the dry run and the plan alike)
@@ -647,11 +651,11 @@ export function SwapScreen(p: SwapScreenProps) {
       // Advanced too. Any other refusal in the catalog's words, its raw text after them under Advanced only (the eleventh review round,
       // 2026-11-04, E11-10): the service's own English — "no quote from thorchain" — had been shown to every reader, a Korean one too; an
       // order the service committed otherwise than reviewed (D11-4) keeps its field and provider ids for Advanced that way
-      setStatus(
-        classify(e).code === "tip_moved"
-          ? t("op.error.tip_moved.reason")
-          : errorWords(t, e, { advanced, fallback: "screen.swap.notConfirmed", beforeCommit: true }),
-      );
+      const code = classify(e).code;
+      setStatusLine({
+        text: code === "tip_moved" ? t("op.error.tip_moved.reason") : errorWords(t, e, { advanced, fallback: "screen.swap.notConfirmed", beforeCommit: true }),
+        ...(code === "notes_loading" ? { scan: true as const } : {}),
+      });
     } finally {
       setBusy(false);
     }
@@ -991,6 +995,7 @@ export function SwapScreen(p: SwapScreenProps) {
             {status}
           </p>
         ) : null}
+        {status && statusLine.scan ? <ScanHoldLine testId="swap-status-scan" /> : null}
       </>
     );
     return (

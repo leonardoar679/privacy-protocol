@@ -665,7 +665,21 @@ export const en = {
     "An older version of the wallet set it up in a way that would link it to your earlier activity, so it was stopped before funding. Nothing was sent and your funds were not moved. Get a new quote to swap.",
   "op.error.notes_loading.title": "Still looking for your notes",
   "op.error.notes_loading.reason":
-    "After a restore, the wallet reads the pool once before it makes a new note, so that no note repeats one already on chain. Nothing was sent and your funds were not moved. Try again in a moment.",
+    "Each time the wallet opens, and after a restore, it reads the pool before it makes a new note, so that no note repeats one already on chain. The wallet had not read the pool yet, so nothing was sent and your funds were not moved. Try again once it has.",
+  // the scan the counters wait on (the twelfth review round, W6 §5.4): the notice over every screen while it fails, the line under a refusal
+  "scan.held.title": "The wallet could not read the pool",
+  "scan.held.restore": "After a restore, or when this device's record of the wallet could not be read, the wallet reads the whole pool once before it makes a new note, so that no note repeats one already on chain.",
+  "scan.held.unlock": "Each time the wallet opens, it reads the pool before it makes a new note, so that no note repeats one already on chain.",
+  "scan.held.blocked": "Until then a Protect, a swap and most Sends cannot finish.",
+  "scan.held.reading": "The wallet is reading the pool now…",
+  "scan.held.lastFailed": "The wallet's last attempt to read the pool failed.",
+  "scan.held.causeDisagree": "Your RPC endpoints returned different views of the chain.",
+  "scan.held.next": "The next attempt is at {when}.",
+  "scan.held.nextOffline": "The next attempt is at {when}, or once the connection is back if that is later.",
+  "scan.held.planned": "The wallet reads the pool shortly.",
+  "scan.held.offline": "The wallet reads the pool once the connection is back.",
+  "scan.held.retry": "Try again now",
+  "scan.held.read": "The wallet has since read the pool: you can try again now.",
   "op.error.cost_unknown.title": "The network cost could not be checked",
   "op.error.cost_unknown.reason":
     "The wallet could not read the network fees it needs to check this swap's execution fee, so the swap was not set up. Nothing was sent and your funds were not moved. Try again in a moment.",

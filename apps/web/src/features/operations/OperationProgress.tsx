@@ -7,6 +7,7 @@ import { useT } from "../../app/i18n/useT";
 import { isDraft, isOpen, wasSent, type OperationRecord, type OperationState } from "@privacy-wallet/sdk/wallet/operationRecord";
 import { finishedWords, progressWords, verdict } from "./recovery";
 import { AttemptLine, attemptIdOf } from "./AttemptLine";
+import { ScanHoldLine } from "./ScanHoldLine";
 
 const UNDER_WAY: readonly OperationState[] = ["SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING"];
 
@@ -59,6 +60,8 @@ export function OperationProgress({ record, actions, testId = "operation-progres
       {headline ? <ProgressIndicator value={null} label={headline} testId={`${testId}-bar`} /> : null}
       {record.state === "COMPLETED" ? <StatusBadge tone={record.outcome && record.outcome !== "partial" ? "warn" : "ok"} testId={`${testId}-completed`}>{finishedWords(record, t)}</StatusBadge> : null}
       {v ? <ErrorCard title={v.title} fundsLine={v.headline} fundsState={v.fundsClass} reason={v.reason} actions={actions} testId={`${testId}-error`} /> : null}
+      {/* refused while the counters wait on the scan: where it stands now (the twelfth review round, W6 §5.4) */}
+      {record.reason?.code === "notes_loading" ? <ScanHoldLine testId={`${testId}-scan`} /> : null}
       <AttemptLine orderId={attemptIdOf(record)} testId={`${testId}-attempt`} />
     </div>
   );

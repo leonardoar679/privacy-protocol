@@ -13,7 +13,7 @@ import { swapService } from "@privacy-wallet/sdk/swapService";
 import { thornodeGateways } from "@privacy-wallet/sdk/providerCall";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
-import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
+import { CountersHeld, noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 import { priceStore } from "@privacy-wallet/sdk/prices";
 import { resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
@@ -300,6 +300,26 @@ describe("the twelfth review round, W6 §5: the swap's one confirmation asks for
       noteStore.releaseCounters(0);
     }
   });
+
+  it("a commit refused while the counters wait on the scan: the catalog's words, then where the scan stands — and none under the next refusal of another kind (W6 §5.4)", async () => {
+    await wallet();
+    noteStore.holdCounters();
+    try {
+      commit.error = new CountersHeld();
+      expect(await confirmRefused()).toBe(en["op.error.notes_loading.reason"]);
+      expect(screen.getByTestId("swap-status-scan").textContent, "asked for at the confirmation").toBe(en["scan.held.planned"]);
+      act(() => noteStore.releaseCounters(0));
+      expect(screen.getByTestId("swap-status-scan").textContent).toBe(en["scan.held.read"]);
+      commit.error = new ApiError(400, "no_quote", "no quote from thorchain");
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("review-confirm"));
+      });
+      await waitFor(() => expect(screen.getByTestId("swap-status").textContent).toBe(en["op.error.no_quote.reason"]));
+      expect(screen.queryByTestId("swap-status-scan")).toBeNull();
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+  }, 60_000);
 });
 
 describe("E11-10 (2): the guest screen says a refusal in its own fixed words, never a service's or a gateway's", () => {

@@ -11,14 +11,16 @@
 // A scan that fails while the counters are held, or while a deposit waits on it, is tried again sooner than the scheduler's backoff, but
 // less often each time (`heldRetryMs`, its own count `heldFailures`; the twelfth review round, W6 §5): an unlock, a demand or a deposit's own
 // scan (`scanForDeposit`) starts the count again; a success, or a failure handed to the scheduler's backoff, ends it; a scan failing otherwise
-// keeps the scheduler's backoff. A scan that releases the counters wakes the campaign steps waiting on it.
+// keeps the scheduler's backoff. A scan that releases the counters wakes the campaign steps waiting on it. While the counters wait on a scan
+// whose last attempt failed, the screens say so (`scanHold`: which hold, the next attempt; W6 §5.4).
 // It is a scheduled action (`discovery:pool`): the scheduler runs one action at a time, so a scan never interleaves with a
 // spend, and nothing runs offline. A first launch stays request-free (spec v2.0 §10): the session that created the wallet
 // on this device scans only once the wallet holds something; a restore scans at once.
 // A note found that this wallet's seed did not make (no counter) and that is not a swap's refund or delivery is a private
 // transfer received: it gets its Activity line. Past the pool the light client proved, it is pending — out of the balance
 // — until a scan proves its leaf; one the proven leaf does not hold reads failed (audit round 2, r24).
-import type { Deployment } from "../chain";
+import { RpcDisagreement, type Deployment } from "../chain";
+
 import { assetByVault } from "../assets";
 import { PAST_POOL_GRACE_MS, scanNotes } from "../privateTx";
 import { awaitedDeposits, depositAwaited, reconcileStaleOperations, staleReads } from "../operations/stale";
@@ -64,10 +66,94 @@ let lastAttemptAt = 0;
  * alone, a scan longer than the minute — a light client's on mainnet — had been read again as soon as it ended).
  */
 let lastAttemptEndedAt = 0;
+/**
+ * When the last attempt to read the pool while the counters were held failed, or null (the twelfth review round, W6 §5.4): the screens say
+ * so until a scan goes through, an unlock's starts afresh, or a failure goes to the scheduler's backoff with the counters free. Kept apart from
+ * the count of failures in a row (`heldFailures`), which a demand starts again: from the count alone the words had gone the moment Try again
+ * now was tapped, before anything was read. It changes only inside an attempt — whose end the scheduler's status tells (`finish`) — and at an
+ * unlock's scan, whose plan the session tells: `subscribeScanHold` needs no notice of its own. It is the opening's it was made in
+ * (`heldFailedEpoch`): a lock or another opening since, and it counts no more — the next unlock holds the counters before its own scan is
+ * planned, and the notice had painted the last opening's failure and time (ZP's critique).
+ */
+let heldFailedAt: number | null = null;
+let heldFailedEpoch = -1;
+/** why that attempt could not read the pool, in the kinds the screens name (`causeOf`) */
+let heldFailedCause: ScanCause | null = null;
+/**
+ * The attempts reading the pool now, counted by the opening each began in: an earlier opening's attempt, still reading after a lock and an
+ * unlock, frees none of this one's counters (ZQ's critique: it had read "reading now"), and its end — which empties the scheduler's one
+ * status slot — ends none of this opening's (ZR's critique: the two run side by side, the next opening's scheduler a new one).
+ */
+const reading = new Map<number, number>();
 /** Tests: forget when the last scan ran. */
 export function resetDiscoveryMemory(): void {
   lastAttemptAt = 0;
   lastAttemptEndedAt = 0;
+  heldFailedAt = null;
+  heldFailedEpoch = -1;
+  heldFailedCause = null;
+  reading.clear();
+}
+
+/**
+ * Why an attempt could not read the pool, in the one kind the scan's failure tells for certain: the RPC endpoints answered with different
+ * views of the chain (W6 §5.4: "The wallet could not read the pool (…)"; ZR's critique) — every RpcDisagreement is the endpoints' answers
+ * compared (chain.ts). A failure of any other kind is named by none (ZS's critique): an endpoint that did not answer cannot be told from the
+ * light client's beacon servers, a chunk that did not load or a bug — each a TypeError or a TimeoutError somewhere in the chain — and one
+ * endpoint of several fails the whole read; naming it needs the transport to tag its own failures.
+ */
+export type ScanCause = "disagree";
+function causeOf(e: unknown): ScanCause | null {
+  for (let x: unknown = e, i = 0; x && i < 8; x = (x as { cause?: unknown }).cause, i++) if (x instanceof RpcDisagreement) return "disagree";
+  return null;
+}
+
+/** The scan the counters wait on, as the screens tell it (the twelfth review round, W6 §5.4). */
+export interface ScanHold {
+  /**
+   * a start without the whole journal — a restore, or a journal missing or unreadable on this device: the whole pool read once — or this
+   * opening's alone (every unlock; a phrase restore that kept this device's journal)
+   */
+  readonly hold: "restore" | "unlock";
+  /** an attempt is reading the pool now */
+  readonly running: boolean;
+  /** the last attempt under the hold failed */
+  readonly failed: boolean;
+  /** why, when it is a kind the screens name */
+  readonly cause: ScanCause | null;
+  /** when the scan is next attempted, or null when none is planned */
+  readonly nextAt: number | null;
+  /**
+   * from when a demand reads the pool at once: a minute after the last attempt's start (`demandScan`; ZO's critique: Try again now within that
+   * minute had moved nothing, the next attempt already at its end)
+   */
+  readonly retryFrom: number;
+}
+let lastHold: ScanHold | null = null;
+/**
+ * Null while the counters are free — so while the wallet is locked too: a lock clears the store's holds (notes.ts `close`) —; the same object
+ * while nothing in it changes (a `useSyncExternalStore` snapshot).
+ */
+export function scanHold(s: WalletSession = defaultSession): ScanHold | null {
+  if (!noteStore.countersHeld()) return null;
+  const next: ScanHold = {
+    hold: noteStore.restoreHeld() ? "restore" : "unlock",
+    running: (reading.get(s.epoch()) ?? 0) > 0,
+    failed: heldFailedAt !== null && heldFailedEpoch === s.epoch(),
+    cause: heldFailedAt !== null && heldFailedEpoch === s.epoch() ? heldFailedCause : null,
+    nextAt: nextScanAt(s),
+    retryFrom: lastAttemptAt + DISCOVERY_MIN_GAP_MS,
+  };
+  const last = lastHold;
+  if (last && (Object.keys(next) as (keyof ScanHold)[]).every((k) => last[k] === next[k])) return last;
+  return (lastHold = next);
+}
+/** Told whenever `scanHold` may change: the note store (the hold), the session (the next attempt), the scheduler's status (an attempt's run). */
+export function subscribeScanHold(l: () => void, s: WalletSession = defaultSession): () => void {
+  const offs = [noteStore.subscribe(l), s.subscribe(l), schedulerStatus.subscribe(l)];
+  return () => {
+    for (const off of offs) off();
+  };
 }
 
 /**
@@ -89,9 +175,10 @@ export function nextScanAt(s: WalletSession = defaultSession): number | null {
   return a ? Math.max(a.dueAt, a.nextAttemptAt ?? 0) : null;
 }
 
-/** The unlock's scan: at once, the count of failures in a row started again (the twelfth review round, W6 §5). */
+/** The unlock's scan: at once, the count of failures in a row started again (the twelfth review round, W6 §5), and its words (W6 §5.4). */
 export function discoverAtUnlock(now = Date.now(), s: WalletSession = defaultSession): boolean {
   if (!s.isUnlocked()) return false;
+  heldFailedAt = null;
   scheduleAction({ kind: "discovery", orderId: "pool", dueAt: now }, s);
   kickScheduler();
   return true;
@@ -191,6 +278,9 @@ export async function runDiscovery(
   const s = o.session ?? defaultSession;
   const now = o.now ?? Date.now;
   if (!o.deployment) return; // no pool configured: nothing to look in
+  // the opening this attempt runs in: its run and its failure are that opening's alone, though it ends in another (ZP's, ZQ's critiques)
+  const epoch = s.epoch();
+  reading.set(epoch, (reading.get(epoch) ?? 0) + 1);
   schedulerStatus.start(a.id, "Looking for your notes in the pool…");
   try {
     let r: Awaited<ReturnType<typeof scanNotes>>;
@@ -211,6 +301,7 @@ export async function runDiscovery(
       const cur = s.isUnlocked() ? s.journal().schedule.find((x) => x.id === a.id && !x.done) : undefined;
       if ((!noteStore.countersHeld() && !depositAwaited(s, now())) || !s.isUnlocked()) {
         // handed to the scheduler's own backoff, which starts at its own count: never the held one's (ZK's critique)
+        heldFailedAt = null;
         if (cur?.heldFailures)
           s.update((j) => {
             const x = j.schedule.find((y) => y.id === a.id && !y.done);
@@ -224,10 +315,14 @@ export async function runDiscovery(
         `The pool could not be read (${(e as Error)?.message ?? String(e)}); looking again in ${minutes} minute${minutes === 1 ? "" : "s"}…`,
       );
       scheduleAction({ kind: "discovery", orderId: "pool", dueAt: now() + heldRetryMs(failures), heldFailures: failures }, s); // the same id: kept pending
+      heldFailedAt = noteStore.countersHeld() ? now() : null; // the screens' words (W6 §5.4), this opening's
+      heldFailedEpoch = epoch;
+      heldFailedCause = causeOf(e);
       return;
     } finally {
       lastAttemptEndedAt = now();
     }
+    heldFailedAt = null;
     if (!s.isUnlocked()) return; // locked during the scan: the next unlock scans again
     if (heldBefore && !noteStore.countersHeld()) wakeCampaigns(now(), s);
     // the operations whose own flow is gone (a reload, a closed tab): the chain moves them now (../operations/stale.ts)
@@ -280,6 +375,9 @@ export async function runDiscovery(
         updateActivity(x.id, { status: "failed", note: NOT_IN_POOL }, s);
     }
   } finally {
+    const left = (reading.get(epoch) ?? 1) - 1; // counted before the scheduler's status tells the end
+    if (left > 0) reading.set(epoch, left);
+    else reading.delete(epoch);
     schedulerStatus.finish();
   }
   // the next pass, under the same id: the scheduler keeps it pending instead of marking this one done — in a minute while a deposit its
