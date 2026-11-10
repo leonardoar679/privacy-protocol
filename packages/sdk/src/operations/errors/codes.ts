@@ -196,6 +196,9 @@ export const CATALOG: Record<string, CatalogRow> = {
   // critique of B12-5: read wallet_disconnected, "nothing was sent", a Send's hold dropped and a second Protect let through): the wallet app
   // may have sent it before, so the record waits for the chain's word, as an expired request's
   wallet_session_ended: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // ... and either of them an hour on with nothing on the chain — no note at its counter, its notes unspent (the stale mover; W6 §2): never
+  // confirmed, nothing moved — not `interrupted`, whose words speak of a page closed before its send
+  wallet_request_unanswered: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
   // a Protect with no note in the pool a day after it read deposit_unconfirmed (the twelfth review round, A12-3), or after it last moved for a
   // record that never read so, and no word from the wallet that sent it: it never reached the chain
   // (the critique of F11-10: it had read "We are checking where your funds are" for good); a note found later still enters the balance

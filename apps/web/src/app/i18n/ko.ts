@@ -407,6 +407,10 @@ export const ko: Record<MessageKey, string> = {
   "swap.unplanned":
     "이 금액에서는 스왑이 보호된 단계로 실행되는데, 지금은 서비스가 이 경로에서 단계를 계획하지 못했습니다. 잠시 후 다시 시도하거나 더 작은 금액으로 시도하세요.",
   "screen.review.blocker.routeNotQualified": "이 경로의 측정된 유동성이 금액보다 적습니다. 더 작은 금액을 시도해 주세요.",
+  "screen.review.blocker.walletAppProtect":
+    "지갑 앱이 이전 보호 요청을 아직 보낼 수 있습니다. 지갑 앱에 그 요청이 아직 보이면 그곳에서 거절하세요. 그 보호 금액이 보호 잔액에 더해지면 바로, 더해지지 않으면 {time}부터 이 작업을 진행할 수 있습니다.",
+  "screen.review.blocker.walletAppSend":
+    "지갑 앱이 이전 요청을 아직 보낼 수 있습니다. 지갑 앱에 그 요청이 아직 보이면 그곳에서 거절하세요. 지갑이 그 요청의 결과를 확인하면 이 작업을 진행할 수 있습니다. 체인에 도달하면 그때, 도달하지 않으면 {time} 이후 곧 진행할 수 있습니다.",
   "screen.review.blocker.oneAtATime":
     "같은 종류의 다른 작업이 아직 지갑의 응답을 기다리거나, 전송 중이거나, 체인에 도달했는지 아직 알 수 없습니다. 열려 있는 곳에서 응답하세요. 그 페이지가 사라졌다면 지갑이 체인에서 결과를 확인해 정리합니다(최대 한 시간, 릴레이어에 연결할 수 없거나 지갑이 결과를 알려 줄 수 없으면 하루). 활동에서 볼 수 있으며, 그 뒤에 이 작업을 진행할 수 있습니다.",
   "screen.progress.title": "진행 중",
@@ -828,6 +832,9 @@ export const ko: Record<MessageKey, string> = {
   "op.error.wallet_session_ended.title": "지갑 앱과의 연결이 끊겼습니다",
   "op.error.wallet_session_ended.reason":
     "요청이 아직 열려 있는 동안 연결이 끊겼습니다. 그 전에 지갑 앱에서 요청을 확인했다면 체인에 도달하는 대로 이 지갑이 기록합니다.",
+  "op.error.wallet_request_unanswered.title": "전송되지 않음: 지갑 앱이 요청을 끝내 확인하지 않았습니다",
+  "op.error.wallet_request_unanswered.reason":
+    "아무것도 이동하지 않았습니다. 원하면 다시 시작하세요. 그래도 나중에 체인에 도달하면 기록되며(보호의 경우 금액이 보호 잔액에 더해집니다) 이 항목은 그대로 남습니다.",
   "op.error.approval_unanswered.title": "중단됨: 지갑 앱에서 승인이 확인되지 않았습니다",
   "op.error.approval_unanswered.reason":
     "입금된 것은 없습니다. 지갑 앱에 아직 승인 요청이 보이면 그곳에서 거절하세요. 늦게 확인되더라도 이 금액을 넘는 승인은 남지 않습니다. 그런 다음 다시 보호하세요. 지갑 앱과의 연결이 끊겼다면 먼저 다시 연결하세요.",

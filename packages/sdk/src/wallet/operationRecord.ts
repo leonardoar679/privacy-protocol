@@ -40,6 +40,19 @@ export function recoverySince(r: Pick<OperationRecord, "state" | "history" | "up
   for (let i = r.history.length - 1; i >= 0; i--) if (r.history[i].state === "RECOVERY_REQUIRED") return r.history[i].at;
   return r.updatedAt;
 }
+/**
+ * How long a request its wallet app may still send is waited for (the twelfth review round, W6 §2): WalletConnect's request expiry, or the
+ * wallet app ending its session while the request was open — the app may still show it, its clock may run behind, an answer may have been
+ * on its way. From the moment the record read so (one clock, as A12-3's): a second Protect is held back until then — a Send by its own rule,
+ * its notes unspent, until the stale mover's verdict —, and the stale mover then reads it never confirmed (wallet_request_unanswered)
+ * unless the chain has said otherwise.
+ */
+export const WALLET_APP_MAY_SEND_MS = 60 * 60_000;
+const WALLET_APP_MAY_SEND: readonly string[] = ["wallet_request_expired", "wallet_session_ended"];
+/** Until when a record's request its wallet app may still send is waited for; null for any other record. */
+export function walletAppMaySendUntil(r: Pick<OperationRecord, "state" | "reason" | "history" | "updatedAt">): number | null {
+  return r.state === "RECOVERY_REQUIRED" && WALLET_APP_MAY_SEND.includes(r.reason?.code ?? "") ? recoverySince(r) + WALLET_APP_MAY_SEND_MS : null;
+}
 
 /** Reached only once something was handed to the relayer or the network (I-O7 reads the history for them). */
 export const SUBMITTED_STATES: readonly OperationState[] = ["SUBMITTING", "SOURCE_CONFIRMING", "PROVIDER_EXECUTING", "DESTINATION_CONFIRMING", "REFUNDING"];

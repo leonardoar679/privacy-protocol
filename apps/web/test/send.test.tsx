@@ -28,6 +28,8 @@ import {
   unresolvedOperation,
 } from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
+import { walletAppMaySendUntil } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { formatTime } from "../src/app/i18n/intl";
 import { SendScreen, type SendScreenProps } from "../src/features/send/SendScreen";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -275,8 +277,149 @@ describe("Send (spec v2.0 §7.4)", () => {
     expect(path()).toBe("/send/review");
     expect(screen.getByTestId("review-blocked")).toBeTruthy();
     expect(screen.queryByTestId("review-confirm"), "no Confirm").toBeNull();
+    expect(screen.queryByTestId("review-blocked-why"), "a page gone mid-proof: nothing more to say").toBeNull();
     expect(calls.withdraw, "nothing was sent").toEqual([]);
     expect(getOperation(waiting.id)?.state).toBe("PREPARING_PROOF");
+  });
+
+  it("a Send its wallet app may still send — its request ended with the session open in the wallet app (the twelfth review round, W6 §2): the Review of a second says why and until when", async () => {
+    await unlocked();
+    // made twenty minutes ago, its session ended five minutes later, a note written on it since: its hour runs from the session's end
+    const made = Date.now() - 20 * 60_000;
+    const endedAt = made + 5 * 60_000;
+    const ended = newOperation(
+      {
+        kind: "send",
+        amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+        destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+        tier: "standard",
+      },
+      made,
+    );
+    applyEvent(ended.id, { type: "review" }, session, made);
+    applyEvent(ended.id, { type: "confirm" }, session, made);
+    applyEvent(ended.id, { type: "progress", step: "proof" }, session, made);
+    applyEvent(ended.id, { type: "progress", step: "submitting", nullifiers: ["8001", "8002"] } as never, session, made); // a self-submitted Send's notes, kept before the prompt
+    applyEvent(ended.id, { type: "recovery-required", code: "wallet_session_ended", detail: "User disconnected." }, session, endedAt);
+    applyEvent(ended.id, { type: "note", note: "a later line" }, session, endedAt + 60_000);
+    const until = endedAt + 60 * 60_000;
+    const to = otherWallet();
+    const { path } = mount();
+    typeTo(to);
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    expect(path()).toBe("/send/review");
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.getByTestId("review-blocked-why").textContent).toBe(t("screen.review.blocker.walletAppSend", { time: formatTime(until) }));
+    expect(walletAppMaySendUntil(getOperation(ended.id)!)).toBe(until);
+    expect(calls.withdraw, "nothing was sent").toEqual([]);
+    expect(calls.transfer, "nothing was sent").toEqual([]);
+  });
+
+  it("a Send its wallet app may still send beside another still before the chain: no time given — the other's hold is not bound by it (the critique of 12d1b)", async () => {
+    await unlocked();
+    const before = Date.now() - 5 * 60_000; // the other one read so first: the one whose request ended is the record the Review reads
+    const waiting = newOperation(
+      {
+        kind: "send",
+        amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+        destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+        tier: "standard",
+      },
+      before,
+    );
+    applyEvent(waiting.id, { type: "review" }, session, before);
+    applyEvent(waiting.id, { type: "confirm" }, session, before);
+    applyEvent(waiting.id, { type: "progress", step: "proof" }, session, before); // PREPARING_PROOF: a page that went away mid-proof
+    const ended = newOperation({
+      kind: "send",
+      amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+      destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+      tier: "standard",
+    });
+    applyEvent(ended.id, { type: "review" });
+    applyEvent(ended.id, { type: "confirm" });
+    applyEvent(ended.id, { type: "progress", step: "proof" });
+    applyEvent(ended.id, { type: "progress", step: "submitting", nullifiers: ["8005", "8006"] } as never);
+    applyEvent(ended.id, { type: "recovery-required", code: "wallet_request_expired", detail: "Request expired. Please try again." });
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.queryByTestId("review-blocked-why"), "another hold is not bound by the time the line would give").toBeNull();
+  });
+
+  it("a Send its wallet app may still send beside a withdrawal whose answer was lost: no time given — the withdrawal holds for its day (the second critique of 12d1b)", async () => {
+    await unlocked();
+    const before = Date.now() - 5 * 60_000; // the withdrawal read so first
+    const lost = newOperation(
+      {
+        kind: "withdraw",
+        amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+        destination: { kind: "entered", display: "0xabc…", chain: "ethereum" },
+        tier: "standard",
+      },
+      before,
+    );
+    applyEvent(lost.id, { type: "review" }, session, before);
+    applyEvent(lost.id, { type: "confirm" }, session, before);
+    applyEvent(lost.id, { type: "progress", step: "proof" }, session, before);
+    applyEvent(lost.id, { type: "progress", step: "submitting", nullifiers: ["8007", "8008"], relayerUrl: "http://relayer.test" } as never, session, before);
+    applyEvent(lost.id, { type: "recovery-required", code: "relayer_unreachable", detail: "the answer was lost" }, session, before);
+    const ended = newOperation({
+      kind: "send",
+      amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+      destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+      tier: "standard",
+    });
+    applyEvent(ended.id, { type: "review" });
+    applyEvent(ended.id, { type: "confirm" });
+    applyEvent(ended.id, { type: "progress", step: "proof" });
+    applyEvent(ended.id, { type: "progress", step: "submitting", nullifiers: ["8009", "8010"] } as never);
+    applyEvent(ended.id, { type: "recovery-required", code: "wallet_request_expired", detail: "Request expired. Please try again." });
+    expect(unresolvedOperation("send")?.id, "the record the Review reads").toBe(ended.id);
+    expect(unresolvedOperation("withdraw")?.id, "and the withdrawal holding beside it").toBe(lost.id);
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.queryByTestId("review-blocked-why"), "the withdrawal's hold outlasts the time the line would give").toBeNull();
+  });
+
+  it("a Send held past its wallet app's hour — its notes unspent, the stale mover's verdict not in yet: still held, and no time gone by given (the critique of 12d1b)", async () => {
+    await unlocked();
+    const made = Date.now() - 2 * 60 * 60_000; // two hours ago: within its day, past its hour
+    const held = newOperation(
+      {
+        kind: "send",
+        amounts: { asset: "ETH", decimals: 18, input: "1000000000000000000" },
+        destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+        tier: "standard",
+      },
+      made,
+    );
+    applyEvent(held.id, { type: "review" }, session, made);
+    applyEvent(held.id, { type: "confirm" }, session, made);
+    applyEvent(held.id, { type: "progress", step: "proof" }, session, made);
+    applyEvent(held.id, { type: "progress", step: "submitting", nullifiers: ["8003", "8004"] } as never, session, made);
+    applyEvent(
+      held.id,
+      { type: "recovery-required", code: "wallet_request_expired", detail: "Request expired. Please try again." },
+      session,
+      made + 15 * 60_000,
+    );
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1");
+    await waitFor(() => expect(screen.getByTestId("send-receive").textContent).toContain("0.989 ETH"));
+    fireEvent.click(reviewButton());
+    expect(screen.getByTestId("review-blocked"), "held by its notes until the chain's word").toBeTruthy();
+    expect(screen.queryByTestId("review-blocked-why"), "its hour gone by: no time to give").toBeNull();
   });
 
   it("a confirmation the page refuses is read out (E11-6; the critique: no test referred to send-status): a fresh address this browser cannot keep — an alert in the catalog's words, nothing sent", async () => {

@@ -410,6 +410,10 @@ export const en = {
   "screen.review.blocker.inFlightLimit": "One protected operation of this size runs at a time. Wait until the open one completes.",
   "screen.review.blocker.routeNotQualified": "This route's measured liquidity is below your amount. Try a smaller amount.",
   "swap.unplanned": "At this amount the swap runs as protected steps, and the service could not plan them on this route right now. Try again shortly, or a smaller amount.",
+  "screen.review.blocker.walletAppProtect":
+    "Your wallet app may still send the earlier Protect: if it still shows that request, decline it there. This one can go once that one reaches your protected balance, or from {time} if it does not.",
+  "screen.review.blocker.walletAppSend":
+    "Your wallet app may still send the earlier request: if it still shows it, decline it there. This one can go once the wallet has seen how that one ended — when it reaches the chain, or soon after {time} if it does not.",
   "screen.review.blocker.oneAtATime":
     "Another operation of this kind is still waiting for your wallet's answer, being sent, or not yet known to have reached the chain. Answer it where it is open; if that page is gone, the wallet settles it from the chain — within an hour, or a day when its relayer cannot be reached or your wallet cannot report it — and Activity lists it. Then this one can go.",
   "screen.progress.title": "In progress",
@@ -824,6 +828,9 @@ export const en = {
   "op.error.wallet_session_ended.title": "The connection to your wallet app ended",
   "op.error.wallet_session_ended.reason":
     "The connection ended while the request was still open. If you confirmed the request in your wallet app first, this wallet records it once it reaches the chain.",
+  "op.error.wallet_request_unanswered.title": "Not sent: your wallet app never confirmed the request",
+  "op.error.wallet_request_unanswered.reason":
+    "Nothing moved. Start it again if you still want to; if it lands after all, it is recorded (a Protect's amount added to your protected balance) and this line stays as it is.",
   "op.error.approval_unanswered.title": "Stopped: the approval was not confirmed in your wallet app",
   "op.error.approval_unanswered.reason":
     "Nothing was deposited. If your wallet app still shows the approval, decline it there; if it is confirmed late, no more than this amount stays approved. Then Protect again — if the connection to your wallet app ended, connect it again first.",

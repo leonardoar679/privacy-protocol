@@ -46,6 +46,8 @@ export interface ReviewModel {
   /** the band's own steps are not done yet (the lint acknowledged, the typed-in destination re-confirmed) */
   confirmDisabled?: boolean;
   blocked?: BlockerCode | null;
+  /** why the blocker holds, when the screen knows more (the twelfth review round, W6 §2: a request its wallet app may still send, and until when) */
+  blockedWhy?: string;
   /** V7 Stage 13 (spec v3.0 §4): the protected steps planned (the plan staged, or asked under Advanced); absent or 1 = one order */
   steps?: number | null;
   /** the eleventh review round (2026-11-04, E11-12): the route's health as the Review read it — the card ticks "Route health checked" only when true */
@@ -146,6 +148,11 @@ export function ReviewView({
             body={
               <>
                 <p className="ds-callout-body">{t(BLOCKER_WORDS[m.blocked])}</p>
+                {m.blockedWhy ? (
+                  <p className="ds-callout-body" data-testid="review-blocked-why">
+                    {m.blockedWhy}
+                  </p>
+                ) : null}
                 <p className="ds-callout-body" data-testid="review-not-moved">
                   {t("screen.review.blocked.notMoved")}
                 </p>

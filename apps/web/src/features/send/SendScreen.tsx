@@ -36,6 +36,8 @@ import { demandScan } from "@privacy-wallet/sdk/wallet/discovery";
 import { mergeSchedule } from "@privacy-wallet/sdk/wallet/mergeSchedule";
 import { topBucket, walletLint } from "@privacy-wallet/sdk/wallet/lintFacts";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
+import { walletAppMaySendUntil } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { formatTime } from "../../app/i18n/intl";
 import { engineListener } from "@privacy-wallet/sdk/operations/engineEvents";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { PrivacyLint } from "../../components/PrivacyLint";
@@ -79,6 +81,12 @@ export function SendScreen(p: SendScreenProps) {
   // V7 Stage 16 (spec v3.0 §9): one Send at a time — a private send or a public exit still before the chain stops a second
   const openRecords = useOpenOperations();
   const pendingSend = unresolvedOf(openRecords, "send") ?? unresolvedOf(openRecords, "withdraw");
+  // ... and why, when the one before may still be sent by its wallet app (the twelfth review round, W6 §2): while its hour is still to come
+  // — past it, the hold lasts to the stale mover's verdict at the next read of the pool, a time no line can give — and it the only one holding
+  const maySendUntil = pendingSend ? walletAppMaySendUntil(pendingSend) : null;
+  const others = pendingSend ? openRecords.filter((r) => r.id !== pendingSend.id) : [];
+  const pendingUntil =
+    maySendUntil !== null && maySendUntil > Date.now() && (unresolvedOf(others, "send") ?? unresolvedOf(others, "withdraw")) === null ? maySendUntil : null;
   const book = useAddressBook();
   const prices = usePrices();
   useNotes();
@@ -579,6 +587,7 @@ export function SendScreen(p: SendScreenProps) {
       hold: controls.hold,
       confirmDisabled: blocked || destinationLocked || (needsDestAck && !destAck) || !net.online,
       blocked: pendingSend ? "one_at_a_time" : null,
+      ...(pendingUntil !== null ? { blockedWhy: t("screen.review.blocker.walletAppSend", { time: formatTime(pendingUntil) }) } : {}),
     };
     const extra = (
       <>

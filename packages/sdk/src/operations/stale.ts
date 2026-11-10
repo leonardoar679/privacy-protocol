@@ -26,7 +26,7 @@ import { clientFor, clientsFor, outcomeReads, walletTxStatus, type Deployment } 
 import { coreAbi, transactInputsDigest } from "../privacyProtocol";
 import { relayerJobFor } from "../relayer";
 import { noteStore, type OwnedNote } from "../wallet/notes";
-import { isDraft, isOpen, recoverySince, type OperationKind, type OperationRecord } from "../wallet/operationRecord";
+import { isDraft, isOpen, recoverySince, walletAppMaySendUntil, type OperationKind, type OperationRecord } from "../wallet/operationRecord";
 import type { AwaitedNote } from "../privateTx";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { spendIndexOf, type SpendIndex } from "../wallet/spends";
@@ -251,6 +251,16 @@ async function notesSpent(r: OperationRecord, reads: StaleReads): Promise<boolea
 }
 
 const INTERRUPTED: OperationEvent = { type: "submission-failed", code: "interrupted", detail: "the page was closed or reloaded before it was sent" };
+/**
+ * A request its wallet app may still have sent, the hour past with nothing of it on the chain (the twelfth review round, W6 §2): never
+ * confirmed — not INTERRUPTED, whose words speak of a page closed before its send, while this page stayed open and the wallet app never
+ * answered.
+ */
+const UNANSWERED: OperationEvent = {
+  type: "submission-failed",
+  code: "wallet_request_unanswered",
+  detail: "its wallet app never confirmed the request within the hour: nothing of it reached the chain",
+};
 /** Another operation of this wallet spent the record's notes first (the sixth review round, 2026-11-03): its own call can never land. */
 const SPENT_ELSEWHERE: OperationEvent = {
   type: "submission-failed",
@@ -363,7 +373,14 @@ async function fromSubmission(r: OperationRecord, reads: StaleReads, old: boolea
   }
   // nothing landed and nothing spent: past the limit, nothing moved. A record that kept nothing (from before the keeping of
   // 2026-10-14) cannot be told either way: past the limit it waits as RECOVERY_REQUIRED rather than block the wallet for good
-  if (r.refs.noteCounter !== undefined || r.refs.nullifiers) return old ? [INTERRUPTED] : null;
+  if (r.refs.noteCounter !== undefined || r.refs.nullifiers) {
+    if (!old) return null;
+    if (walletAppMaySendUntil(r) === null) return [INTERRUPTED];
+    // a request its wallet app may still have sent: a Protect's never "never confirmed" while the latest scan's view holds its deposit's note
+    // (A12-1) — it landed, and is recorded once proven; its hold ends at its hour all the same. Not a Send's: the view and the spend index are
+    // one read and its spend is read first, so a note at its change counter there can only be another installation's (the critique of 12d1b)
+    return !r.refs.nullifiers && inScanView(r) ? null : [UNANSWERED];
+  }
   return old && r.state !== "RECOVERY_REQUIRED" ? [OUTCOME_UNKNOWN] : null;
 }
 
@@ -372,7 +389,10 @@ export async function reconcileStaleOperations(reads: StaleReads, now = Date.now
   let moved = 0;
   for (const r of allOperations(s)) {
     if (!SINGLE_TRANSACTION.has(r.kind) || !isOpen(r.state) || isDraft(r.state) || (isLiveOperation(r.id) && r.state !== "RECOVERY_REQUIRED")) continue;
-    const old = now - r.updatedAt > (r.refs.relayerUrl ? STALE_DROP_MS : STALE_DROP_WALLET_MS);
+    // a request its wallet app may still send keeps one clock — the hour from the moment it read so, as its hold (W6 §2); any other, its
+    // last move
+    const until = walletAppMaySendUntil(r);
+    const old = until !== null ? now > until : now - r.updatedAt > (r.refs.relayerUrl ? STALE_DROP_MS : STALE_DROP_WALLET_MS);
     const gone = now - r.updatedAt > RELAYER_GONE_MS;
     let hash = r.refs.txHashes[r.refs.txHashes.length - 1] as Hex | undefined;
     let changed = false;

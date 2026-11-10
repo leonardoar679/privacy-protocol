@@ -2,7 +2,7 @@
 // whose relayer is gone for a day (C-06) —, a relayer's job is adopted only for the record's own call (C-10), a Send whose outcome is
 // unknown still holds the next back (C-11), a finished swap names a partial fill or a refund paid at the destination (C-03, C-07), and a
 // record written while locked never outlives the lock (C-08). The reviewers' probes (scratchpad review9/C f1, f3, f4, f7, f8, f10).
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Hex } from "viem";
 import { configure, defaultConfig } from "../src/config";
 import { memoryStorage } from "../src/wallet/storage";
@@ -181,9 +181,14 @@ describe("C-11: a Send whose outcome is unknown", () => {
     applyEvent(id, { type: "recovery-required", code: "relayer_unreachable", detail: "the answer was lost" }, session, T0 + 1000);
     const rec = getOperation(id)!;
     expect(rec).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { fundsClass: "unknown" } });
-    expect(unresolvedOf([rec], "send")?.id).toBe(id);
-    rememberSpendIndex("0x" + "c0".repeat(20), indexSpends([{ nullifier0: 151n, nullifier1: 152n, transactionHash: hash(16), blockNumber: 5n }], 10n));
-    expect(unresolvedOf([rec], "send")).toBeNull();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(T0 + 2000); // the hold's own clock (the critique of 12d1b): within its day
+    try {
+      expect(unresolvedOf([rec], "send")?.id).toBe(id);
+      rememberSpendIndex("0x" + "c0".repeat(20), indexSpends([{ nullifier0: 151n, nullifier1: 152n, transactionHash: hash(16), blockNumber: 5n }], 10n));
+      expect(unresolvedOf([rec], "send")).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 });
 

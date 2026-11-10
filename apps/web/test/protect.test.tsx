@@ -11,6 +11,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { en } from "../src/app/i18n/en";
+import { walletAppMaySendUntil } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { formatTime } from "../src/app/i18n/intl";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { getAddress } from "viem";
@@ -256,9 +258,77 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     expect(path()).toBe("/protect/review");
     expect(screen.getByTestId("review-blocked")).toBeTruthy();
     expect(screen.getByTestId("review-view").textContent).toContain("Another operation of this kind is still waiting for your wallet's answer");
+    expect(screen.queryByTestId("review-blocked-why"), "an answer awaited where it is open: nothing more to say").toBeNull();
     expect(screen.queryByTestId("review-confirm"), "no Confirm").toBeNull();
     expect(calls.native, "nothing was sent").toEqual([]);
     expect(getOperation(waiting.id)?.state).toBe("AWAITING_AUTHORIZATION");
+  });
+
+  it("a Protect its wallet app may still send beside another that holds for a day: no time given — the other's hold outlasts it (the critique of 12d1b)", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    const make = (at: number) =>
+      newOperation(
+        {
+          kind: "protect",
+          amounts: { asset: "ETH", decimals: 18, input: "500000000000000000" },
+          destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" },
+          tier: "standard",
+        },
+        at,
+      );
+    const before = Date.now() - 5 * 60_000; // the day-long hold read so first: the expired one is the record the Review reads
+    const unconfirmed = make(before);
+    applyEvent(unconfirmed.id, { type: "review" }, session, before);
+    applyEvent(unconfirmed.id, { type: "confirm" }, session, before);
+    applyEvent(unconfirmed.id, { type: "progress", step: "submitting", noteCounter: 91 } as never, session, before);
+    applyEvent(unconfirmed.id, { type: "submitted", by: "wallet", txHash: `0x${"9a".repeat(32)}` } as never, session, before);
+    applyEvent(unconfirmed.id, { type: "recovery-required", code: "deposit_unconfirmed", detail: "no receipt" }, session, before);
+    const expired = make(Date.now());
+    applyEvent(expired.id, { type: "review" });
+    applyEvent(expired.id, { type: "confirm" });
+    applyEvent(expired.id, { type: "progress", step: "submitting", noteCounter: 92 } as never);
+    applyEvent(expired.id, { type: "recovery-required", code: "wallet_request_expired", detail: "Request expired. Please try again." });
+    mount();
+    await waitFor(() => expect(screen.getByTestId("protect-from").textContent).toContain("2 ETH"));
+    type(screen.getByTestId("amount-input"), "1");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.queryByTestId("review-blocked-why"), "another hold outlasts the time the line would give").toBeNull();
+    expect(calls.native, "nothing was sent").toEqual([]);
+  });
+
+  it("a Protect its wallet app may still send — its deposit request expired (the twelfth review round, W6 §2): the Review of a second says why and until when", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    // made twenty minutes ago, its request ended five minutes later, a note written on it since: its hour runs from the request's end
+    const made = Date.now() - 20 * 60_000;
+    const ended = made + 5 * 60_000;
+    const expired = newOperation(
+      {
+        kind: "protect",
+        amounts: { asset: "ETH", decimals: 18, input: "500000000000000000" },
+        destination: { kind: "privacy-address", display: "protected-balance", chain: "ethereum" },
+        tier: "standard",
+      },
+      made,
+    );
+    applyEvent(expired.id, { type: "review" }, session, made);
+    applyEvent(expired.id, { type: "confirm" }, session, made);
+    applyEvent(expired.id, { type: "progress", step: "submitting", noteCounter: 90 } as never, session, made);
+    applyEvent(expired.id, { type: "recovery-required", code: "wallet_request_expired", detail: "Request expired. Please try again." }, session, ended);
+    applyEvent(expired.id, { type: "note", note: "a later line" }, session, ended + 60_000);
+    const until = ended + 60 * 60_000;
+    const { path } = mount();
+    await waitFor(() => expect(screen.getByTestId("protect-from").textContent).toContain("2 ETH"));
+    type(screen.getByTestId("amount-input"), "1");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    expect(path()).toBe("/protect/review");
+    expect(screen.getByTestId("review-blocked")).toBeTruthy();
+    expect(screen.getByTestId("review-blocked-why").textContent).toBe(en["screen.review.blocker.walletAppProtect"].replace("{time}", formatTime(until)));
+    expect(walletAppMaySendUntil(getOperation(expired.id)!)).toBe(until);
+    expect(screen.queryByTestId("review-confirm"), "no Confirm").toBeNull();
+    expect(calls.native, "nothing was sent").toEqual([]);
   });
 
   it("reads the wallet's balance through its provider; the 1 % comes off what arrives; Review, a tap, the progress lines, then what was added — the record from the signature to COMPLETED with the leaf", async () => {

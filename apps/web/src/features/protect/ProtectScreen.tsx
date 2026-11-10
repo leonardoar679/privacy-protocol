@@ -21,6 +21,8 @@ import { protectNet, shieldERC20, shieldNative } from "@privacy-wallet/sdk/priva
 import { feedsConfigured, priceStore } from "@privacy-wallet/sdk/prices";
 import { controlsFor, holdMs } from "@privacy-wallet/sdk/tiers";
 import { applyEvent, newOperation } from "@privacy-wallet/sdk/operations/store";
+import { walletAppMaySendUntil } from "@privacy-wallet/sdk/wallet/operationRecord";
+import { formatTime } from "../../app/i18n/intl";
 import { engineListener } from "@privacy-wallet/sdk/operations/engineEvents";
 import { classify } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { demandScan, scanForDeposit } from "@privacy-wallet/sdk/wallet/discovery";
@@ -70,7 +72,19 @@ export function ProtectScreen(p: ProtectScreenProps) {
   const navigate = useNavigate();
   const { advanced } = useSettings();
   const net = useConnectivity(); // V6 Stage 15 (doc §75): no Confirm while offline
-  const pendingProtect = unresolvedOf(useOpenOperations(), "protect"); // V7 Stage 16 (spec v3.0 §9): one Protect at a time
+  const openRecords = useOpenOperations();
+  const pendingProtect = unresolvedOf(openRecords, "protect"); // V7 Stage 16 (spec v3.0 §9): one Protect at a time
+  // ... and why, when the one before may still be sent by its wallet app (the twelfth review round, W6 §2) — held so only until its hour —,
+  // it the only one holding (another's hold would outlast the time the line gives)
+  const maySendUntil = pendingProtect ? walletAppMaySendUntil(pendingProtect) : null;
+  const pendingUntil =
+    maySendUntil !== null &&
+    unresolvedOf(
+      openRecords.filter((r) => r.id !== pendingProtect!.id),
+      "protect",
+    ) === null
+      ? maySendUntil
+      : null;
   const prices = usePrices();
   const pf = usePrefs();
   const assets = useMemo(() => assetsOf(p.deployment), [p.deployment]);
@@ -344,6 +358,7 @@ export function ProtectScreen(p: ProtectScreenProps) {
           hold: controlsFor(tier).hold,
           confirmDisabled: !net.online,
           blocked: pendingProtect ? "one_at_a_time" : null,
+          ...(pendingUntil !== null ? { blockedWhy: t("screen.review.blocker.walletAppProtect", { time: formatTime(pendingUntil) }) } : {}),
         }
       : null;
 

@@ -217,6 +217,20 @@ describe("the twelfth review round (B12-5, A12-2; W6 §2): a wallet app's own an
     expect(ko["op.error.approval_unconfirmed.reason"]).not.toContain("이미 해 둔 승인이 그대로");
   });
 
+  it("a request its wallet app never confirmed in the hour reads so — never a page closed before its send; the held Review's why carries its time", () => {
+    expect(CATALOG.wallet_request_unanswered).toMatchObject({ fundsClass: "not-moved", actions: ["review"] });
+    expect(en["op.error.wallet_request_unanswered.title"]).toContain("never confirmed");
+    expect(en["op.error.wallet_request_unanswered.reason"], "the page stayed open").not.toMatch(/closed|reloaded/i);
+    expect(en["op.error.interrupted.reason"], "the end it had read instead").not.toBe(en["op.error.wallet_request_unanswered.reason"]);
+    expect(ko["op.error.wallet_request_unanswered.title"]).toContain("확인하지 않았습니다");
+    for (const words of [en, ko]) for (const k of ["screen.review.blocker.walletAppProtect", "screen.review.blocker.walletAppSend"] as const) expect(words[k], k).toContain("{time}");
+    for (const k of ["screen.review.blocker.walletAppProtect", "screen.review.blocker.walletAppSend"] as const) expect(en[k], k).toContain("decline it there");
+    // a Protect's hold ends at its time by the clock; a Send's at the wallet's verdict (the critique of 12d1b)
+    expect(en["screen.review.blocker.walletAppProtect"]).toContain("from {time}");
+    expect(en["screen.review.blocker.walletAppSend"]).toContain("once the wallet has seen how that one ended");
+    expect(ko["op.error.wallet_request_unanswered.reason"], "an Activity entry: 항목").toContain("이 항목은 그대로 남습니다");
+  });
+
   it("a wallet app's plain answers read from their message — the refusal, the funds — and never as the wallet's own reverts, fetches or quotes", () => {
     expect(classify({ code: -32000, message: "User rejected the transaction" })).toMatchObject({ code: "user_rejected" });
     expect(classify({ code: -32603, message: "User denied transaction signature." })).toMatchObject({ code: "user_rejected" });

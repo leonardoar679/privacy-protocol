@@ -4,7 +4,7 @@
 // V6 vocabulary (./upgrade.ts; idempotent), a record that goes back to a draft state (a declined prompt) leaves the
 // journal, and §89 Step 8's names — OperationStore, OperationRepository, OperationService — group the functions.
 import type { JournalData } from "../wallet/journal";
-import { isDraft, isOpen, isTerminal, recoverySince, type OperationKind, type OperationRecord, type OperationState } from "../wallet/operationRecord";
+import { isDraft, isOpen, isTerminal, recoverySince, walletAppMaySendUntil, type OperationKind, type OperationRecord, type OperationState } from "../wallet/operationRecord";
 import { session as defaultSession, type WalletSession } from "../wallet/session";
 import { spentInAnyIndex } from "../wallet/spends";
 import { replay, transition } from "./reducer";
@@ -159,7 +159,9 @@ export const MAY_STILL_LAND_MS = 24 * 3600_000;
  * A Protect whose wallet reported nothing for its deposit (`deposit_unconfirmed`) may still land for as long as it reads so — its note, its
  * wallet's word, or the day after which it reads never landed (operations/stale.ts) ends it, within MAY_STILL_LAND_MS: a second Protect
  * beside it would deposit twice and pay the fee twice (the eleventh review round's critique of F11-10; an hour had ended the hold while
- * the record still said not to protect again). The scan records its note within minutes of it landing, and the hold ends.
+ * the record still said not to protect again). The scan records its note within minutes of it landing, and the hold ends. So does one whose
+ * request its wallet app may still send — WalletConnect's request expiry, or its session ended while the request was open (the twelfth review
+ * round, W6 §2) —, for the hour from the moment it read so (walletAppMaySendUntil): its note, or the stale mover's verdict, ends it sooner.
  */
 const mayStillLand = (r: OperationRecord, now = Date.now()): boolean =>
   r.state === "RECOVERY_REQUIRED" &&
@@ -170,7 +172,8 @@ const mayStillLand = (r: OperationRecord, now = Date.now()): boolean =>
     !r.refs.nullifiers.some((n) => spentInAnyIndex(BigInt(n)))) ||
     // from the moment it read so (the twelfth review round, A12-3: from its creation, the hold had ended while the record still said not to
     // protect again — a page gone a day before its first stale pass), to the day after which it reads never landed: one clock
-    (r.kind === "protect" && r.reason?.code === "deposit_unconfirmed" && now - recoverySince(r) < MAY_STILL_LAND_MS));
+    (r.kind === "protect" && r.reason?.code === "deposit_unconfirmed" && now - recoverySince(r) < MAY_STILL_LAND_MS) ||
+    (r.kind === "protect" && (walletAppMaySendUntil(r) ?? 0) > now));
 /** The record of `kind` still before the chain among `records` (or one that may still land), or null. */
 export const unresolvedOf = (records: readonly OperationRecord[], kind: OperationKind): OperationRecord | null =>
   records.find((r) => r.kind === kind && (UNRESOLVED_STATES.includes(r.state) || mayStillLand(r))) ?? null;
