@@ -46,6 +46,22 @@ export function scheduleAction(a: Omit<ScheduledAction, "id">, s: WalletSession 
 }
 
 /**
+ * An action its runner plans again behind the scan the counters wait on (the twelfth review round, 12b2d): marked `waitsOnScan`
+ * (discovery.ts wakeAfterScan wakes it), its time the scan's next attempt and a second, no next attempt of its backoff, its last failure kept
+ * on record and its count with it — nothing was attempted (ZU's critique: planned afresh, the failure the screens show had gone and its
+ * backoff begun again). A new object in the same place, never the one the scheduler ran: after the run, useScheduler (apps/web hooks) compares
+ * the journal's action under that id with the object it ran — a new object leaves the old time on the scheduler's copy, while one moved in
+ * place is that copy, always equal, and every wait had been marked done and never run again (ZV's critique). A missing action is planned.
+ */
+export function waitBehindScan(a: Pick<ScheduledAction, "id" | "kind" | "orderId">, dueAt: number, s: WalletSession = defaultSession): void {
+  s.update((j) => {
+    const i = j.schedule.findIndex((y) => y.id === a.id && !y.done);
+    if (i >= 0) { j.schedule[i] = { ...j.schedule[i], dueAt, nextAttemptAt: undefined, waitsOnScan: true }; return; }
+    j.schedule.push({ id: a.id, kind: a.kind, orderId: a.orderId, dueAt, waitsOnScan: true });
+  });
+}
+
+/**
  * Done (no error), or failed: the error is kept with the catalog's code when the thrown error had one (`code`), the attempt
  * counted and the next one scheduled with backoff.
  */
@@ -55,13 +71,15 @@ export function completeAction(id: string, error?: string, s: WalletSession = de
     if (!a) return;
     if (!error) { a.done = true; a.error = undefined; a.errorCode = undefined; a.nextAttemptAt = undefined; return; }
     a.done = false; a.error = error; a.errorCode = code; a.attempts = (a.attempts ?? 0) + 1; a.nextAttemptAt = now + backoffMs(a.attempts);
+    a.waitsOnScan = undefined; // an attempt answered: it waits on its backoff, no longer on the scan
   });
 }
 
 /**
  * The scheduler's last failure for an operation (a V7 follow-up, audit gap 59): the open action of the order or campaign id
  * whose last run failed — the journal's own entry, so a screen's snapshot is stable until it changes —, or null. The
- * operation's detail names it with the next attempt, and offers the attempt now (`retryNow`).
+ * operation's detail names it with the next attempt, and offers the attempt now (`retryNow`) — an action waiting behind the scan the
+ * counters wait on (`waitsOnScan`, 12b2d) with its next attempt once the pool is read, and no attempt now.
  */
 export function failedAttempt(orderId: string, s: WalletSession = defaultSession): ScheduledAction | null {
   if (!s.isUnlocked()) return null;

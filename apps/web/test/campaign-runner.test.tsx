@@ -44,7 +44,7 @@ import { RefundRefusal, type Signed } from "@privacy-wallet/sdk/swapExecute";
 import type { Tracked } from "@privacy-wallet/sdk/orderTracker";
 import type { SwapJob } from "@privacy-wallet/sdk/relayer";
 import { ProviderCallUnverified } from "@privacy-wallet/sdk/providerCall";
-import { OrderOutdated, RelayerNotReady, type FundingFate } from "@privacy-wallet/sdk/swapFunding";
+import { FUNDING_MARGIN_MS, OrderOutdated, patchSwap, RelayerNotReady, type FundingFate } from "@privacy-wallet/sdk/swapFunding";
 import { FeeMoved } from "@privacy-wallet/sdk/privateTx";
 import type { AssetRef, Protection, QuoteSet, RiskView, ServiceOrder, ServiceQuote } from "@privacy-wallet/sdk/swapService";
 import type { Deployment } from "@privacy-wallet/sdk/chain";
@@ -1164,6 +1164,142 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(current(c).tranches[0].state, "committed once the counters are free").toBe("committed");
     expect(reserved).toBe(1);
   });
+
+  for (const [hold, take] of [["a restore's hold", () => noteStore.holdCounters()], ["an opening's hold", () => noteStore.holdUntilScanned()]] as const)
+    it(`while the counters are held (${hold}), a funding tick starts no funding — its change note's counter would wait in the scheduler the scan runs in —: it ticks again a second after the scan's next attempt (the twelfth review round, 12b2d)`, async () => {
+      const c = await fresh();
+      expect((await tick(c))?.action.kind).toBe("commit");
+      clock += 1000;
+      const scanAt = clock + 4 * 60_000;
+      scheduleAction({ kind: "discovery", orderId: "pool", dueAt: scanAt }, session); // the scan, backed off
+      take();
+      try {
+        const r = await tick(c);
+        expect(r?.action.kind).toBe("fund");
+        expect(r?.nextAt, "a second after the scan's next attempt").toBe(scanAt + 1000);
+        expect(world.calls.filter((x) => x.startsWith("fund:")), "no funding started").toEqual([]);
+        expect(current(c).tranches[0].state).toBe("committed");
+        expect(current(c).state, "never paused").not.toBe("paused");
+      } finally {
+        noteStore.releaseCounters(0);
+      }
+      clock = scanAt + 1000;
+      expect((await tick(c))?.action.kind).toBe("fund");
+      expect(world.calls.filter((x) => x.startsWith("fund:")), "funded once the counters are free").toEqual(["fund:0"]);
+    });
+
+  it("a step whose order has between one and two of the funding's margins left waits behind the scan as any other — a funding is never left to wait in the scheduler for the scan (the twelfth review round, ZW's critique of 12b2d)", async () => {
+    const c = await fresh();
+    expect((await tick(c))?.action.kind).toBe("commit");
+    clock += 1000;
+    const orderId = current(c).tranches[0].orderId!;
+    const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
+    patchSwap(orderId, { params: { ...(st.params as object), executeDeadline: Math.floor((clock + FUNDING_MARGIN_MS + 2 * 60_000) / 1000) } as never }, session);
+    noteStore.holdCounters();
+    try {
+      const r = await tick(c);
+      expect(r?.action.kind).toBe("fund");
+      expect(world.calls.filter((x) => x.startsWith("fund:")), "no funding started").toEqual([]);
+      expect(current(c).tranches[0].state).toBe("committed");
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+  });
+
+  for (const [hold, take] of [["a restore's hold", () => noteStore.holdCounters()], ["an opening's hold", () => noteStore.holdUntilScanned()]] as const)
+    it(`under ${hold} a step's own stops and settles come before its wait behind the scan: a funding journaled as sent pauses for reconcile, another copy's hand-over is tracked, an escrow already holding it is funded, a window closing plans it again (the twelfth review round, ZW's and ZX's critiques of 12b2d)`, async () => {
+      const setup = async () => {
+        const c = await fresh();
+        expect((await tick(c))?.action.kind).toBe("commit");
+        clock += 1000;
+        const scanAt = clock + 4 * 60_000;
+        scheduleAction({ kind: "discovery", orderId: "pool", dueAt: scanAt }, session); // the scan, backed off
+        return { c, orderId: current(c).tranches[0].orderId!, scanAt };
+      };
+      // a funding journaled as sent, its fate unknown: paused for reconcile, as with the counters free
+      {
+        const { c, orderId } = await setup();
+        session.update((j) => {
+          j.swaps.find((y) => y.orderId === orderId)!.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: clock - 500 } as never;
+        });
+        world.fate = "unknown";
+        take();
+        try {
+          expect((await tick(c))?.action.kind).toBe("fund");
+          expect(current(c).state, "paused for reconcile").toBe("paused");
+          expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual([]);
+        } finally {
+          noteStore.releaseCounters(0);
+        }
+      }
+      // another copy handed it over: tracked as executing
+      {
+        const { c, orderId } = await setup();
+        const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
+        world.jobs.set(orderId, { id: orderId, escrow: st.endpoint as `0x${string}`, state: "executing", updatedAt: clock } as SwapJob);
+        take();
+        try {
+          expect((await tick(c))?.action.kind).toBe("fund");
+          expect(current(c).tranches[0].state, "tracked").toBe("executing");
+          expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual([]);
+        } finally {
+          noteStore.releaseCounters(0);
+        }
+      }
+      // its escrow already holds the amount (a funding landed, its answer lost): funded by the facts
+      {
+        const { c, orderId, scanAt } = await setup();
+        const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
+        world.escrow.set(orderId, BigInt((st.params as { amount: string }).amount));
+        take();
+        try {
+          const r = await tick(c);
+          expect(current(c).tranches[0].state, "funded by the escrow's balance — signed on at once —, never left committed behind the scan").not.toBe("committed");
+          expect(r?.nextAt ?? 0, "never the scan's attempt").toBeLessThan(scanAt + 1000);
+          expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual([]);
+        } finally {
+          noteStore.releaseCounters(0);
+        }
+      }
+      // its window closing: its order abandoned and the step planned again, as with the counters free (ZX's critique: the window's stop before the wait)
+      {
+        const { c, orderId, scanAt } = await setup();
+        const st = session.journal().swaps.find((x) => x.orderId === orderId)!;
+        patchSwap(orderId, { params: { ...(st.params as object), executeDeadline: Math.floor((clock + FUNDING_MARGIN_MS - 1000) / 1000) } as never }, session);
+        take();
+        try {
+          const r = await tick(c);
+          expect(r?.action.kind).toBe("fund");
+          expect(current(c).tranches[0].state, "planned again").toBe("planned");
+          expect(session.journal().swaps.find((x) => x.orderId === orderId)!.state, "its order abandoned").toBe("abandoned");
+          expect(r?.nextAt ?? 0, "never the scan's attempt").toBeLessThan(scanAt + 1000);
+        } finally {
+          noteStore.releaseCounters(0);
+        }
+      }
+    });
+
+  for (const [hold, take] of [["a restore's hold", () => noteStore.holdCounters()], ["an opening's hold", () => noteStore.holdUntilScanned()]] as const)
+    it(`while the counters are held (${hold}), the notes are not shaped for the pieces — a merge's note takes a counter —: the tick follows the scan (the twelfth review round, 12b2d)`, async () => {
+      const c = await fresh();
+      putCampaign({ ...c, plan: { ...c.plan, shapeNotes: true } }, session); // the pieces need notes shaped first
+      world.shaped = false;
+      const scanAt = clock + 4 * 60_000;
+      scheduleAction({ kind: "discovery", orderId: "pool", dueAt: scanAt }, session);
+      take();
+      try {
+        const r = await tick(c);
+        expect(r?.action.kind).toBe("shape-notes");
+        expect(r?.nextAt, "a second after the scan's next attempt").toBe(scanAt + 1000);
+        expect(world.calls, "no merge started").not.toContain("shape");
+      } finally {
+        noteStore.releaseCounters(0);
+      }
+      clock = scanAt + 1000;
+      expect((await tick(c))?.action.kind).toBe("shape-notes");
+      expect(world.calls, "shaped once the counters are free").toContain("shape");
+      world.shaped = true;
+    });
 
   it("a commit refused for the counters held meanwhile: the step follows the scan — its next tick a second after the scan's next attempt —, its destination kept (the twelfth review round, W6 §5)", async () => {
     const c = await fresh();
@@ -2671,6 +2807,51 @@ describe("the seventh review round (2026-11-03): the campaign engine", () => {
         noteStore.releaseCounters(0);
       }
     });
+
+  it("a parallel plan's next step committed and waiting to be funded behind a backed-off scan while another is in flight: the tick still comes back each minute (the twelfth review round, ZU's critique of 12b2d)", async () => {
+    const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 600 };
+    const c = start({ quotes: { ...quoteSet("near-intents"), protection: r2 }, provider: "near-intents", tier: "high-value", usd: 5_000_000, confirmations: {} });
+    await toInFlight(c);
+    world.tracked.set(current(c).tranches[0].orderId!, "DESTINATION_SUBMITTED");
+    clock += 15_000;
+    await tick(c);
+    const flying = () => current(c).tranches.some((t) => t.state === "executing" || t.state === "source-confirmed");
+    for (let i = 0; i < 40 && !flying(); i++) {
+      clock += 120_000;
+      await tick(c);
+    }
+    expect(flying(), "the second step in flight").toBe(true);
+    // the next step committed with the counters free, not yet funded
+    const committed = () => current(c).tranches.some((t) => t.state === "committed");
+    for (let i = 0; i < 80 && !committed(); i++) {
+      const at = clock;
+      const r = await tick(c);
+      clock = Math.max(at + 1000, r?.nextAt ?? at + 120_000);
+    }
+    expect(committed(), "the next step committed").toBe(true);
+    expect(flying(), "the other still in flight").toBe(true);
+    scheduleAction({ kind: "discovery", orderId: "pool", dueAt: clock + 8 * 60_000, heldFailures: 4 }, session); // the scan, eight minutes off
+    const funded = world.calls.filter((x) => x.startsWith("fund:")).length;
+    noteStore.holdCounters();
+    try {
+      let waits = 0;
+      let longest = 0;
+      for (let i = 0; i < 80 && waits < 3; i++) {
+        const at = clock;
+        const r = await tick(c);
+        if (r?.action.kind === "fund" && flying()) {
+          waits++;
+          longest = Math.max(longest, r.nextAt! - at);
+        }
+        clock = Math.max(at + 1000, r?.nextAt ?? at + 120_000);
+      }
+      expect(waits, "three of the committed step's ticks waiting with a step in flight").toBe(3);
+      expect(longest, "never past a minute: the scan's own eight").toBeLessThanOrEqual(HELD_SCAN_RETRY_MS);
+      expect(world.calls.filter((x) => x.startsWith("fund:")).length, "no funding while held").toBe(funded);
+    } finally {
+      noteStore.releaseCounters(0);
+    }
+  });
 
   it("a parallel plan's next step refused for its cost while another is in flight: the tick still comes back each minute to read it (ZK's critique)", async () => {
     const r2 = { ...protection("near-intents"), riskClass: "R2", gate: "destination-submitted" as const, concurrency: "parallel" as const, maxParallel: 2, bandBps: [200, 300] as [number, number], capBps: 600 };

@@ -116,7 +116,13 @@ export function Activity({ deployment = null, onOpen }: ActivityProps) {
         t(a.kind === "fund-escrow" ? "activity.fundingFailed" : "activity.actionFailed", {
           ref: shortRef(a.orderId),
           error: a.error ?? "",
-          next: a.nextAttemptAt ? t("activity.nextAttempt", { time: formatTime(a.nextAttemptAt), n: a.attempts ?? 1 }) : "",
+          // an action waiting behind the scan the counters wait on has no time of its own: its next attempt comes once the pool is read (the
+          // twelfth review round, ZX's critique of 12b2d: the line had named none, its detail saying so)
+          next: a.waitsOnScan
+            ? t("activity.nextAfterScan")
+            : a.nextAttemptAt
+              ? t("activity.nextAttempt", { time: formatTime(a.nextAttemptAt), n: a.attempts ?? 1 })
+              : "",
         }),
       )
     : null;

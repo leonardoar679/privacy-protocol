@@ -60,8 +60,9 @@ import type { Prepared, ServiceOrder } from "../swapService";
 import { escrowBalance, escrowExecuted, escrowLeftOf } from "../orderTracker";
 import { syncSwapRecord } from "../operations/swapRecords";
 import { fundedOf, type ScheduledAction, type StoredSwap } from "./journal";
-import { cancelAction, kickScheduler, sampleDueAt, scheduleAction, schedulerStatus } from "./schedule";
-import { scheduleDiscovery } from "./discovery";
+import { cancelAction, kickScheduler, sampleDueAt, scheduleAction, schedulerStatus, waitBehindScan } from "./schedule";
+import { afterScanAt, scheduleDiscovery } from "./discovery";
+import { noteStore } from "./notes";
 import { session as defaultSession, type WalletSession } from "./session";
 import { settings as defaultSettings, type Settings } from "./settings";
 
@@ -696,6 +697,17 @@ export async function runOrderTick(a: ScheduledAction, deps: OrderDeps): Promise
           const st = journaled(a.orderId, s)!;
           syncSwapRecord(st, null, null, now, s);
           return { step: "stopped", stored: st };
+        }
+        // the counters wait on the scan (after an unlock or a restore): no funding starts — a funding delayed for privacy runs at the next
+        // unlock, and its change note's counter had waited in the scheduler the scan runs in, up to two minutes with the scan queued behind
+        // it, then gone to the scheduler's backoff (the twelfth review round, ZR's critique of 12b2c) — nor is a fresh quote asked; the tick
+        // follows the scan, woken once it frees them (W6 §5.3), its last failure kept on record; and it holds nothing meanwhile — nothing is
+        // signed or sent, and the lock it had kept off waited for the hold's cap (ZU's critique): the next tick takes it again before it funds
+        // (its window open by this tick's own check above: one the chain's clock alone closes is stopped by the funding's own check once woken)
+        if (noteStore.countersHeld()) {
+          releaseHandOver(a.orderId);
+          waitBehindScan(a, afterScanAt(now, s), s);
+          return { step: "delayed", stored };
         }
         // a funding delayed for privacy asks a fresh minimum first (audit round 2, n58): 1–24 h after its Review the market can
         // have moved, and a minimum found moved only once it was funded paused an escrow whose "Return funds" waited a day for

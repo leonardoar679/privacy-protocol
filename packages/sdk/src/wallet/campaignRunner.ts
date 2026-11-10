@@ -39,7 +39,7 @@ import type { ScheduledAction, StoredSwap } from "./journal";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
 import { cancelAction, sampleDueAt, schedulerStatus } from "./schedule";
-import { HELD_SCAN_RETRY_MS, heldRetryMs, nextScanAt, scheduleDiscovery } from "./discovery";
+import { HELD_SCAN_RETRY_MS, afterScanAt as afterScan, heldRetryMs, scheduleDiscovery } from "./discovery";
 import { session as defaultSession, type WalletSession } from "./session";
 import { settings as defaultSettings, type Settings } from "./settings";
 
@@ -97,8 +97,7 @@ export const SIGN_RETRIES_BEFORE_BACKOFF = 5;
 const signRetries = new Map<string, number>();
 /** a step's commits in a row that could not check its cost (cost_unknown), by campaign and step (not journaled: a reload starts again) */
 const costUnknownInARow = new Map<string, number>();
-/** A step waiting for the scan ticks again a second after the scan's next attempt (the twelfth review round, W6 §5). */
-const afterScan = (now: number, s: WalletSession): number => Math.max(now + 1000, (nextScanAt(s) ?? now + HELD_SCAN_RETRY_MS) + 1000);
+
 /**
  * A step's wait that keeps the steps in flight read each minute, as before (ZK's critique: a parallel plan's next step, waiting up to ten
  * minutes for the scan or its cost, had held back the reading of those in flight — their settlement, a refund, a stall).
@@ -609,6 +608,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
         // the user answered while this tick ran (a Pause, Return the rest): no merge is paid for it, as no other money step
         // starts after it (audit round 2, n15) — the next tick acts on the answer
         if (decided || answeredMeanwhile()) break;
+        // the counters wait on the scan: no merge starts — its note's counter would wait in the scheduler the scan runs in (the twelfth review
+        // round, 12b2d) —, the tick after the scan's next attempt, as a commit's
+        if (noteStore.countersHeld()) { nextAt = tracking(c, now, afterScan(now, s)); break; }
         schedulerStatus.progress("Protected swap: shaping your private balance for the pieces…");
         await io.shape(c, needed, (l) => schedulerStatus.progress(l));
         nextAt = now + 1000;
@@ -774,6 +776,9 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
           nextAt = now + 1000; break;
         }
         if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)
+        // the counters wait on the scan: no funding starts — its change note's counter would wait in the scheduler the scan runs in, up to two
+        // minutes, then the scheduler's backoff (the twelfth review round, 12b2d) —, the tick after the scan's next attempt, as a commit's
+        if (noteStore.countersHeld()) { nextAt = tracking(c, now, afterScan(now, s)); break; }
         schedulerStatus.progress(`Protected swap: funding step ${t.index + 1} from your private balance…`);
         let sent = false;
         try {

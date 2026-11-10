@@ -22,6 +22,7 @@ import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { setActiveProvider } from "@privacy-wallet/wallet-engine/injected";
 import { en } from "../src/app/i18n/en";
 import { t } from "../src/app/i18n/messages";
+import { formatTime } from "../src/app/i18n/intl";
 import { Activity, failureWarning } from "../src/features/activity/Activity";
 import { Detail } from "../src/features/activity/Detail";
 import { stepsOf } from "../src/features/activity/model";
@@ -185,6 +186,22 @@ describe("E11-5: Activity's warning over a failed scheduled action says what fai
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain(t("activity.actionFailed", { ref: "balance:1", error: "fetch failed", next: "" }).trim());
     for (const l of lines) expect(l, "never a funding's words for another action").not.toContain(en["activity.fundingFailed"].split(" {ref}")[0]);
+  });
+
+  it("an action waiting behind the scan the counters wait on: Advanced says its next attempt comes once the pool is read — it has no time of its own (the twelfth review round, ZX's critique of 12b2d)", async () => {
+    await activity([], [{ ...failing("housekeeping", "balance:1"), nextAttemptAt: undefined, waitsOnScan: true }, failing("housekeeping", "balance:2")]);
+    cleanup();
+    settings.set({ advanced: true });
+    render(<Activity onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("activity-advanced-toggle"));
+    const lines = screen.getAllByTestId("activity-failed-action").map((p) => p.textContent ?? "");
+    const waiting = lines.find((l) => l.includes("balance:1"))!;
+    const other = lines.find((l) => l.includes("balance:2"))!;
+    expect(waiting).toContain(en["activity.nextAfterScan"].trim());
+    expect(waiting).not.toContain(en["activity.nextAttempt"].split(" {time}")[0]);
+    // a failed action that is not waiting keeps its next attempt's time (ZY's critique: only the waiting branch had been pinned)
+    expect(other).toContain(t("activity.nextAttempt", { time: formatTime(NOW + 600_000), n: 1 }).trim());
+    expect(other).not.toContain(en["activity.nextAfterScan"].trim());
   });
 
   it("the rule: the gravest class of what failed decides; a scan and maintenance never count", () => {

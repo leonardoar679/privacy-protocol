@@ -175,6 +175,13 @@ export function nextScanAt(s: WalletSession = defaultSession): number | null {
   return a ? Math.max(a.dueAt, a.nextAttemptAt ?? 0) : null;
 }
 
+/**
+ * When a run waiting for the scan the counters wait on ticks again: a second after the scan's next attempt, a minute on when none is planned
+ * (the twelfth review round, W6 §5.3: the runners follow the scan, never their own minute). A scan that frees the counters wakes it sooner
+ * (`wakeAfterScan`).
+ */
+export const afterScanAt = (now: number, s: WalletSession = defaultSession): number => Math.max(now + 1000, (nextScanAt(s) ?? now + HELD_SCAN_RETRY_MS) + 1000);
+
 /** The unlock's scan: at once, the count of failures in a row started again (the twelfth review round, W6 §5), and its words (W6 §5.4). */
 export function discoverAtUnlock(now = Date.now(), s: WalletSession = defaultSession): boolean {
   if (!s.isUnlocked()) return false;
@@ -203,15 +210,17 @@ export function demandScan(now = Date.now(), s: WalletSession = defaultSession):
 }
 
 /**
- * The campaign steps waiting for the scan the counters waited on (campaignRunner.ts: no commit while held, the tick at the scan's next
- * attempt) tick a second after it released them (the twelfth review round, ZL's critique: freed sooner by a demand or an unlock, a step had
- * waited out the backoff's plan, up to ten minutes). A tick with nothing to do plans its own next one again.
+ * The runs waiting for the scan the counters waited on tick a second after it released them (the twelfth review round, ZL's critique: freed
+ * sooner by a demand or an unlock, a step had waited out the backoff's plan, up to ten minutes): the campaign steps (campaignRunner.ts: no
+ * commit, funding or shaping while held, the tick at the scan's next attempt) and the actions a runner re-planned behind it (`waitsOnScan`:
+ * an order's funding, a fund-escrow, a housekeeping step — 12b2d). A tick with nothing to do plans its own next one again; an action that
+ * did not wait on the scan keeps its time (a funding's, drawn for privacy).
  */
-function wakeCampaigns(now: number, s: WalletSession): void {
+function wakeAfterScan(now: number, s: WalletSession): void {
   let woken = false;
   s.update((j) => {
     for (const a of j.schedule) {
-      if (a.kind !== "campaign-tick" || a.done || a.dueAt <= now + 1000) continue;
+      if ((a.kind !== "campaign-tick" && !a.waitsOnScan) || a.done || a.dueAt <= now + 1000) continue;
       a.dueAt = now + 1000;
       woken = true;
     }
@@ -324,7 +333,7 @@ export async function runDiscovery(
     }
     heldFailedAt = null;
     if (!s.isUnlocked()) return; // locked during the scan: the next unlock scans again
-    if (heldBefore && !noteStore.countersHeld()) wakeCampaigns(now(), s);
+    if (heldBefore && !noteStore.countersHeld()) wakeAfterScan(now(), s);
     // the operations whose own flow is gone (a reload, a closed tab): the chain moves them now (../operations/stale.ts)
     await reconcileStaleOperations(staleReads(o.deployment), now(), s).catch(() => 0);
     for (const n of r.received) {

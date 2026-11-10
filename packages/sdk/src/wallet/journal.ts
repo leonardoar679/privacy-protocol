@@ -168,7 +168,7 @@ export interface StoredShield {
  * of failures in a row while the counters are held or an awaited deposit waits on it (wallet/discovery.ts heldRetryMs; the twelfth review
  * round, W6 §5): never the scheduler's — one count for both had carried a short backoff's failures into the long one, and back.
  */
-export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick" | "discovery"; orderId: string; dueAt: number; done?: boolean; error?: string; /** the catalog's code of that error when it had one (a V7 follow-up, audit gap 59: the operation's detail names it) */ errorCode?: string; attempts?: number; nextAttemptAt?: number; heldFailures?: number }
+export interface ScheduledAction { id: string; kind: "fund-escrow" | "housekeeping" | "campaign-tick" | "campaign-shape" | "order-tick" | "discovery"; orderId: string; dueAt: number; done?: boolean; error?: string; /** the catalog's code of that error when it had one (a V7 follow-up, audit gap 59: the operation's detail names it) */ errorCode?: string; attempts?: number; nextAttemptAt?: number; heldFailures?: number; /** re-planned by its runner behind the scan the counters wait on: woken a second after the scan frees them (discovery.ts wakeAfterScan; the twelfth review round, 12b2d) */ waitsOnScan?: true }
 
 /** One line of the Activity screen (whale spec §25, plan V2 §49–§50): local only, never sent anywhere. */
 export interface ActivityRecord {

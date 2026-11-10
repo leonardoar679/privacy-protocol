@@ -22,7 +22,8 @@ import { mainOwnerCommitment } from "./keys/ownerKeys";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
 import { fundedOf, type FundingAttempt, type ScheduledAction, type StoredSwap } from "./wallet/journal";
 import { activityId, updateActivity } from "./wallet/activity";
-import { cancelAction, schedulerStatus } from "./wallet/schedule";
+import { cancelAction, schedulerStatus, waitBehindScan } from "./wallet/schedule";
+import { afterScanAt } from "./wallet/discovery";
 import { runHousekeepingStep } from "./wallet/housekeeping";
 import { staleReads } from "./operations/stale";
 import { spendIndexOf } from "./wallet/spends";
@@ -582,12 +583,25 @@ async function fundEscrowUnguarded(o: {
 }
 
 /**
- * The scheduler's runner for a `fund-escrow` action: funds the order if it is still open and unfunded;
- * an order that was abandoned or funded by hand has its action cancelled instead of failing forever.
+ * While the counters wait on the scan (after an unlock or a restore) a housekeeping step or a funding starts nothing: its note's counter had
+ * waited in the scheduler the scan runs in, up to two minutes with the scan queued behind it, then gone to the scheduler's backoff (the
+ * twelfth review round, ZR's critique of 12b2c). The action follows the scan, woken once it frees them (W6 §5.3). True when it waits.
  */
+function waitScan(a: ScheduledAction, s: WalletSession): boolean {
+  if (!noteStore.countersHeld()) return false;
+  waitBehindScan(a, afterScanAt(Date.now(), s), s);
+  return true;
+}
+
 /** The funding refusals that stop an order unfunded (the one-confirmation runner's list; nothing was sent on any of them). */
 export const PERMANENT_FUNDING_REFUSALS: readonly string[] = ["order_outdated", "order_not_ours", "order_expired", "relayer_not_ready", "service_key_changed", "tip_stale", "fee_moved", "merges_moved", "older_notes_unavailable"];
 
+/**
+ * The scheduler's runner for a `fund-escrow` action: funds the order if it is still open and unfunded;
+ * an order that was abandoned or funded by hand has its action cancelled instead of failing forever. And for a housekeeping step. While the
+ * counters wait on the scan, a housekeeping step — and a funding not yet journaled as sent whose window is still open — is planned behind the
+ * scan instead (`waitScan`; the twelfth review round, 12b2d).
+ */
 export async function runScheduledAction(
   a: ScheduledAction,
   o: { masterSeed: Uint8Array; deployment: Deployment | null; session?: WalletSession; /** the escrow's balance (tests); the deployment's endpoints otherwise */ escrowBalance?: (stored: StoredSwap) => Promise<bigint | null> },
@@ -596,6 +610,7 @@ export async function runScheduledAction(
   if (a.kind === "housekeeping") {
     // private balance maintenance (plan V2 §73): one step per scheduled action; the step schedules the next under a new id
     if (!o.deployment) { cancelAction(a.id, s); return; }
+    if (waitScan(a, s)) return;
     schedulerStatus.start(a.id, "Private balance maintenance: planning a step…");
     try { await runHousekeepingStep({ masterSeed: o.masterSeed, deployment: o.deployment, session: s, onStatus: (line) => schedulerStatus.progress(line) }); }
     finally { schedulerStatus.finish(); }
@@ -615,6 +630,11 @@ export async function runScheduledAction(
     cancelAction(a.id, s);
     return;
   }
+  // a funding already sent and an order whose window closes settle or stop without a spend (the funding's own checks, its fate and its window):
+  // never behind the scan (ZU's critique: a closed order had stayed open until a scan went through). The window by the device's clock, as the
+  // runners' own checks: one the chain's clock alone closes waits behind the scan and is stopped by the funding's check once woken — never a
+  // funding left to wait in the scheduler for the scan (ZW's critique: a margin read wider had sent the orders it left out to that wait)
+  if (!stored.fundingAttempt && !(Date.now() + FUNDING_MARGIN_MS >= windowEndOf(stored)) && waitScan(a, s)) return;
   const asset = assetOfStored(o.deployment, stored);
   schedulerStatus.start(a.id, `Funding the scheduled swap (${asset.symbol}) from your private balance…`);
   try {
