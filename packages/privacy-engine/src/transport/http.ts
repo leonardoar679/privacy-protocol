@@ -5,7 +5,7 @@
 // module that needs them); every request is announced to the listeners, which is how the privacy-leakage gate sees
 // it. The viem transport carries the same policy. A private read transport (Tor, a mixnet, a native light client)
 // plugs in here and nowhere else.
-import { http, type HttpTransport } from "viem";
+import { createTransport, http, ResponseBodyTooLargeError, type HttpTransport, type HttpTransportConfig } from "viem";
 import { observed } from "./connectivity";
 
 export type Purpose = "rpc" | "relayer" | "swap-service" | "beacon" | "thornode" | "artifacts" | "zkapi" | "inference" | "guest" | "other";
@@ -147,15 +147,56 @@ export async function fetchJson<T>(url: string, opts: { method?: string; body?: 
   return { ok: r.ok, status: r.status, json, text };
 }
 
-/** viem's HTTP transport under the same policy, announcing its requests as `rpc`. */
+/**
+ * The bound of an RPC answer (the twelfth review round, C12-2): viem's own default made explicit. A log read (`eth_getLogs`) goes alone, so
+ * the bound is its answer's: past it, the windowed log reader (sdk chain.ts `logsInWindows`) reads that endpoint's history in windows —
+ * viem's refusal had been no refusal for its size to that reader, and an endpoint without a cap of its own below this one failed every sync
+ * once the pool's events passed it (some ten thousand). Every other request is batched, the bound then the batch's answer's.
+ */
+export const RPC_ANSWER_MAX_BYTES = 10 * 1024 * 1024;
+/**
+ * The code a log read's answer past the bound carries (an HTTP 413's): viem retries an error with no code three more times — three more
+ * downloads of the same answer, each to the bound — and none whose code it does not list. That answer is the endpoint's for this range: the
+ * windowed reader asks smaller ones instead.
+ */
+export const ANSWER_TOO_LARGE_CODE = 413;
+const notRetried = (e: unknown): unknown => {
+  if (e instanceof ResponseBodyTooLargeError && !("code" in e)) Object.defineProperty(e, "code", { value: ANSWER_TOO_LARGE_CODE, enumerable: true, configurable: true });
+  return e;
+};
+
+/**
+ * viem's HTTP transport under the same policy, announcing its requests as `rpc`: batched, but a log read alone — its answer past
+ * RPC_ANSWER_MAX_BYTES refused, never asked again by viem's retry.
+ */
 export function viemTransport(url: string): HttpTransport {
   allowHosts(url);
-  return http(url, {
-    batch: true,
+  const options = (batch: boolean): HttpTransportConfig => ({
+    batch,
+    maxResponseBodySize: RPC_ANSWER_MAX_BYTES,
     fetchOptions: { credentials: POLICY.credentials, redirect: POLICY.redirect, referrerPolicy: POLICY.referrerPolicy },
     onFetchRequest: (request) => { announce(request.url, request.method, "rpc"); },
     fetchFn: (input, init) => observed(fetch(input, init), { abortIsTimeout: true }), // the only abort here is viem's timeout
   });
+  const batched = http(url, options(true));
+  const alone = http(url, options(false));
+  return ((config: Parameters<HttpTransport>[0]) => {
+    const t = batched(config);
+    // the requests before viem's retry, which createTransport wraps around them. A log read goes alone, so its answer is its own: batched, an
+    // answer past the bound had failed the reads beside it, unretried — readView's leaf count and root, every sync of a dense first window
+    // (ZI's critique); its refusal is marked, never retried. The caller's options (its signal) go with every request
+    const many = t.config.request;
+    const one = alone(config).config.request;
+    const request = (async (args: Parameters<typeof many>[0], opts?: Parameters<typeof many>[1]) => {
+      if (args.method !== "eth_getLogs") return many(args, opts);
+      try {
+        return await one(args, opts);
+      } catch (e) {
+        throw notRetried(e);
+      }
+    }) as typeof many;
+    return createTransport({ ...t.config, request }, t.value);
+  }) as HttpTransport;
 }
 
 // the deployment's own endpoints come from the configuration (apps/web/src/config.ts applyConfig; spec §7), and nothing

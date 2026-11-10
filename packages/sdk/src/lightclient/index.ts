@@ -8,7 +8,7 @@
 //      to the proven block hash; read contract storage with eth_getProof against its state root
 //      (execution.ts).
 // Beacon APIs and RPCs are couriers: what they hand over is checked, never believed.
-import { fetchFor } from "@privacy-wallet/privacy-engine/transport/http";
+import { fetchFor, readCapped, RPC_ANSWER_MAX_BYTES } from "@privacy-wallet/privacy-engine/transport/http";
 import { getAddress, toHex, type Address, type Hex } from "viem";
 import { LightClient, LightClientError, beaconApi, type LightClientBootstrap, type LightClientUpdate, type StoreSnapshot } from "./beacon";
 import { verifyAccount, verifyHeader, verifyStorage, type AccountProof, type VerifiedAccount, type VerifiedHeader } from "./execution";
@@ -183,7 +183,9 @@ async function rpc<T>(urls: string[], method: string, params: unknown[], fetchFn
   for (const url of urls) {
     try {
       const r = await fetchFn(url, { method: "POST", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(20_000) });
-      const j = await r.json();
+      // bounded as the transport bounds the endpoints' answers (the twelfth review round, ZI's critique): read whole, an endless answer had
+      // filled the tab for the read's 20 s
+      const j = JSON.parse(await readCapped(r, RPC_ANSWER_MAX_BYTES));
       if (j.error) throw new Error(j.error.message ?? String(j.error));
       if (j.result === null || j.result === undefined) throw new Error(`${method}: no result`);
       return j.result as T;

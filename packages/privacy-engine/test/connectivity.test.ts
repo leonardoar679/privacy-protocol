@@ -49,6 +49,21 @@ describe("connectivity", () => {
     for (let i = 0; i < FAILURES_TO_OFFLINE; i++) await expect(rpc.request({ method: "eth_blockNumber" })).rejects.toThrow();
     expect(connectivity.get()).toMatchObject({ online: false, cause: "unreachable" });
   });
+  it("... and so does a log read that never answers, which goes alone (the twelfth review round, ZJ's critique)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_u: unknown, init?: RequestInit) =>
+          new Promise((_, reject) =>
+            init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("This operation was aborted"), { name: "AbortError" }))),
+          ),
+      ),
+    );
+    const rpc = viemTransport("http://127.0.0.1:8545")({ retryCount: 0, timeout: 20 });
+    for (let i = 0; i < FAILURES_TO_OFFLINE; i++)
+      await expect(rpc.request({ method: "eth_getLogs", params: [{ fromBlock: "0x0", toBlock: "latest" }] } as never)).rejects.toThrow();
+    expect(connectivity.get()).toMatchObject({ online: false, cause: "unreachable" });
+  });
   it("whenOnline resolves at once online, and when the connection comes back", async () => {
     await whenOnline();
     connectivity.browser(false);

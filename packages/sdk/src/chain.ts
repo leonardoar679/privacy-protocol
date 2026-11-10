@@ -94,8 +94,15 @@ const PACE_AFTER_WINDOWS = 64;
 const GROW_AFTER = 16;
 /** An endpoint's refusal of a range too large (a result or response cap, a block-range limit), in the words providers use. */
 const RANGE_REFUSED = /more than \d+ results|response size|block range|range (is )?too (large|wide|big)|exceed(s|ed)? (the )?max(imum)?|too many (results|logs)|query timeout|limited to an? \d/i; // never a rate limit: that is a retry
+/**
+ * A refusal for its size: the endpoint's, in its words, or viem's own of an answer past the transport's bound (privacy-engine http.ts
+ * RPC_ANSWER_MAX_BYTES; the twelfth review round, C12-2) — an endpoint that answers the whole history at once, past the bound, is read in
+ * windows; before, every sync threw once the pool's events passed it.
+ */
 const refusedForSize = (e: unknown): boolean => {
-  for (let x: unknown = e, i = 0; x && i < 6; x = (x as { cause?: unknown }).cause, i++) if (RANGE_REFUSED.test(String((x as Error)?.message ?? x))) return true;
+  for (let x: unknown = e, i = 0; x && i < 6; x = (x as { cause?: unknown }).cause, i++) {
+    if ((x as Error)?.name === "ResponseBodyTooLargeError" || RANGE_REFUSED.test(String((x as Error)?.message ?? x))) return true;
+  }
   return false;
 };
 

@@ -737,7 +737,20 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     read so far project the rest past MAX_PROJECTED_READ_MS, two hours (the tenth review round, B10-1: the ninth round's fixed ten minutes
     had stopped an honest capped endpoint's every sync for good, each starting again at the pool's first block): one endpoint can still
     hold a sync for up to that long. The scheduler awaits each action
-    without a deadline (one that abandoned its wait would run a funding beside the next action), and no response has a size cap.
+    without a deadline (one that abandoned its wait would run a funding beside the next action). The wallet's own RPC answers are bounded
+    (the twelfth review round, C12-2: this gap had said no response had a size cap): by the transport, `RPC_ANSWER_MAX_BYTES` (10 MiB,
+    viem's own bound made explicit) — a log read goes alone, and its answer past the bound is refused, never asked again by viem's retry,
+    the windowed reader then reading that endpoint in windows (viem's refusal had been no refusal for its size to it, and an uncapped
+    endpoint failed every sync once the pool passed some ten thousand events); a batch of the other reads is bounded as a whole —, and
+    the light client's own reads by the same bound; so are the relayer's (4 MiB), the swap service's (8 MiB), the beacon APIs' (32 MiB)
+    and THORNode's (4 MiB) answers, by their readers (the eleventh review round). What the windows still cost: the endpoints that refused
+    a whole history are remembered in memory only, so each page load asks an uncapped endpoint for it once more (up to the bound read
+    before the refusal), and a window halved for its size starts again at 10,000 blocks at the next read — a dense stretch costs up to the
+    bound per halving at every sync, from every endpoint. Still read without a size bound: the proving artifacts (a stall limit only), the
+    prover's and zkAPI's pin manifests, zkAPI's browser configuration, Private AI's model catalog, the inference provider's error and
+    streamed answers, and the zkAPI SDK's own reads over the wallet's private transport — its RPC, operator and indexer answers and its
+    deployment manifests (a third party's code, read whole within its call timeout). The swap service's own RPC reads (apps/api,
+    packages/swap-engine) are outside this gap.
 104. **V7 — a provider failure stays "needs attention" (the ninth review round, C-03; stated).** A partial fill whose rest is
     accounted for is finished ("Delivered in part"); a provider whose last word is a failure, with nothing back by the end of the
     executor's watch, leaves its record RECOVERY_REQUIRED `provider_failed` with no action that ends it — the frozen states have no
