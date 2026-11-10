@@ -8,6 +8,9 @@
 import { join } from "node:path";
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
+import { en } from "../src/app/i18n/en";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { getAddress } from "viem";
@@ -37,7 +40,18 @@ import { scheduleAction } from "@privacy-wallet/sdk/wallet/schedule";
 const HASH = ("0x" + "ab".repeat(32)) as `0x${string}`;
 const APPROVE = ("0x" + "cd".repeat(32)) as `0x${string}`;
 const calls: { native: unknown[]; erc20: unknown[] } = { native: [], erc20: [] };
-let nativeBehaviour: "ok" | "rejected" | "reverted" | "lost" | "unconfirmed" = "ok";
+let nativeBehaviour: "ok" | "rejected" | "wc-rejected" | "expired" | "reverted" | "lost" | "unconfirmed" = "ok";
+/** WalletConnect's own utilities, the installed copy (resolved from @walletconnect/core's directory) — its refusal, a plain {message, code} */
+const wcRequire = createRequire(import.meta.url);
+const walletConnectRefusal = (key: string): { message: string; code: number } =>
+  (
+    wcRequire(wcRequire.resolve("@walletconnect/utils", { paths: [dirname(wcRequire.resolve("@walletconnect/core"))] })) as {
+      getSdkError: (k: string) => { message: string; code: number };
+    }
+  ).getSdkError(key);
+/** the sign client's request expiry, in its own shape (createDelayedPromise: an Error with code 6) */
+const requestExpired = () => Object.assign(new Error("Request expired. Please try again."), { code: 6 });
+
 /** the note scan's action as the deposit found it when it began (the twelfth review round, ZK's critique: the demand made before it) */
 const engineSaw = vi.hoisted(() => ({ scan: undefined as { dueAt: number; heldFailures?: number } | null | undefined, at: 0 }));
 vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
@@ -50,6 +64,8 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => ({
     o.onStatus?.("Submitting the shield through the connected wallet (a shield is public by design)…");
     o.onEvent?.({ type: "wallet-prompt", step: "deposit", i: 1, n: 1 });
     if (nativeBehaviour === "rejected") throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+    if (nativeBehaviour === "wc-rejected") throw walletConnectRefusal("USER_REJECTED"); // the twelfth review round, B12-5
+    if (nativeBehaviour === "expired") throw requestExpired(); // the twelfth review round, A12-2
     o.onEvent?.({ type: "submitted", txHash: HASH, by: "wallet" });
     o.onEvent?.({ type: "waiting-receipt", txHash: HASH });
     if (nativeBehaviour === "reverted") throw new Error(`transaction ${HASH} reverted`);
@@ -291,6 +307,41 @@ describe("Protect Assets (spec v2.0 §7.3)", () => {
     fireEvent.click(screen.getByTestId("protect-finish"));
     expect(onDone).toHaveBeenCalled();
   });
+  it("WalletConnect's own refusal — getSdkError's plain {message, code: 5000} — is a declined prompt, as 4001 is: the way back to the Review, nothing open (the twelfth review round, B12-5)", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    nativeBehaviour = "wc-rejected";
+    mount();
+    type(screen.getByTestId("amount-input"), "0.5");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    const error = await screen.findByTestId("operation-progress-error");
+    expect(error.textContent).toContain("You declined in your wallet");
+    expect(openOperations(), "never a recovery: nothing was signed").toEqual([]);
+    expect(allOperations().find((r) => r.kind === "protect")).toMatchObject({ state: "READY_TO_REVIEW", declined: { code: "user_rejected" } });
+  });
+
+  it("the deposit's prompt its wallet app did not answer in time (WalletConnect's request expiry): RECOVERY_REQUIRED in its own words — the wallet app may still send it — never a quote's (the twelfth review round, A12-2)", async () => {
+    await unlocked();
+    setActiveProvider(provider());
+    nativeBehaviour = "expired";
+    mount();
+    type(screen.getByTestId("amount-input"), "0.5");
+    fireEvent.click(screen.getByTestId("protect-review"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    const error = await screen.findByTestId("operation-progress-error");
+    expect(error.textContent).toContain(en["op.error.wallet_request_expired.title"]);
+    expect(error.textContent, "a Protect has no quote").not.toMatch(/quote/i);
+    expect(openOperations().find((r) => r.kind === "protect")).toMatchObject({
+      state: "RECOVERY_REQUIRED",
+      reason: { code: "wallet_request_expired", fundsClass: "unknown" },
+    });
+  });
+
   it("a declined wallet prompt: 'Your funds were not moved.' and the way back to the Review; a reverted receipt after submission is a final failure (FAILED, not moved)", async () => {
     await unlocked();
     setActiveProvider(provider());

@@ -8,6 +8,8 @@
 // the bands at $25K (the lint and the typed-in destination re-confirmed, a tap) and $60K (the hold).
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { request as httpRequest } from "node:http";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
@@ -15,7 +17,16 @@ import { getAddress } from "viem";
 import { Providers } from "../src/app/Providers";
 import { PROVIDER_FUTURE, ROUTER_FUTURE } from "../src/routes";
 import type { EngineEvent } from "@privacy-wallet/sdk/operations/engineEvents";
-import { applyEvent, finishedOperations, getOperation, newOperation, openOperations, resetOperationsMemory } from "@privacy-wallet/sdk/operations/store";
+import {
+  allOperations,
+  applyEvent,
+  finishedOperations,
+  getOperation,
+  newOperation,
+  openOperations,
+  resetOperationsMemory,
+  unresolvedOperation,
+} from "@privacy-wallet/sdk/operations/store";
 import { t } from "../src/app/i18n/messages";
 import { SendScreen, type SendScreenProps } from "../src/features/send/SendScreen";
 import { privacyAddress } from "@privacy-wallet/sdk/privateTx";
@@ -38,7 +49,18 @@ const calls: {
   transfer: [],
   withdraw: [],
 };
-let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" | "fee-moved" = "ok";
+let behaviour: "ok" | "unreachable-after-submit" | "housekeeping" | "fee-moved" | "wc-rejected" | "wc-rejected-wallet" | "expired-wallet" = "ok";
+/** WalletConnect's own utilities, the installed copy (resolved from @walletconnect/core's directory) — its refusal, a plain {message, code} */
+const wcRequire = createRequire(import.meta.url);
+const walletConnectRefusal = (key: string): { message: string; code: number } =>
+  (
+    wcRequire(wcRequire.resolve("@walletconnect/utils", { paths: [dirname(wcRequire.resolve("@walletconnect/core"))] })) as {
+      getSdkError: (k: string) => { message: string; code: number };
+    }
+  ).getSdkError(key);
+/** the sign client's request expiry, in its own shape (createDelayedPromise: an Error with code 6) */
+const requestExpired = () => Object.assign(new Error("Request expired. Please try again."), { code: 6 });
+
 const ENGINE_LINE = "Proof ready in 1.2 s; handing it to the relayer (your address never touches the chain)…";
 let feeReads = 0; // the relayer's terms read (audit round 2, r09: "Back to review" reads them again)
 let maxReads = 0; // what a spend of every note leaves after its merges, asked (audit round 2, r08)
@@ -100,6 +122,20 @@ vi.mock("@privacy-wallet/sdk/privateTx", async (importOriginal) => {
       engineSaw.at = Date.now();
       engineSaw.scan = s.journal().schedule.find((a) => a.id === "discovery:pool" && !a.done) ?? null;
       if (behaviour === "housekeeping") throw new orig.HousekeepingNeeded(12, 8, "ETH");
+      if (behaviour === "wc-rejected") throw walletConnectRefusal("USER_REJECTED"); // the wallet app's own refusal (the twelfth review round, B12-5)
+      if (behaviour === "wc-rejected-wallet" || behaviour === "expired-wallet") {
+        // a self-submitted Send: its nullifiers kept at "submitting", before its wallet app's prompt (privateTx's own order), then the answer
+        for (const e of [
+          { type: "fee-terms" },
+          { type: "syncing" },
+          { type: "verifying" },
+          { type: "proving" },
+          { type: "proved", ms: 900, verifiedLocally: true },
+          { type: "submitting", by: "wallet", nullifiers: ["7001", "7002"] },
+        ] as EngineEvent[])
+          o.onEvent?.(e);
+        throw behaviour === "expired-wallet" ? requestExpired() : walletConnectRefusal("USER_REJECTED");
+      }
       if (behaviour === "fee-moved") {
         o.onStatus?.(ENGINE_LINE); // the engine's own English progress line, before it stops
         throw new orig.FeeMoved(10n ** 15n, 2n * 10n ** 15n);
@@ -693,6 +729,59 @@ describe("Send (spec v2.0 §7.4)", () => {
     expect(screen.queryByTestId("send-back-review")).toBeNull();
     expect(screen.queryByTestId("send-edit")).toBeNull();
     expect(screen.getByTestId("send-done-unknown")).toBeTruthy();
+  });
+
+  it("WalletConnect's own refusal — getSdkError's plain {message, code: 5000} — reads as the user's refusal: no recovery, back to the Review (the twelfth review round, B12-5)", async () => {
+    await unlocked();
+    behaviour = "wc-rejected";
+    const { path } = mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1.01");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await screen.findByTestId("operation-progress-error");
+    expect(
+      openOperations().filter((r) => r.state === "RECOVERY_REQUIRED"),
+      "never 'we are checking where your funds are'",
+    ).toEqual([]);
+    expect(allOperations().find((r) => r.kind === "send")).toMatchObject({ state: "READY_TO_REVIEW", declined: { code: "user_rejected" } });
+    expect(path()).toMatch(/^\/send/);
+  });
+
+  it("a self-submitted Send its wallet app refused (getSdkError, 5000) after its notes were named: back to the Review as the user's refusal — no later Send held back (B12-5)", async () => {
+    await unlocked();
+    behaviour = "wc-rejected-wallet";
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1.01");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await screen.findByTestId("operation-progress-error");
+    expect(allOperations().find((r) => r.kind === "send")).toMatchObject({ state: "READY_TO_REVIEW", declined: { code: "user_rejected" } });
+    expect(unresolvedOperation("send"), "nothing was sent: the next Send is not held").toBeNull();
+  });
+
+  it("a self-submitted Send whose request expired after its notes were named: RECOVERY_REQUIRED wallet_request_expired — the next Send held while they are unspent (A12-2)", async () => {
+    await unlocked();
+    behaviour = "expired-wallet";
+    mount();
+    typeTo(otherWallet());
+    type(screen.getByTestId("amount-input"), "1.01");
+    await waitFor(() => expect(reviewButton().disabled).toBe(false));
+    fireEvent.click(reviewButton());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("review-confirm"));
+    });
+    await screen.findByTestId("operation-progress-error");
+    const rec = allOperations().find((r) => r.kind === "send");
+    expect(rec).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "wallet_request_expired", fundsClass: "unknown" } });
+    expect(unresolvedOperation("send")?.id, "the wallet app may still send it").toBe(rec?.id);
   });
 
   it("a confirmed Review is not shown again by browser Back: the progress took its place (audit c48)", async () => {

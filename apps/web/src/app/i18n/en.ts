@@ -818,9 +818,18 @@ export const en = {
   "op.error.deposit_unconfirmed.title": "Sent — your wallet did not report the result",
   "op.error.deposit_unconfirmed.reason":
     "The deposit went out. Your wallet did not report its result here, so this wallet looks for it in the pool and adds it to your protected balance once it is on the chain — usually within the hour. Do not protect it again: nothing more is sent. If it never reaches the chain, nothing moved, and a day on this says so.",
+  "op.error.wallet_request_expired.title": "Your wallet app did not answer in time",
+  "op.error.wallet_request_expired.reason":
+    "The request waited 15 minutes and was withdrawn here. If your wallet app still shows it, decline it there; if it was confirmed, this wallet records it once it reaches the chain.",
+  "op.error.wallet_session_ended.title": "The connection to your wallet app ended",
+  "op.error.wallet_session_ended.reason":
+    "The connection ended while the request was still open. If you confirmed the request in your wallet app first, this wallet records it once it reaches the chain.",
+  "op.error.approval_unanswered.title": "Stopped: the approval was not confirmed in your wallet app",
+  "op.error.approval_unanswered.reason":
+    "Nothing was deposited. If your wallet app still shows the approval, decline it there; if it is confirmed late, no more than this amount stays approved. Then Protect again — if the connection to your wallet app ended, connect it again first.",
   "op.error.approval_unconfirmed.title": "Stopped: your wallet did not report the approval",
   "op.error.approval_unconfirmed.reason":
-    "Nothing was deposited. Your wallet did not report the approval's result here (it may be on another network now, or the approval is still waiting). If it goes through, no more than this amount stays approved; until then any approval you had already given stays as it was. Protect again once it has gone through.",
+    "Nothing was deposited. Your wallet did not report the approval's result here (it may be on another network now, or the approval is still waiting). If it goes through, no more than this amount stays approved. Protect again once it has gone through.",
   "op.error.deposit_never_landed.title": "Not added: the deposit never reached the chain",
   "op.error.deposit_never_landed.reason":
     "A day on, the deposit is not in the pool and your wallet gave no result for it, so nothing moved. Protect again if you still want to. If it lands after all, the amount is added to your protected balance; this line stays as it is.",

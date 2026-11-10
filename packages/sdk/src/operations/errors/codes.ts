@@ -180,8 +180,22 @@ export const CATALOG: Record<string, CatalogRow> = {
   // public address; the scan records its note as soon as the pool shows it (the record awaits it), and the record completes from it
   deposit_unconfirmed: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
   // ... nor for an approval before the deposit (another network, no provider, ten minutes): nothing was deposited — WalletConnect's
-  // approvals excepted, whose receipt is read from the first endpoint (audit gap 100)
+  // approvals, whose receipt is read from the first endpoint (audit gap 100), stop so when that read fails or finds none in three minutes —
+  // a speed-up the wallet app made of the approval as well: the read follows its own hash only
   approval_unconfirmed: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // an approval prompt its wallet app did not answer — WalletConnect's request expiry, or its session ended while the prompt was open (the
+  // twelfth review round, W6 §2 and the critique of A12-2): nothing was deposited, an approval it still sends leaves at most this amount
+  // open, and the words say to decline it there — never to wait for it, as approval_unconfirmed's
+  approval_unanswered: { source: "wallet", fundsClass: "not-moved", actions: ["review"] },
+  // a WalletConnect request its wallet app did not answer within the sign client's fifteen minutes (`Request expired`, code 6; the twelfth
+  // review round, A12-2 and B12-5 — read as quote_expired, "a fresh quote is needed", for a Protect that has none): withdrawn here, but the
+  // wallet app may still show it, and one confirmed late still reaches the chain — the record waits for the chain's word, never "nothing was
+  // sent"
+  wallet_request_expired: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
+  // a WalletConnect request open when the wallet app ended its session (6000, the sign client's rejection at the wallet app's delete — the
+  // critique of B12-5: read wallet_disconnected, "nothing was sent", a Send's hold dropped and a second Protect let through): the wallet app
+  // may have sent it before, so the record waits for the chain's word, as an expired request's
+  wallet_session_ended: { source: "wallet", fundsClass: "unknown", actions: ["continue-monitoring"] },
   // a Protect with no note in the pool a day after it read deposit_unconfirmed (the twelfth review round, A12-3), or after it last moved for a
   // record that never read so, and no word from the wallet that sent it: it never reached the chain
   // (the critique of F11-10: it had read "We are checking where your funds are" for good); a note found later still enters the balance

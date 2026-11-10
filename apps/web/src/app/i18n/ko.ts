@@ -822,9 +822,18 @@ export const ko: Record<MessageKey, string> = {
   "op.error.deposit_unconfirmed.title": "전송됨 — 지갑이 결과를 알려 주지 않았습니다",
   "op.error.deposit_unconfirmed.reason":
     "입금은 전송되었습니다. 연결된 지갑이 여기에서 결과를 알려 주지 않았으므로, 이 지갑이 풀에서 직접 찾아 체인에 기록되면 보호된 잔액에 추가합니다 — 보통 한 시간 안에 됩니다. 다시 보호하지 마세요. 더 이상 전송되지 않습니다. 체인에 도달하지 않으면 아무것도 이동하지 않았으며, 하루 뒤 여기에 그렇게 표시됩니다.",
+  "op.error.wallet_request_expired.title": "지갑 앱이 제때 응답하지 않았습니다",
+  "op.error.wallet_request_expired.reason":
+    "요청이 15분 동안 기다린 뒤 여기서 철회되었습니다. 지갑 앱에 아직 요청이 보이면 그곳에서 거절하세요. 확인했다면 체인에 도달하는 대로 이 지갑이 기록합니다.",
+  "op.error.wallet_session_ended.title": "지갑 앱과의 연결이 끊겼습니다",
+  "op.error.wallet_session_ended.reason":
+    "요청이 아직 열려 있는 동안 연결이 끊겼습니다. 그 전에 지갑 앱에서 요청을 확인했다면 체인에 도달하는 대로 이 지갑이 기록합니다.",
+  "op.error.approval_unanswered.title": "중단됨: 지갑 앱에서 승인이 확인되지 않았습니다",
+  "op.error.approval_unanswered.reason":
+    "입금된 것은 없습니다. 지갑 앱에 아직 승인 요청이 보이면 그곳에서 거절하세요. 늦게 확인되더라도 이 금액을 넘는 승인은 남지 않습니다. 그런 다음 다시 보호하세요. 지갑 앱과의 연결이 끊겼다면 먼저 다시 연결하세요.",
   "op.error.approval_unconfirmed.title": "중단됨: 지갑이 승인 결과를 알려 주지 않았습니다",
   "op.error.approval_unconfirmed.reason":
-    "입금된 것은 없습니다. 연결된 지갑이 여기에서 승인 결과를 알려 주지 않았습니다(지금 다른 네트워크에 있거나 승인이 아직 대기 중일 수 있습니다). 승인이 처리되어도 이 금액을 넘는 승인은 남지 않으며, 그때까지는 이미 해 둔 승인이 그대로 유지됩니다. 처리된 뒤 다시 보호하세요.",
+    "입금된 것은 없습니다. 연결된 지갑이 여기에서 승인 결과를 알려 주지 않았습니다(지금 다른 네트워크에 있거나 승인이 아직 대기 중일 수 있습니다). 승인이 처리되어도 이 금액을 넘는 승인은 남지 않습니다. 처리된 뒤 다시 보호하세요.",
   "op.error.deposit_never_landed.title": "추가되지 않음: 입금이 체인에 도달하지 않았습니다",
   "op.error.deposit_never_landed.reason":
     "하루가 지났지만 입금이 풀에 없고 연결된 지갑도 결과를 알려 주지 않았으므로 아무것도 이동하지 않았습니다. 원하면 다시 보호하세요. 나중에라도 입금이 기록되면 그 금액은 보호된 잔액에 추가되며, 이 항목은 그대로 남습니다.",

@@ -12,7 +12,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { Hex } from "viem";
 import { configure, defaultConfig } from "../src/config";
 import { walletReceipt, walletReceiptTiming, walletTxStatus, WALLET_READ_TRIES, type Deployment } from "../src/chain";
-import { prepareShield, submitShield } from "../src/privateTx";
+import { approvalReceiptTiming, prepareShield, submitShield } from "../src/privateTx";
+import { classify } from "../src/operations/errors/catalog";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import { memoryStorage } from "../src/wallet/storage";
 import { session } from "../src/wallet/session";
 import { noteStore } from "../src/wallet/notes";
@@ -73,12 +76,19 @@ const rawReceipt = (hash: Hex, status: "0x1" | "0x0" = "0x1") => ({
 /** Every request an endpoint received, and what it answers: a receipt for any hash (a node that knows the transaction). */
 const fetched: { url: string; method: string; params: unknown }[] = [];
 const realFetch = globalThis.fetch;
+/**
+ * `receipts` false: the endpoint knows no receipt (the gap-100 read waits for one); "fail": its receipt reads fail at the transport;
+ * `onReceipt`: called as a receipt is asked of it
+ */
+const endpoint: { receipts: boolean | "fail"; onReceipt?: () => void } = { receipts: true };
 const endpointAnswer = (m: { id: number; method: string; params?: unknown[] }) => ({
   jsonrpc: "2.0",
   id: m.id,
   result:
     m.method === "eth_getTransactionReceipt"
-      ? rawReceipt(m.params![0] as Hex)
+      ? endpoint.receipts === true
+        ? rawReceipt(m.params![0] as Hex)
+        : null
       : m.method === "eth_chainId"
         ? "0x1"
         : m.method === "eth_blockNumber"
@@ -105,6 +115,10 @@ beforeAll(async () => {
     const body = JSON.parse(String(init?.body ?? "null"));
     const msgs = Array.isArray(body) ? body : [body];
     for (const m of msgs) fetched.push({ url, method: m.method, params: m.params });
+    if (msgs.some((m) => m.method === "eth_getTransactionReceipt")) {
+      endpoint.onReceipt?.();
+      if (endpoint.receipts === "fail") throw new TypeError("Failed to fetch");
+    }
     const out = Array.isArray(body) ? msgs.map(endpointAnswer) : endpointAnswer(msgs[0]);
     return new Response(JSON.stringify(out), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -117,6 +131,8 @@ afterAll(() => {
 beforeEach(() => {
   fetched.length = 0;
   w.provider = null;
+  endpoint.receipts = true;
+  endpoint.onReceipt = undefined;
 });
 
 type Answer = "read" | "reverted" | "pending" | "unknown" | "fail";
@@ -431,6 +447,222 @@ describe("the live Protect takes its receipts from the connected wallet only (F1
     foundNote(130, 11, H); // and once the scan records it, the stale pass completes it
     await reconcileStaleOperations(staleReads(d, null), Date.now(), session);
     expect(getOperation(r.id, session)?.state).toBe("COMPLETED");
+  });
+});
+
+describe("the twelfth review round (A12-2, B12-5; W6 §2): WalletConnect's request expiry, and the approval's endpoint read bounded", () => {
+  async function protect(o: { token?: boolean } = {}) {
+    const p = o.token
+      ? prepareShield({ masterSeed: session.state().seed!, deployment: d, amount: 5_000_000n, token: USDC, vault: USDC_VAULT })
+      : prepareShield({ masterSeed: session.state().seed!, deployment: d, amount: 10n ** 17n });
+    return submitShield(p, { account: ACCOUNT }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+  }
+  /** WalletConnect's own utilities, the installed copy (resolved from @walletconnect/core's directory) */
+  function walletConnectUtils() {
+    const req = createRequire(import.meta.url);
+    return req(req.resolve("@walletconnect/utils", { paths: [dirname(req.resolve("@walletconnect/core"))] })) as {
+      createDelayedPromise: (ttl: number, message: string) => { done: () => Promise<unknown> };
+      getSdkError: (key: string) => { message: string; code: number };
+    };
+  }
+  /** the sign client's rejection of a request it had published, at its session's delete (cleanupPendingSentRequestsForTopic): 6000 */
+  const sessionEnded = () => walletConnectUtils().getSdkError("USER_DISCONNECTED");
+  /** the sign client's own request expiry, as its fifteen minutes end (@walletconnect/utils createDelayedPromise, the installed copy) */
+  async function expiry(): Promise<unknown> {
+    return walletConnectUtils()
+      .createDelayedPromise(1, "Request expired. Please try again.")
+      .done()
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+  }
+  /** the provider wallet() made, its `n`th send answered with `err`: the prompts it was asked, counted */
+  function sendFails(n: number, err: unknown): () => number {
+    let sends = 0;
+    const send = w.provider!.request;
+    w.provider = {
+      ...w.provider!,
+      request: async (a) => {
+        if (a.method === "eth_sendTransaction" && ++sends === n) throw err;
+        return send(a);
+      },
+    };
+    return () => sends;
+  }
+
+  it("an ERC-20 Protect's approval prompt its wallet app did not answer in time: approval_unanswered — nothing deposited, the deposit never prompted", async () => {
+    const wal = wallet({ walletConnect: true });
+    const prompts = sendFails(1, await expiry());
+    const err = (await protect({ token: true })) as { code?: string } | null;
+    expect(err?.code).toBe("approval_unanswered");
+    expect(classify(err)).toMatchObject({ code: "approval_unanswered", fundsClass: "not-moved", actions: ["review"] });
+    expect(prompts(), "the first approval's prompt alone").toBe(1);
+    expect(wal.sent, "nothing sent").toEqual([]);
+  });
+
+  it("an approval prompt open when its session ended (6000): approval_unanswered — nothing deposited, the deposit never prompted", async () => {
+    const wal = wallet({ walletConnect: true });
+    const prompts = sendFails(2, sessionEnded()); // the clearing approval sent, the approval for the amount open
+    const err = (await protect({ token: true })) as { code?: string } | null;
+    expect(err?.code).toBe("approval_unanswered");
+    expect(prompts(), "the two approvals' prompts alone").toBe(2);
+    expect(
+      wal.sent.map((x) => x.to),
+      "the clearing approval alone",
+    ).toEqual([USDC.toLowerCase()]);
+  });
+
+  it("an approval prompt refused with WalletConnect's own refusal (getSdkError, a plain {message, code: 5000}) comes through as the user's refusal", async () => {
+    wallet({ walletConnect: true });
+    const refusal = walletConnectUtils().getSdkError("USER_REJECTED");
+    sendFails(1, refusal);
+    const err = await protect({ token: true });
+    expect(err, "unchanged: never the approval's own stop").toBe(refusal);
+    expect(classify(err)).toMatchObject({ code: "user_rejected", fundsClass: "not-moved" });
+  });
+
+  it("an approval prompt the user refused stays their refusal — only the expiry is the approval's own stop", async () => {
+    wallet({ walletConnect: true });
+    sendFails(1, Object.assign(new Error("User rejected the request."), { code: 4001 }));
+    const err = await protect({ token: true });
+    expect(classify(err)).toMatchObject({ code: "user_rejected" });
+  });
+
+  it("the deposit's prompt its wallet app did not answer in time: the library's expiry, read wallet_request_expired — its funds unknown, never a quote's", async () => {
+    wallet({ walletConnect: true });
+    sendFails(1, await expiry());
+    const err = await protect();
+    expect(classify(err)).toMatchObject({ code: "wallet_request_expired", fundsClass: "unknown", actions: ["continue-monitoring"] });
+  });
+
+  it("the deposit's prompt open when its session ended (the sign client's own 6000): wallet_session_ended — its funds unknown, never 'nothing was sent'", async () => {
+    wallet({ walletConnect: true });
+    sendFails(1, sessionEnded());
+    const err = await protect();
+    expect(classify(err)).toMatchObject({ code: "wallet_session_ended", fundsClass: "unknown", actions: ["continue-monitoring"] });
+  });
+
+  it("a self-submitted Send whose request its session's end rejected (6000): RECOVERY_REQUIRED, the next Send held while its pair is unspent", () => {
+    const at = Date.now();
+    const r = newOperation(
+      {
+        kind: "send",
+        amounts: { asset: "ETH", decimals: 18, input: "1000" },
+        destination: { kind: "privacy-address", display: "pp1…", chain: "ethereum" },
+        tier: "standard",
+      } as never,
+      at,
+    );
+    applyEvent(r.id, { type: "review" }, session, at);
+    applyEvent(r.id, { type: "confirm" }, session, at);
+    applyEvent(r.id, { type: "progress", step: "proof" }, session, at);
+    applyEvent(r.id, { type: "progress", step: "submitting", nullifiers: ["6001", "6002"] } as never, session, at);
+    const c = classify(sessionEnded());
+    // the screens' rule (SendScreen, ProtectScreen): a row whose funds are unknown is a recovery, any other a failure
+    applyEvent(
+      r.id,
+      c.fundsClass === "unknown"
+        ? { type: "recovery-required", code: c.code, detail: c.detail }
+        : { type: "submission-failed", code: c.code, detail: c.detail },
+      session,
+      at,
+    );
+    expect(getOperation(r.id, session)).toMatchObject({ state: "RECOVERY_REQUIRED", reason: { code: "wallet_session_ended", fundsClass: "unknown" } });
+    expect(unresolvedOf([getOperation(r.id, session)!], "send")?.id, "held: the wallet app may have sent it").toBe(r.id);
+  });
+
+  it("the approval's receipt the first endpoint does not give within its bound: approval_unconfirmed — never unknown after three minutes, the deposit never prompted", async () => {
+    const wal = wallet({ receipts: () => "fail", walletConnect: true });
+    endpoint.receipts = false;
+    const bound = { ...approvalReceiptTiming };
+    Object.assign(approvalReceiptTiming, { timeoutMs: 300, intervalMs: 100 });
+    try {
+      const err = (await protect({ token: true })) as { code?: string } | null;
+      expect(err?.code).toBe("approval_unconfirmed");
+      // read at its interval, never back to back: the endpoint holds this IP beside the approval (gap 100)
+      const reads = fetched.filter((f) => f.method === "eth_getTransactionReceipt").length;
+      expect(reads, "one read, then one each interval up to the bound").toBeGreaterThanOrEqual(2);
+      expect(reads, "one read, then one each interval up to the bound").toBeLessThanOrEqual(300 / 100 + 2);
+      expect(
+        wal.sent.map((x) => x.to),
+        "the first approval alone",
+      ).toEqual([USDC.toLowerCase()]);
+    } finally {
+      Object.assign(approvalReceiptTiming, bound);
+    }
+  });
+
+  it("the approval's receipt the first endpoint gives after a few reads: read on to it, the Protect goes on to its deposit", async () => {
+    const wal = wallet({ receipts: () => "fail", walletConnect: true });
+    endpoint.receipts = false;
+    let reads = 0;
+    endpoint.onReceipt = () => {
+      if (++reads === 3) endpoint.receipts = true; // mined at the third read
+    };
+    const bound = { ...approvalReceiptTiming };
+    Object.assign(approvalReceiptTiming, { timeoutMs: 5000, intervalMs: 20 });
+    try {
+      const err = (await protect({ token: true })) as { code?: string } | null;
+      expect(err?.code, "the deposit sent, its wallet reporting nothing (WalletConnect's reads)").toBe("deposit_unconfirmed");
+      expect(
+        wal.sent.map((x) => x.to),
+        "both approvals, then the deposit",
+      ).toEqual([USDC.toLowerCase(), USDC.toLowerCase(), ROUTER.toLowerCase()]);
+    } finally {
+      Object.assign(approvalReceiptTiming, bound);
+    }
+  });
+
+  it("the approval's receipt read failing at the first endpoint's transport: approval_unconfirmed — never relayer_unreachable, the deposit never prompted", async () => {
+    const wal = wallet({ receipts: () => "fail", walletConnect: true });
+    endpoint.receipts = "fail";
+    const err = (await protect({ token: true })) as { code?: string } | null;
+    expect(err?.code).toBe("approval_unconfirmed");
+    expect(classify(err)).toMatchObject({ code: "approval_unconfirmed", fundsClass: "not-moved" });
+    expect(
+      fetched.some((f) => f.method === "eth_getTransactionReceipt"),
+      "the endpoint was asked",
+    ).toBe(true);
+    expect(
+      wal.sent.map((x) => x.to),
+      "the first approval alone",
+    ).toEqual([USDC.toLowerCase()]);
+  });
+
+  it("a lock while the first endpoint is read for the approval's receipt ends the read: locked_mid_flow, the endpoint never asked again (B-I3)", async () => {
+    const wal = wallet({ receipts: () => "fail", walletConnect: true });
+    endpoint.receipts = false;
+    const bound = { ...approvalReceiptTiming };
+    Object.assign(approvalReceiptTiming, { timeoutMs: 5000, intervalMs: 20 });
+    let atLock = -1;
+    endpoint.onReceipt = () => {
+      if (atLock >= 0) return;
+      atLock = fetched.length; // this read is in flight; none may follow it
+      session.lock();
+    };
+    try {
+      const err = (await protect({ token: true })) as { code?: string } | null;
+      expect(err?.code).toBe("locked_mid_flow");
+      expect(atLock, "the endpoint was asked").toBeGreaterThan(0);
+      expect(
+        fetched.slice(atLock).filter((f) => f.method === "eth_getTransactionReceipt"),
+        "no receipt asked after the lock",
+      ).toEqual([]);
+      expect(
+        wal.sent.map((x) => x.to),
+        "the first approval alone",
+      ).toEqual([USDC.toLowerCase()]);
+    } finally {
+      endpoint.onReceipt = undefined;
+      Object.assign(approvalReceiptTiming, bound);
+      // this file's storage is a fresh one at every access: a locked session never opens again — a new one, as beforeAll's, for the tests after
+      await session.create(PASSWORD);
+      session.acknowledgePhrase();
+    }
   });
 });
 

@@ -9,7 +9,7 @@
 // relayer's fee note to its privacy address, dummies are indistinguishable filler — so every note
 // can be recovered from chain by rescanning (scanNotes).
 import type { OnEvent } from "./operations/engineEvents";
-import type { Address, Hex } from "viem";
+import { TransactionReceiptNotFoundError, type Address, type Hex, type TransactionReceipt } from "viem";
 import { deriveKeys, deriveNoteSecret, type WalletKeys } from "@privacy-wallet/protocol/keys";
 import { encodeNote, noteBody, noteCommitment, ownerCommitmentOf, type Note } from "@privacy-wallet/protocol/note";
 import { noteDataHash } from "@privacy-wallet/protocol/payload";
@@ -247,6 +247,36 @@ function assertStillUnlocked(epoch?: number): void {
 function sameOpening(epoch: number, what = "the wallet locked before anything was sent"): void {
   if (!session.isUnlocked() || session.epoch() !== epoch) throw Object.assign(new Error(what), { code: "locked_mid_flow" });
 }
+/** How long, and how often, a WalletConnect approval's receipt is read from the first endpoint (audit gap 100) before the Protect stops, nothing deposited (tests shorten it). */
+export const approvalReceiptTiming = { timeoutMs: 180_000, intervalMs: 4000 };
+/**
+ * A WalletConnect approval's receipt from the first endpoint (audit gap 100), read in the flow's own loop (the twelfth review round, A12-2;
+ * W6 §2.6): the flow's stop ends it — never the endpoints after a lock or a replace (B-I3; viem's wait had polled on to its three minutes) —,
+ * and a failed read, or none within the bound, is the approval's: nothing is deposited. It follows the approval's own hash only: a speed-up
+ * the wallet app made of it is not followed (viem's wait had followed any replacement at its nonce, a cancel too — on to a deposit with no
+ * allowance), so the Protect stops at the bound and the next one clears and approves again, as the wallet's own read (walletReceipt) does.
+ */
+async function endpointApprovalReceipt(d: Deployment, hash: Hex, stop: () => boolean): Promise<TransactionReceipt> {
+  const { timeoutMs, intervalMs } = approvalReceiptTiming;
+  const until = Date.now() + timeoutMs;
+  const unconfirmed = (why: string) =>
+    Object.assign(new Error(`the approval's receipt could not be read from the endpoint (${why}): nothing is deposited`), { code: "approval_unconfirmed" });
+  for (;;) {
+    if (stop())
+      throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent (an approval already sent stands: at most this amount, none for a clearing step)"), {
+        code: "locked_mid_flow",
+      });
+    const receipt = await clientFor(d)
+      .getTransactionReceipt({ hash })
+      .catch((e: unknown) => {
+        if (e instanceof TransactionReceiptNotFoundError) return null;
+        throw unconfirmed((e as Error)?.message ?? String(e));
+      });
+    if (receipt) return receipt;
+    if (Date.now() >= until) throw unconfirmed(`none in ${Math.round(timeoutMs / 1000)} s`);
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
 async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?: bigint }): Promise<{ approveTx?: Hex; txHash: Hex; leafIndex: number }> {
   await guardDeployment(p.deployment); // V6 Stage 10 (doc §71): the deployment is checked before the first operation
   let approveTx: Hex | undefined;
@@ -267,13 +297,27 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
     // the account it is sent from, kept for the stale mover: only that account's wallet is ever asked about it (the critique of F11-10)
     o.onEvent?.({ type: "wallet-prompt", step: "approve", i: k + 1, n, noteCounter: p.counter, ...(account ? { sender: account } : {}) });
     const epoch = session.epoch();
-    const hash = await sendViaInjectedWallet(tx, p.deployment.chainId, account);
+    const hash = await sendViaInjectedWallet(tx, p.deployment.chainId, account).catch((e: unknown) => {
+      // an approval prompt its wallet app did not answer — WalletConnect's request expiry (by the sign client's shape), or its session ended
+      // while the prompt was open (6000) —: nothing is deposited, and an approval it still sends leaves at most this amount open (a clearing
+      // step's, none); the next Protect, which cannot read the allowance through WalletConnect, clears it and approves again (the twelfth
+      // review round, W6 §2 and its critique)
+      const code = (e as { code?: unknown } | null)?.code;
+      if (code === 6000 || (code === 6 && /request expired/i.test(String((e as { message?: unknown } | null)?.message))))
+        throw Object.assign(
+          new Error(`${code === 6000 ? "the connection to the wallet app ended while the approval was open" : "the wallet app did not answer the approval in time"}: nothing is deposited`),
+          { code: "approval_unanswered" },
+        );
+      throw e;
+    });
     // through the connected wallet's own provider first (the sixth review round, 2026-11-03): the approval's `from` is the user's public
     // address — and never the endpoints after a lock (the ninth review round, B-I3), as the deposit's receipt: the approval stays open for
     // exactly this amount, nothing is deposited
     const got = await walletReceipt(hash, { stop: () => session.epoch() !== epoch, chainId: p.deployment.chainId });
     if (!("receipt" in got) && session.epoch() !== epoch)
-      throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent (the approval sent stays open for exactly this amount)"), { code: "locked_mid_flow" });
+      throw Object.assign(new Error("the wallet locked before the next prompt: nothing more is sent (an approval already sent stands: at most this amount, none for a clearing step)"), {
+        code: "locked_mid_flow",
+      });
     // on another network, without a provider, or ten minutes without a receipt, nothing more is sent (the eleventh review round, F11-10:
     // the first endpoint had been asked). WalletConnect's provider, which answered no read — its reads go to a host the policy blocks —, has
     // its approval's receipt read from the first endpoint, the one exception (audit gap 100): that endpoint then holds this IP beside the
@@ -281,7 +325,9 @@ async function submitShieldHeld(p: PreparedShield, o: Progress & { estimatedWei?
     // answered is read on, to the time: the critique of F11-10), and the deposit after it is never asked of an endpoint
     if (!("receipt" in got) && !(got.none === "unreadable" && isWalletConnectProvider(activeProvider())))
       throw Object.assign(new Error(`the connected wallet gave no receipt for the approval (${got.none}): nothing is deposited`), { code: "approval_unconfirmed" });
-    const approval = "receipt" in got ? got.receipt : await clientFor(p.deployment).waitForTransactionReceipt({ hash });
+    // the endpoint's read bounded, ended with the flow, and its failure the approval's (the twelfth review round, A12-2: it had read
+    // relayer_unreachable or, after viem's own three minutes, unknown — for an approval, where nothing was deposited)
+    const approval = "receipt" in got ? got.receipt : await endpointApprovalReceipt(p.deployment, hash, () => session.epoch() !== epoch);
     if (approval.status !== "success") throw new Error(`the approval ${hash} reverted`);
     approvalWei += approval.gasUsed * (approval.effectiveGasPrice ?? 0n);
     if (!clearing) {

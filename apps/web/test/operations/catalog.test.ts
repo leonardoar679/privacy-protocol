@@ -5,10 +5,12 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { CATALOG, CODES, classify, hasCode, reasonKey, titleKey } from "@privacy-wallet/sdk/operations/errors/catalog";
 import { fundsHeadline } from "../../src/features/operations/recovery";
 import { en } from "../../src/app/i18n/en";
+import { ko } from "../../src/app/i18n/ko";
 import { t } from "../../src/app/i18n/messages";
 import { TransportRefusal } from "@privacy-wallet/privacy-engine/transport/http";
 import { RpcDisagreement } from "@privacy-wallet/sdk/chain";
@@ -121,5 +123,123 @@ describe("the wallet's own messages (the review round of 2026-11-03)", () => {
   it("a WalletConnect session the wallet app ended asks nothing — its provider's words are wallet_disconnected, not moved, never unknown (the eleventh review round, slice 6c)", () => {
     // the installed provider's own text (packages/wallet-engine/test/review11-wc-connect.test.ts pins it after a session_delete)
     expect(classify(new Error("Please call connect() before request()"))).toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+  });
+});
+
+describe("the twelfth review round (B12-5, A12-2; W6 §2): a wallet app's own answers and WalletConnect's", () => {
+  /** WalletConnect's own utilities, the installed copy (no direct dependency of this app: resolved from @walletconnect/core's directory) */
+  const walletConnectUtils = () => {
+    const req = createRequire(import.meta.url);
+    return req(req.resolve("@walletconnect/utils", { paths: [dirname(req.resolve("@walletconnect/core"))] })) as {
+      getSdkError: (key: string) => { message: string; code: number };
+      getInternalError: (key: string, context?: string) => { message: string; code: number };
+      createDelayedPromise: (ttl: number, message: string) => { done: () => Promise<unknown> };
+    };
+  };
+
+  it("WalletConnect's own refusals by their codes (getSdkError): the user's refusal, the network — never unknown", () => {
+    const { getSdkError } = walletConnectUtils();
+    expect(classify(getSdkError("USER_REJECTED")), "a plain {message, code: 5000}").toMatchObject({ code: "user_rejected", fundsClass: "not-moved" });
+    // every refusal the installed library names, each by its code (5000–5003, 5100, 5101–5104)
+    const rows: [string, string][] = [
+      ["USER_REJECTED", "user_rejected"],
+      ["USER_REJECTED_CHAINS", "user_rejected"],
+      ["USER_REJECTED_METHODS", "user_rejected"],
+      ["USER_REJECTED_EVENTS", "user_rejected"],
+      ["UNSUPPORTED_CHAINS", "chain_mismatch"],
+      ["UNSUPPORTED_METHODS", "user_rejected"],
+      ["UNSUPPORTED_EVENTS", "user_rejected"],
+      ["UNSUPPORTED_ACCOUNTS", "user_rejected"],
+      ["UNSUPPORTED_NAMESPACE_KEY", "user_rejected"],
+    ];
+    for (const [key, code] of rows) {
+      expect(classify(getSdkError(key)), `${key} (${getSdkError(key).code})`).toMatchObject({ code, fundsClass: "not-moved" });
+      // and by its code alone: in words no row reads (its own "User rejected …" also reads as a refusal)
+      expect(classify({ code: getSdkError(key).code, message: "abgelehnt" }), `${key}'s code alone`).toMatchObject({ code });
+    }
+    expect(classify(getSdkError("USER_REJECTED")).detail, "its message read").toBe("User rejected.");
+    expect(classify({ code: 5000, message: "Anfrage abgelehnt" }), "by its code, a wallet app's own words aside").toMatchObject({ code: "user_rejected" });
+  });
+
+  it("the session's end with a request open (6000, the sign client's rejection at a session delete): its own row, its funds unknown — never 'nothing was sent'", () => {
+    const { getSdkError } = walletConnectUtils();
+    const ended = getSdkError("USER_DISCONNECTED");
+    expect(ended).toEqual({ message: "User disconnected.", code: 6000 });
+    expect(classify(ended)).toMatchObject({ code: "wallet_session_ended", fundsClass: "unknown", actions: ["continue-monitoring"] });
+    expect(classify({ code: 6000, message: "Session deleted" }), "by its code, its words aside").toMatchObject({ code: "wallet_session_ended" });
+    expect(t(titleKey("wallet_session_ended") as never)).toBe(en["op.error.wallet_session_ended.title"]);
+    expect(en["op.error.wallet_session_ended.reason"], "the wallet app may have sent it").not.toMatch(/nothing was sent|not moved/i);
+    expect(classify({ code: 4900, message: "Disconnected" }), "EIP-1193's own: before anything was sent").toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+  });
+
+  it("the sign client's texts for a session it no longer serves, thrown before the request is published: disconnected, not moved", () => {
+    const { getInternalError } = walletConnectUtils();
+    const gone = (key: string, context: string) => new Error(getInternalError(key, context).message); // its code dropped, as the sign client throws it
+    expect(gone("EXPIRED", "session topic: 0xabc").message).toBe("Expired. session topic: 0xabc");
+    expect(classify(gone("EXPIRED", "session topic: 0xabc")), "past its expiry, its expirer not yet run").toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+    expect(classify(gone("MISSING_OR_INVALID", "Record was recently deleted - session: 0xabc")), "deleted a moment ago").toMatchObject({ code: "wallet_disconnected" });
+    expect(classify(gone("NO_MATCHING_KEY", "session topic doesn't exist: 0xabc"))).toMatchObject({ code: "wallet_disconnected" });
+    expect(classify(gone("MISSING_OR_INVALID", "session topic does not exist in keychain: 0xabc"))).toMatchObject({ code: "wallet_disconnected" });
+    // read by "no matching key" alone: the keychain's (crypto.encode, before the publish) and the session store's (just after isValidRequest)
+    expect(classify(gone("NO_MATCHING_KEY", "keychain: 0xabc")), "the keychain's").toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+    expect(classify(gone("NO_MATCHING_KEY", "session: 0xabc")), "the session store's").toMatchObject({ code: "wallet_disconnected", fundsClass: "not-moved" });
+    expect(classify(new Error("the wallet app said: Expired. session topic")), "the sign client's text only, at its start").toMatchObject({ code: "unknown" });
+  });
+
+  it("the sign client's request expiry: its own row — its funds unknown, never a quote's — with its code, and a copy that lost it", async () => {
+    const { createDelayedPromise } = walletConnectUtils();
+    const expired = await createDelayedPromise(1, "Request expired. Please try again.").done().then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(classify(expired)).toMatchObject({ code: "wallet_request_expired", fundsClass: "unknown", actions: ["continue-monitoring"] });
+    expect(classify({ message: "Request expired. Please try again." }), "a copy without its code").toMatchObject({ code: "wallet_request_expired" });
+    expect(classify(Object.assign(new Error("Request expired"), { code: 6 })), "its code and its words, another wording").toMatchObject({ code: "wallet_request_expired" });
+    expect(classify({ code: 6, message: "something else" }), "code 6 alone is no expiry").toMatchObject({ code: "unknown" });
+    expect(t(titleKey("wallet_request_expired") as never)).toBe(en["op.error.wallet_request_expired.title"]);
+    expect(en["op.error.wallet_request_expired.reason"], "never 'nothing was sent': the wallet app may still send it").not.toMatch(/nothing was sent|not moved/i);
+    // the words' fifteen minutes are the installed sign client's own request lifetime (its seconds)
+    const signClient = createRequire(import.meta.url)("@walletconnect/sign-client") as { ENGINE_RPC_OPTS: { wc_sessionRequest: { req: { ttl: number } } } };
+    expect(signClient.ENGINE_RPC_OPTS.wc_sessionRequest.req.ttl, "15 minutes").toBe(15 * 60);
+    expect(en["op.error.wallet_request_expired.reason"]).toContain("15 minutes");
+    expect(ko["op.error.wallet_request_expired.reason"]).toContain("15분");
+  });
+
+  it("an approval its wallet app did not answer says to decline it there, never to wait for it; an unreported one no longer says an earlier approval stays as it was", () => {
+    expect(en["op.error.approval_unanswered.reason"]).toContain("decline it there");
+    expect(en["op.error.approval_unanswered.reason"], "an approval that may never come").not.toMatch(/once it has gone through/);
+    expect(en["op.error.approval_unanswered.reason"], "a connection that ended").toContain("connect it again first");
+    expect(ko["op.error.approval_unanswered.reason"]).toContain("그곳에서 거절하세요");
+    expect(ko["op.error.approval_unanswered.reason"]).not.toContain("처리된 뒤");
+    expect(ko["op.error.approval_unanswered.reason"]).toContain("다시 연결하세요");
+    // false once a clearing step was mined: the earlier approval is none by then
+    expect(en["op.error.approval_unconfirmed.reason"]).not.toMatch(/already given stays as it was/);
+    expect(ko["op.error.approval_unconfirmed.reason"]).not.toContain("이미 해 둔 승인이 그대로");
+  });
+
+  it("a wallet app's plain answers read from their message — the refusal, the funds — and never as the wallet's own reverts, fetches or quotes", () => {
+    expect(classify({ code: -32000, message: "User rejected the transaction" })).toMatchObject({ code: "user_rejected" });
+    expect(classify({ code: -32603, message: "User denied transaction signature." })).toMatchObject({ code: "user_rejected" });
+    // each of the refusal's words, on a generic code — each message read by one of them alone
+    for (const message of ["User rejected.", "rejected the request", "Request rejected", "User denied account access", "Denied the transaction", "Request declined", "User cancelled", "User canceled"])
+      expect(classify({ code: -32000, message }), message).toMatchObject({ code: "user_rejected", fundsClass: "not-moved" });
+    expect(classify({ code: -32000, message: "insufficient funds for gas * price + value" })).toMatchObject({ code: "wallet_insufficient_funds" });
+    expect(classify(new Error("rejected: insufficient funds")), "the funds before the refusal: its remedy").toMatchObject({ code: "wallet_insufficient_funds" });
+    expect(classify({ code: -32000, message: "Transaction declined: insufficient funds" }), "both words: the funds, its remedy").toMatchObject({ code: "wallet_insufficient_funds" });
+    expect(classify({ code: -32000, message: "execution reverted" }), "its own simulation: nothing mined, no fee").toMatchObject({ code: "unknown" });
+    expect(classify({ code: -32603, message: "Failed to fetch" }), "its own node, not a relayer").toMatchObject({ code: "unknown" });
+    expect(classify({ code: -32000, message: "Transaction expired" }), "its own, no quote").toMatchObject({ code: "unknown" });
+    expect(classify(new Error("Failed to publish payload, please try again.")), "the request may have reached the relay").toMatchObject({ code: "unknown" });
+  });
+
+  it("the wallet's own errors keep their rows: a revert it read, a transport that failed, a quote that expired; a session gone is disconnected", () => {
+    expect(classify(new Error(`the approval 0x${"ab".repeat(32)} reverted`))).toMatchObject({ code: "receipt_reverted" });
+    expect(classify(new Error("HTTP request failed. Details: fetch failed"))).toMatchObject({ code: "relayer_unreachable" });
+    expect(classify(new Error("the signed quote has expired"))).toMatchObject({ code: "quote_expired" });
+    expect(classify(new Error("Quote expired"))).toMatchObject({ code: "quote_expired" });
+    expect(classify(new Error("the order expired before it was funded")), "no quote named: the catch-all /expired/ is gone").toMatchObject({ code: "unknown" });
+    expect(classify(new Error("Missing or invalid. session topic does not exist in keychain"))).toMatchObject({ code: "wallet_disconnected" });
+    expect(classify(new Error("No matching key. session topic doesn't exist: 0xabc"))).toMatchObject({ code: "wallet_disconnected" });
+    expect(classify({ code: 4001, message: "User rejected the request." })).toMatchObject({ code: "user_rejected" });
   });
 });

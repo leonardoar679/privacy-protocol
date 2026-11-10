@@ -703,7 +703,13 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     ERC-20 Protect's approval receipts are then read from the wallet's first endpoint, which so holds this IP beside the public address
     (without them no ERC-20 could be protected through such a wallet), and an allowance it cannot read is cleared to zero first. Since the
     eleventh round the exception is WalletConnect's provider alone, and only while it has answered no read: any other wallet whose reads
-    fail stops at its approval (`approval_unconfirmed`), one that answered before is read on to the time. The deposit's receipt is never
+    fail stops at its approval (`approval_unconfirmed`), one that answered before is read on to the time. Since the twelfth round (A12-2)
+    WalletConnect's endpoint read is the flow's own loop: a lock or a replace ends it, and a failed read or none in three minutes stops the
+    Protect at its approval, nothing deposited (`approval_unconfirmed`); an approval prompt its wallet app did not answer — WalletConnect's
+    request expiry, or its session ended while the prompt was open — stops it so as well, in words that say to decline it there
+    (`approval_unanswered`). The read follows the approval's own hash only: a speed-up the wallet app makes of it stops the Protect at the
+    bound too (viem's wait had followed any replacement, a cancel as well, on to a deposit with no allowance), nothing deposited, and the
+    next Protect clears and approves again. The deposit's receipt is never
     read there: the Protect ends "sent — your wallet did not report the result" (`deposit_unconfirmed`; no "needs your attention"
     notification for it); the record awaits its note, which a scan half a minute later — planned past the scheduler's backoff — and then
     each minute for a quarter of an hour (a failed read retried after 1, 2, 4, then 8 minutes — the scan's own count, the twelfth review
