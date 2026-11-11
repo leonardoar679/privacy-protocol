@@ -136,7 +136,7 @@ async function delayedSwapPage() {
     fireEvent.click(await screen.findByTestId("review-confirm"));
   });
   await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/swap\/progress\//));
-  await screen.findByTestId("swap-cancel");
+  await screen.findByTestId("swap-cancel", {}, QUOTED);
   return router;
 }
 /** The order journaled anew (the runner's own write, as a test makes it) and its record synced: the page draws the card it reads. */
@@ -183,7 +183,7 @@ describe("E11-4: Cancel before it is funded", () => {
     expect(world.escrowBalance).toBeUndefined();
     let release = () => {};
     gate.hold = new Promise<void>((r) => (release = r));
-    fireEvent.click(await screen.findByTestId("swap-cancel"));
+    fireEvent.click(await screen.findByTestId("swap-cancel", {}, QUOTED));
     expect(screen.getByTestId("swap-cancel"), "not twice at once").toBeDisabled();
     await act(async () => {
       gate.hold = null;
@@ -222,7 +222,7 @@ describe("E11-4: Cancel before it is funded", () => {
     // the drawn time's tick sends the funding as Cancel is tapped: the swap goes ahead, never "try again" (the third critique)
     gate.throws = new FundingAlreadySent("pending");
     await act(async () => {
-      fireEvent.click(await screen.findByTestId("swap-cancel"));
+      fireEvent.click(await screen.findByTestId("swap-cancel", {}, QUOTED));
     });
     expect((await screen.findByTestId("swap-cancel-error")).textContent).toBe(en["screen.swap.cancelTooLate"]);
     // what can fail a scheduled order's cancel fails before anything is sent — its escrow not read: the cancel's own words, still scheduled
@@ -271,7 +271,7 @@ describe("E11-4: Cancel before it is funded", () => {
     let release = () => {};
     gate.hold = new Promise<void>((r) => (release = r));
     gate.throws = new FundingAlreadySent("pending");
-    fireEvent.click(await screen.findByTestId("swap-cancel"));
+    fireEvent.click(await screen.findByTestId("swap-cancel", {}, QUOTED));
     // the drawn time comes while the cancel runs: the waiting block goes
     await act(async () => {
       session.update((j) => {
