@@ -51,6 +51,125 @@ describe("sheets, dialogs, confirmation, toasts (spec §2, §3.9, §5)", () => {
     back.mockRestore();
     expect(history.length).toBeGreaterThanOrEqual(before);
   });
+  it("a sheet closing while another opens in its place hands its history entry over — no back(), no second entry; the next one closes it as its own (the twelfth review round, B12-1)", async () => {
+    const back = vi.spyOn(history, "back").mockImplementation(() => undefined); // never a real traversal under the test
+    const push = vi.spyOn(history, "pushState");
+    try {
+      const picker = (open: boolean) => (
+        <BottomSheet open={open} onClose={() => undefined} title="The picker" id="connect" handOver={() => "pairing"}>
+          <p>x</p>
+        </BottomSheet>
+      );
+      const pairingClosed = vi.fn();
+      const pairing = (open: boolean) => (
+        <BottomSheet open={open} onClose={pairingClosed} title="The pairing" id="pairing">
+          <p>y</p>
+        </BottomSheet>
+      );
+      const { rerender } = render(
+        <>
+          {picker(true)}
+          {pairing(false)}
+        </>,
+      );
+      await screen.findByRole("dialog", { name: "The picker" });
+      expect(history.state).toMatchObject({ dsSheet: "connect" });
+      const length = history.length;
+      push.mockClear();
+      // in one commit, as a lock that swaps the picker out while the root's pairing sheet shows: the first closes, the second opens
+      rerender(
+        <>
+          {picker(false)}
+          {pairing(true)}
+        </>,
+      );
+      await screen.findByRole("dialog", { name: "The pairing" });
+      expect(back, "handed over: the picker goes back no more").not.toHaveBeenCalled();
+      expect(push, "adopted: no entry of its own pushed").not.toHaveBeenCalled();
+      expect(history.length).toBe(length);
+      expect(history.state, "the entry the pairing's now, its flag dropped").toEqual(expect.objectContaining({ dsSheet: "pairing" }));
+      expect((history.state as { dsHandOver?: boolean }).dsHandOver).toBeUndefined();
+      rerender(
+        <>
+          {picker(false)}
+          {pairing(false)}
+        </>,
+      );
+      expect(back, "closed from the app: its entry popped").toHaveBeenCalledTimes(1);
+      // adopted again, then the back button: it closes the adopted sheet, whose entry is gone — nothing popped at its cleanup
+      back.mockClear();
+      rerender(
+        <>
+          {picker(true)}
+          {pairing(false)}
+        </>,
+      );
+      await screen.findByRole("dialog", { name: "The picker" });
+      rerender(
+        <>
+          {picker(false)}
+          {pairing(true)}
+        </>,
+      );
+      await screen.findByRole("dialog", { name: "The pairing" });
+      act(() => {
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      expect(pairingClosed, "the back button closes the adopted sheet").toHaveBeenCalledTimes(1);
+      rerender(
+        <>
+          {picker(false)}
+          {pairing(false)}
+        </>,
+      );
+      expect(back, "its entry popped by the back button: nothing more").not.toHaveBeenCalled();
+    } finally {
+      back.mockRestore();
+      push.mockRestore();
+    }
+  });
+  it("a sheet with no sheet to take its entry goes back as ever; one opening on an entry of its id nobody handed it pushes its own", async () => {
+    const back = vi.spyOn(history, "back").mockImplementation(() => undefined); // never a real traversal under the test
+    const push = vi.spyOn(history, "pushState");
+    try {
+      const sheet = (open: boolean) => (
+        <BottomSheet open={open} onClose={() => undefined} title="A sheet" id="three" handOver={() => null}>
+          <p>x</p>
+        </BottomSheet>
+      );
+      const { rerender } = render(sheet(true));
+      await screen.findByRole("dialog");
+      rerender(sheet(false));
+      expect(back, "nothing handed over: its entry popped").toHaveBeenCalledTimes(1);
+      // its own entry still current — the traversal comes a task later — and the sheet opened again at once: never adopted, a new entry
+      history.replaceState({ dsSheet: "three" }, "");
+      push.mockClear();
+      rerender(sheet(true));
+      await screen.findByRole("dialog");
+      expect(push, "an entry of its id, not handed to it: pushed anew").toHaveBeenCalledTimes(1);
+    } finally {
+      back.mockRestore();
+      push.mockRestore();
+    }
+  });
+  it("a sheet whose entry another has written over (the router's replace at a lock) goes back no more, nor hands it over", async () => {
+    const back = vi.spyOn(history, "back").mockImplementation(() => undefined); // never a real traversal under the test
+    try {
+      const sheet = (open: boolean) => (
+        <BottomSheet open={open} onClose={() => undefined} title="A sheet" id="four" handOver={() => "pairing"}>
+          <p>x</p>
+        </BottomSheet>
+      );
+      const { rerender } = render(sheet(true));
+      await screen.findByRole("dialog");
+      history.replaceState({ route: "/unlock" }, ""); // the entry's state the router's now: no sheet's
+      rerender(sheet(false));
+      expect(back, "not its entry: nothing popped").not.toHaveBeenCalled();
+      expect(history.state, "and nothing written over it").toEqual({ route: "/unlock" });
+    } finally {
+      back.mockRestore();
+    }
+  });
   it("Modal: centered, marked dangerous, with an accessible description when none is given", async () => {
     render(
       <Modal open onClose={() => undefined} title="Forget this wallet?" danger>

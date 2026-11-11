@@ -6,25 +6,42 @@ import { cx } from "../cx";
 import { Dialog } from "../primitives/Dialog";
 import { Button, TextButton } from "./Button";
 
-/** While a sheet is open the history holds one extra entry, so the browser's back button closes the sheet first (spec §2). */
-export function useBackClose(open: boolean, onClose: () => void, id: string): void {
+type SheetEntry = { dsSheet?: string; dsHandOver?: boolean };
+const entryNow = (): SheetEntry | null => (history.state && typeof history.state === "object" ? (history.state as SheetEntry) : null);
+
+/**
+ * While a sheet is open the history holds one extra entry, so the browser's back button closes the sheet first (spec §2). A sheet that
+ * closes while another opens in its place hands its entry over (`handOver`: the id of the sheet taking it, read as it closes; the twelfth
+ * review round, B12-1): it goes back no more, and the one opening adopts the entry instead of pushing its own — a back() and a push in one
+ * task had the traversal's popstate, which comes a task later, close the sheet just opened.
+ */
+export function useBackClose(open: boolean, onClose: () => void, id: string, handOver?: () => string | null): void {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const handOverRef = useRef(handOver);
+  handOverRef.current = handOver;
   useEffect(() => {
     if (!open || typeof window === "undefined" || typeof history === "undefined") return;
     let pushed = true;
-    history.pushState({ ...(history.state && typeof history.state === "object" ? history.state : {}), dsSheet: id }, "");
+    const now = entryNow();
+    // an entry handed to this sheet is its own now: the flag dropped, nothing pushed
+    if (now?.dsSheet === id && now.dsHandOver === true) { const { dsHandOver: _flag, ...kept } = now; history.replaceState(kept, ""); }
+    else history.pushState({ ...(now ?? {}), dsSheet: id }, "");
     const onPop = () => { pushed = false; closeRef.current(); };
     window.addEventListener("popstate", onPop);
     return () => {
       window.removeEventListener("popstate", onPop);
-      if (pushed && history.state && typeof history.state === "object" && (history.state as { dsSheet?: string }).dsSheet === id) history.back();
+      const entry = entryNow();
+      if (!pushed || entry?.dsSheet !== id) return;
+      const to = handOverRef.current?.() ?? null;
+      if (to !== null && to !== id) history.replaceState({ ...entry, dsSheet: to, dsHandOver: true }, "");
+      else history.back();
     };
   }, [open, id]);
 }
 
-export function BottomSheet({ open, onClose, title, description, children, closeLabel, testId = "sheet", id = "sheet" }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; closeLabel?: string; testId?: string; id?: string }) {
-  useBackClose(open, onClose, id);
+export function BottomSheet({ open, onClose, title, description, children, closeLabel, testId = "sheet", id = "sheet", handOver }: { open: boolean; onClose: () => void; title: string; description?: string; children: ReactNode; closeLabel?: string; testId?: string; id?: string; /** the sheet that takes this one's history entry as it closes, if any (useBackClose) */ handOver?: () => string | null }) {
+  useBackClose(open, onClose, id, handOver);
   return <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }} title={title} description={description} variant="sheet" closeLabel={closeLabel} testId={testId}>{children}</Dialog>;
 }
 

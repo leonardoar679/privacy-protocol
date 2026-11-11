@@ -1,6 +1,7 @@
 // Where a WalletConnect pairing shows (the eleventh review round, slice 6c): in the connector picker while it is open, else in a sheet of its own
-// from the app's root (routes/index.tsx) — one sheet at a time: two handing over would fight over the back button's history entry
-// (useBackClose: the closing one goes back while the opening one pushes, and the back closes the new one).
+// from the app's root (routes/index.tsx) — one sheet at a time. A picker that goes away with a pairing still on (a lock) hands it to the root
+// sheet without going back (useBackClose's handOver; the twelfth review round, B12-1): the closing sheet's back() and the opening one's push
+// in one task had the traversal's popstate close the new sheet and cancel the pairing.
 import { useSyncExternalStore } from "react";
 
 let hosts = 0;

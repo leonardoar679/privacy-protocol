@@ -71,6 +71,7 @@ export function ConnectSheetView({
   onConnect,
   onSwitch,
   onDisconnect,
+  handOver,
 }: {
   open: boolean;
   onClose: () => void;
@@ -80,6 +81,8 @@ export function ConnectSheetView({
   onConnect: (id: string) => void;
   onSwitch: () => void;
   onDisconnect: () => void;
+  /** the sheet that takes the picker's history entry as it closes (BottomSheet's handOver), if any */
+  handOver?: () => string | null;
 }) {
   const t = useT();
   const connected = model.account !== null;
@@ -91,6 +94,7 @@ export function ConnectSheetView({
       description={t("wallet.connectionNote")}
       testId="connect-sheet"
       id="connect"
+      handOver={handOver}
     >
       {connected ? (
         <div className="ds-stack-sm">
@@ -196,6 +200,14 @@ export function ConnectSheet({ open, onClose }: { open: boolean; onClose: () => 
       onDisconnect={() => {
         disconnectWallet();
         onClose();
+      }}
+      handOver={() => {
+        // the picker gone with a pairing still on — a lock swaps the Shell out (the twelfth review round, B12-1): it goes back no more, so no
+        // traversal reaches the root's pairing sheet that shows the pairing next. That sheet takes the picker's entry when nothing writes over
+        // it; at a lock the browser router's replace (the Gate's) takes it first and the sheet pushes its own, the picker's entry left behind —
+        // one Back press on the page that does nothing (stated). Read as the picker closes: closed by the user, it was cancelled first
+        const c = connection.get();
+        return c.pairing !== null || c.pending?.kind === "walletconnect" ? "pairing" : null;
       }}
     />
   );
