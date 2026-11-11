@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useDeployment } from "../../app/deployment";
 import { useUnlockedSeed } from "../../app/Gate";
 import { connection } from "@privacy-wallet/wallet-engine/connection";
+import { connectWith } from "../wallet/connect";
 import { ProtectScreen } from "./ProtectScreen";
 import { useConnection } from "../../hooks";
 
@@ -23,7 +24,7 @@ export function ProtectRoute() {
       connecting={conn.status === "connecting"}
       wrongNetwork={wrong}
       onSwitch={() => void connection.switchNetwork()}
-      onConnect={() => void connection.connect()}
+      onConnect={() => void connectWith()}
       onBack={() => navigate("/")}
       onDone={() => navigate("/")}
       onBackup={() => navigate("/settings")}

@@ -3,7 +3,8 @@
 // or after the link, in the sheet's own words with Try again (the slice's second and third critiques); the retry's wait. Closing it cancels
 // the connection, or dismisses the failure.
 import { BottomSheet, Button } from "@privacy-wallet/ui";
-import { connection, WALLETCONNECT_ID } from "@privacy-wallet/wallet-engine/connection";
+import { WALLETCONNECT_ID } from "@privacy-wallet/wallet-engine/connection";
+import { connectWith } from "./connect";
 import { useT } from "../../app/i18n/useT";
 import { usePrefs } from "../../hooks/core";
 import { connectErrorWords } from "./connectWords";
@@ -21,7 +22,7 @@ export default function PairingSheet({ uri, failure, onClose }: { uri: string | 
           <p className="ds-field-error" role="alert" data-testid="connect-error">
             {connectErrorWords(t, failure, advanced, "pairing")}
           </p>
-          <Button variant="secondary" full onClick={() => void connection.connect(WALLETCONNECT_ID)} data-testid="connect-retry">
+          <Button variant="secondary" full onClick={() => void connectWith(WALLETCONNECT_ID)} data-testid="connect-retry">
             {t("wallet.pairing.retry")}
           </Button>
         </div>

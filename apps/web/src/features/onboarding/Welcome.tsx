@@ -5,7 +5,8 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Page, RadioGroup, TextButton } from "@privacy-wallet/ui";
 import { useT } from "../../app/i18n/useT";
 import { prefs } from "../../storage/prefs";
-import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
+import { shortAccount } from "@privacy-wallet/wallet-engine/connection";
+import { connectWith } from "../wallet/connect";
 import { useConnection } from "../../hooks/core";
 
 export function Welcome() {
@@ -28,7 +29,7 @@ export function Welcome() {
             {conn.status === "connected" && conn.account ? <p className="ds-field-hint" data-testid="welcome-connected">{t("welcome.connected", { account: shortAccount(conn.account) })}</p> : null}
             {conn.status === "unavailable" ? <p className="ds-field-hint" role="status">{t("welcome.unavailable")}</p> : null}
             {conn.status === "connected" ? <Button size="lg" full onClick={() => setStep("experience")} data-testid="welcome-continue">{t("common.continue")}</Button>
-              : <Button size="lg" full loading={conn.status === "connecting"} onClick={() => void connection.connect()} data-testid="welcome-connect">{t("welcome.connect")}</Button>}
+              : <Button size="lg" full loading={conn.status === "connecting"} onClick={() => void connectWith()} data-testid="welcome-connect">{t("welcome.connect")}</Button>}
             <p className="ds-field-hint">{t("welcome.noAccount")}</p>
             {conn.status !== "connected" ? <TextButton onClick={() => setStep("experience")} data-testid="welcome-skip">{t("welcome.skip")}</TextButton> : null}
           </Card>

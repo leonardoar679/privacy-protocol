@@ -110,6 +110,25 @@ async function pairingInPicker(onClose = vi.fn()) {
 }
 
 describe("a connection's failure in the sheet's words", () => {
+  it("WalletConnect's own transport failures — its relay unreachable, the proposal never published, the code never shown — could not start on this device, never the wallet app's (the twelfth review round, B12-4)", () => {
+    // the installed library's own texts (@walletconnect/core: the publisher, the relayer, the subscriber): this network's words, the
+    // browser being online (the sign client checks that first) — and in the picker another wallet, which needs no relay
+    const relay = t("wallet.sheet.error.relay");
+    const relayOthers = t("wallet.sheet.error.relayOthers");
+    expect(connectErrorWords(t, "No internet connection detected. Please restart your network and try again.", false), "offline: the device's words").toBe(t("wallet.sheet.error.network"));
+    for (const text of [
+      "Failed to publish custom payload, please try again. id:1794011011330887424 tag:undefined",
+      "Couldn't establish socket connection to the relay server: wss://relay.walletconnect.org",
+      "Socket stalled when trying to connect to wss://relay.walletconnect.org",
+      "Subscribing to a-topic failed, please try again",
+      "Connection interrupted while trying to subscribe",
+    ]) {
+      expect(connectErrorWords(t, text, false), text).toBe(relayOthers);
+      expect(connectErrorWords(t, text, false, "picker", false), `${text} — WalletConnect alone`).toBe(relay);
+      expect(connectErrorWords(t, text, false, "pairing"), text).toBe(relay);
+    }
+  });
+
   it("a refusal, a request the wallet is already showing, a pairing not answered in time, anything else — the wallet's own text after them under Advanced only; Korean too", () => {
     expect(connectErrorWords(t, "User rejected.", false)).toBe("The wallet declined the connection.");
     expect(connectErrorWords(t, "User denied account authorization", false)).toBe("The wallet declined the connection.");
@@ -327,6 +346,7 @@ describe("a WalletConnect pairing, shown by the wallet itself", () => {
     act(() => wc.settle!.approve());
     await waitFor(() => expect(screen.queryByTestId("pairing-sheet")).toBeNull());
     expect(await screen.findByTestId("welcome-connected")).toHaveTextContent("Connected: 0x7a…91f2");
+    expect(prefs().get().lastConnector, "the retry's connection remembered (the twelfth review round, B12-6)").toBe("walletconnect");
     // a failure, then the sheet closed: the failure dismissed, nothing left in the picker later
     connection.disconnect();
     fireEvent.click(await screen.findByTestId("welcome-connect"));

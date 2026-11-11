@@ -14,7 +14,7 @@ import type { Deployment } from "@privacy-wallet/sdk/chain";
 import { PREFERENCES, settings, type Preference } from "@privacy-wallet/sdk/wallet/settings";
 import { connection, shortAccount } from "@privacy-wallet/wallet-engine/connection";
 import { useConnection, useSettings } from "../../hooks";
-import { disconnectWallet } from "../wallet/ConnectSheet";
+import { connectWith, disconnectWallet } from "../wallet/connect";
 
 /** The connection and the allowances. `onConnect` opens the connector picker (the shell's sheet). */
 export function WalletSection({ deployment, onConnect }: { deployment: Deployment | null; onConnect?: () => void }) {
@@ -60,7 +60,7 @@ export function WalletSection({ deployment, onConnect }: { deployment: Deploymen
             <div className="ds-kv"><span className="ds-kv-label">{t("wallet.network")}</span><b className="ds-kv-value">{deployment ? t("wallet.chain", { id: deployment.chainId }) : t("wallet.noDeployment")}</b></div>
             <div className="ds-actions">
               {/* secondary: the one primary action of the Settings page is the backup (doc §57); the header's chip is the main way to connect */}
-              {!conn.account ? <Button variant="secondary" onClick={() => (onConnect ? onConnect() : void connection.connect())} loading={conn.status === "connecting"} data-testid="wallet-connect">{t("protect.connect")}</Button> : null}
+              {!conn.account ? <Button variant="secondary" onClick={() => (onConnect ? onConnect() : void connectWith())} loading={conn.status === "connecting"} data-testid="wallet-connect">{t("protect.connect")}</Button> : null}
               {conn.status === "wrong-network" ? <Button onClick={() => void connection.switchNetwork()} data-testid="wallet-switch">{t("wallet.switch")}</Button> : null}
               {conn.account ? <Button variant="secondary" onClick={disconnectWallet} data-testid="wallet-disconnect">{t("wallet.disconnect")}</Button> : null}
             </div>

@@ -2165,6 +2165,9 @@ export const en = {
   "wallet.sheet.error.other": "The wallet did not connect. Try again, or choose another wallet.",
   "wallet.sheet.error.pending": "The wallet is already asking you to connect. Open it, answer its request, then try again.",
   "wallet.sheet.error.network": "The connection could not start. Check this device's internet connection and try again.",
+  "wallet.sheet.error.relay": "WalletConnect could not be reached from this network. Check the internet connection or try another network, then try again.",
+  "wallet.sheet.error.relayOthers":
+    "WalletConnect could not be reached from this network. Check the internet connection or try another network, then try again — or choose another wallet.",
   "wallet.sheet.error.otherOnly": "The wallet did not connect. Try again.",
   "wallet.pairing.retry": "Try again",
   "wallet.pairing.error.expired": "The wallet app did not answer in time. Try again for a new code.",

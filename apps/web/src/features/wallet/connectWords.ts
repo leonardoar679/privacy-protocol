@@ -5,10 +5,17 @@ import type { MessageKey } from "../../app/i18n/en";
 type T = (key: MessageKey) => string;
 
 /**
- * A failure on this device before any wallet was asked: WalletConnect's library not loaded, no network, its relay unreachable (the fourth
- * critique: these had read as the wallet app's, sending the user to look for a request never sent).
+ * A failure on this device before any wallet was asked: WalletConnect's library not loaded, no network (the fourth critique: these had read
+ * as the wallet app's, sending the user to look for a request never sent).
  */
 const NOT_STARTED = /failed to fetch|dynamically imported module|no internet connection|networkerror|load failed|websocket/i;
+/**
+ * WalletConnect's relay out of this network's reach — the library's own transport texts, its proposal never published, the code never shown
+ * (the twelfth review round, B12-4: "Failed to publish custom payload…" had read "The wallet app did not connect"). The browser is online
+ * then (the sign client checks that first: "No internet connection detected"): its own words, this network's, never the device's — and in
+ * the picker another wallet, which needs no relay (the critique of 12d3b).
+ */
+const RELAY_UNREACHABLE = /failed to publish|couldn't establish socket|socket stalled|subscribing to .* failed|connection interrupted/i;
 
 /**
  * The wallet's refusal; a request the wallet is already showing (EIP-1193 -32002: "Already processing eth_requestAccounts", "… already
@@ -22,8 +29,12 @@ export function connectErrorWords(t: T, error: string, advanced: boolean, where:
     ? "wallet.sheet.error.pending"
     : /reject|denied|declined/i.test(error)
       ? "wallet.sheet.error.refused"
-      : NOT_STARTED.test(error)
-        ? "wallet.sheet.error.network"
+      : RELAY_UNREACHABLE.test(error)
+        ? where === "picker" && others
+          ? "wallet.sheet.error.relayOthers"
+          : "wallet.sheet.error.relay"
+        : NOT_STARTED.test(error)
+          ? "wallet.sheet.error.network"
         : /expired/i.test(error)
           ? where === "pairing"
             ? "wallet.pairing.error.expired"

@@ -12,7 +12,7 @@ import { connection, shortAccount, type ConnectionStatus, type ConnectorInfo } f
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { useConnection, usePrefs } from "../../hooks/core";
-import { prefs } from "../../storage/prefs";
+import { connectWith, disconnectWallet } from "./connect";
 import { connectErrorWords } from "./connectWords";
 import { pairingHost } from "./pairingHost";
 
@@ -32,24 +32,8 @@ const KIND: Record<ConnectorInfo["kind"], MessageKey> = {
   walletconnect: "wallet.sheet.kind.walletconnect",
 };
 
-/**
- * Connects the chosen connector; a connection that holds (connected, or on the wrong network) is remembered. A cancelled or replaced
- * connection resolves with its own start, never another connection's state (`connection.connect`; the eleventh review round, slice 6c's
- * second and third critiques: the picker had remembered a WalletConnect it cancelled, five minutes later, over the browser wallet it
- * connected, and closed on a retry the first pairing's expiry did not concern).
- */
-export async function connectWith(id: string): Promise<boolean> {
-  const s = await connection.connect(id);
-  const held = s.status === "connected" || s.status === "wrong-network";
-  if (held) prefs().update({ lastConnector: id });
-  return held;
-}
-
-/** Disconnects and forgets the connector: the next launch asks again. */
-export function disconnectWallet(): void {
-  connection.disconnect();
-  prefs().update({ lastConnector: undefined });
-}
+// connecting from any entry point remembers the connector it connected, in one place (./connect.ts; the twelfth review round, B12-6)
+export { connectWith, disconnectWallet } from "./connect";
 
 
 export interface ConnectSheetModel {
