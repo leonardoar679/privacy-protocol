@@ -2144,10 +2144,14 @@ export const ko: Record<MessageKey, string> = {
   "wallet.sheet.error.pending": "지갑이 이미 연결 요청을 보여 주고 있습니다. 지갑을 열어 그 요청에 답한 뒤 다시 시도하세요.",
   "wallet.sheet.error.network": "연결을 시작하지 못했습니다. 이 기기의 인터넷 연결을 확인한 뒤 다시 시도하세요.",
   "wallet.sheet.error.relay": "이 네트워크에서 WalletConnect에 연결하지 못했습니다. 인터넷 연결을 확인하거나 다른 네트워크에서 다시 시도하세요.",
+  "wallet.sheet.error.leftover":
+    "WalletConnect가 이전 연결을 끝내지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하거나, 페이지를 새로 고친 뒤 다시 연결하세요.",
+  "wallet.sheet.error.unfinished": "WalletConnect가 이전 연결을 아직 끝내지 못했습니다. 인터넷에 연결된 뒤 페이지를 새로 고치고 다시 연결하세요.",
   "wallet.sheet.error.relayOthers":
     "이 네트워크에서 WalletConnect에 연결하지 못했습니다. 인터넷 연결을 확인하거나 다른 네트워크에서 다시 시도하세요. 또는 다른 지갑을 선택하세요.",
   "wallet.sheet.error.otherOnly": "지갑이 연결되지 않았습니다. 다시 시도하세요.",
   "wallet.pairing.retry": "다시 시도",
+  "wallet.pairing.reload": "페이지 새로 고침",
   "wallet.pairing.error.expired": "지갑 앱이 제때 응답하지 않았습니다. 다시 시도해 새 코드를 받으세요.",
   "wallet.pairing.error.other": "지갑 앱이 연결되지 않았습니다. 다시 시도하세요.",
   "wallet.pairing.scan": "다른 기기의 지갑 앱으로 이 코드를 스캔하거나, 지갑 앱이 이 기기에 있으면 여세요.",

@@ -34,7 +34,13 @@ const sc = vi.hoisted(() => ({
   releaseEnd: null as null | (() => void),
   /** the session kept in the client's storage as well (the page's one Core): its keys cleared, a new client finds no session */
   sessionsInStore: false,
+  /** while set, the sign client's disconnect fails (offline, its publish expired) — once its held answer comes, when held: the delete never
+   *  acknowledged */
+  endFails: false,
+  /** the latest sign client's storage (the page's one Core) */
+  store: null as Map<string, unknown> | null,
 }));
+const HISTORY_KEY = "wc@2:core:0.3//history";
 const SESSION_KEY = "wc@2:client:0.3//session";
 const ACCOUNT = "0x7a3b000000000000000000000000000000c491f2";
 const linkOf = (n: number) => `wc:pairing-${n}@2?relay-protocol=irn&symKey=0${n}`;
@@ -62,6 +68,7 @@ const session = {
 /** WalletConnect's sign client, as far as the providers use it: its session store, its storage, its events, a connect that pairs on approval. */
 function fakeSignClient() {
   const store = new Map<string, unknown>();
+  sc.store = store;
   return {
     session: {
       getAll: () => sc.sessions,
@@ -115,6 +122,8 @@ function fakeSignClient() {
     disconnect: async ({ topic }: { topic: string }) => {
       sc.disconnects++;
       if (sc.endGate) await sc.endGate;
+      if (sc.endFails) throw new Error("Failed to publish payload, please try again.");
+      if (sc.sessionsInStore) store.set(HISTORY_KEY, "the delete's own records"); // as the library writes its history at a delete
       sc.sessions = (sc.sessions as { topic: string }[]).filter((s) => s.topic !== topic);
     },
     logger: undefined,
@@ -148,6 +157,8 @@ import {
   endWalletConnectOf,
   resetWalletConnect,
   walletConnectEndTiming,
+  WalletConnectEndUnfinished,
+  WalletConnectSessionLeft,
   walletConnectProvider,
   type WcProvider,
 } from "../src/walletConnect";
@@ -164,6 +175,15 @@ const walletEnds = async () => {
   sc.sessions = [];
   for (const cb of sc.listeners.get("session_delete") ?? []) cb({ id: 1, topic: session.topic });
 };
+/** The end's answer held until released: the session stays in the store meanwhile, as the sign client keeps it. */
+const holdEnd = () => {
+  let release!: () => void;
+  sc.endGate = new Promise<void>((r) => (release = r));
+  sc.releaseEnd = () => release();
+  return () => release();
+};
+/** The refusal while an earlier end's delete is acknowledged but unfinished. */
+const UNFINISHED = new WalletConnectEndUnfinished().message;
 
 afterEach(() => {
   connection.reset();
@@ -185,6 +205,7 @@ afterEach(() => {
   sc.releaseEnd = null;
   sc.endGate = null;
   sc.sessionsInStore = false;
+  sc.endFails = false;
   walletConnectEndTiming.boundMs = END_BOUND;
 });
 
@@ -231,10 +252,10 @@ describe("Connect → WalletConnect over the installed EthereumProvider", () => 
     await run;
     await vi.waitFor(() => expect(sc.disconnects, "the late session is ended (m65's rule)").toBe(1));
     expect(connection.get()).toMatchObject({ status: "disconnected", account: null, connector: null, pairing: null, error: null });
-    // ended as a Disconnect ends one: the provider forgotten, the next connection a new one with a new pairing
+    // ended as a Disconnect ends one: its session deleted, the next connection a new pairing on the page's one provider (12d3c)
     const again = connection.connect("walletconnect");
     await pairingShown(2);
-    expect(sc.inits, "a new provider").toBe(2);
+    expect(sc.inits, "the page's one provider").toBe(1);
     lastPairing().approve();
     expect((await again).status).toBe("connected");
   });
@@ -328,21 +349,24 @@ describe("Connect → WalletConnect over the installed EthereumProvider", () => 
     expect(sc.connectCalls).toBe(1);
   });
 
-  it("the provider's init is one at a time; one under way when WalletConnect is ended is never kept", async () => {
+  it("the provider's init is one at a time, and its provider the page's one — kept through an end, one under way during its init too (12d3c)", async () => {
     configureWalletConnect("a-project-id");
     const [p1, p2] = await Promise.all([walletConnectProvider(1), walletConnectProvider(1)]);
     expect(p1).toBe(p2);
     expect(sc.inits).toBe(1);
     await endWalletConnect();
+    expect(await walletConnectProvider(1), "kept through an end: never a second sign client over the page's one Core").toBe(p1);
+    expect(sc.inits).toBe(1);
+    resetWalletConnect(); // a new page
     sc.sessions = [session]; // the init about to be ended takes up a session WalletConnect's store holds
     const making = walletConnectProvider(1);
     const ended = endWalletConnect(); // ended while its init is under way
     const made = await making;
     await ended;
     expect(sc.inits).toBe(2);
-    expect(sc.disconnects, "the session the ended init took up is ended at its relay").toBe(1);
-    expect(await walletConnectProvider(1), "a new provider: the one made during the end is not kept").not.toBe(made);
-    expect(sc.inits).toBe(3);
+    expect(sc.disconnects, "the session the init took up is ended at its relay").toBe(1);
+    expect(await walletConnectProvider(1), "the provider made during the end is the page's").toBe(made);
+    expect(sc.inits).toBe(2);
   });
 
   it("an init that fails is not kept: the next tap initializes again, pairs and connects", async () => {
@@ -489,16 +513,9 @@ describe("Connect → WalletConnect over the installed EthereumProvider", () => 
 });
 
 describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at its relay", () => {
-  /** the end's acknowledgement held until released: the session stays in the store meanwhile, as the sign client keeps it */
-  const holdEnd = () => {
-    let release!: () => void;
-    sc.endGate = new Promise<void>((r) => (release = r));
-    sc.releaseEnd = () => release();
-    return () => release();
-  };
   const settleSoon = () => new Promise((r) => setTimeout(r, 30));
 
-  it("WalletConnect tapped again while a Disconnect's end waits on its relay: the tap waits for it — then a new pairing, never the session being ended", async () => {
+  it("WalletConnect tapped again while a Disconnect's end waits on its relay: the tap waits for it — then a new pairing on the page's one provider, never the session being ended", async () => {
     configureWalletConnect("a-project-id");
     const first = connection.connect("walletconnect");
     await pairingShown(1);
@@ -511,23 +528,22 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     const again = connection.connect("walletconnect");
     await settleSoon();
     expect(connection.get(), "waiting for the end: nothing taken up").toMatchObject({ status: "connecting", account: null, pairing: null });
-    expect(sc.inits, "no provider made while the end is under way").toBe(1);
     release();
     await pairingShown(2);
-    expect(sc.inits, "a new provider once it ended").toBe(2);
+    expect(sc.inits, "the page's one provider, paired anew (12d3c)").toBe(1);
     lastPairing().approve();
     expect((await again).status).toBe("connected");
   });
 
-  it("a late approval's end — a provider forgotten before its session was — is waited for too: then a new pairing", async () => {
+  it("a late approval's end after an end during its pairing — the page's provider ended again — is waited for too: then a new pairing", async () => {
     configureWalletConnect("a-project-id");
     const run = connection.connect("walletconnect");
     await pairingShown(1);
     connection.cancel();
-    await endWalletConnect(); // the provider forgotten (a Forget) before its pairing was approved
+    await endWalletConnect(); // an end (a Forget) before its pairing was approved: the page's provider kept, nothing to delete
     const before = sc.disconnects;
     const release = holdEnd();
-    lastPairing().approve(); // approved after all: its session ended at its relay, the provider no longer the page's
+    lastPairing().approve(); // approved after all: its session ended at its relay, as a Disconnect ends one
     await run;
     await vi.waitFor(() => expect(sc.disconnects, "its end at the relay").toBe(before + 1));
     expect(sc.sessions, "the late session still in the store, its end awaited").toHaveLength(1);
@@ -540,7 +556,7 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     expect((await again).status).toBe("connected");
   });
 
-  it("the usual late approval — after its Cancel, the provider still the page's — ends as a Disconnect does: a tap meanwhile waits, then pairs anew", async () => {
+  it("the usual late approval — after its Cancel — ends as a Disconnect does: a tap meanwhile waits, then pairs anew", async () => {
     configureWalletConnect("a-project-id");
     const run = connection.connect("walletconnect");
     await pairingShown(1);
@@ -559,7 +575,85 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     expect((await again).status).toBe("connected");
   });
 
-  it("an end whose delete is never acknowledged (its unsubscribe unanswered, its socket gone) is bounded: past it the keys are cleared and the tap pairs anew — never Connecting… for good", async () => {
+  it("an end whose delete goes unanswered is bounded: past it the keys are cleared; a tap meanwhile waits, then reads the refusal — never a second delete beside the first, nor a pairing over it — and once that delete completes the next tap pairs anew, its session kept", async () => {
+    configureWalletConnect("a-project-id");
+    sc.sessionsInStore = true;
+    walletConnectEndTiming.boundMs = 1_000;
+    const first = connection.connect("walletconnect");
+    await pairingShown(1);
+    lastPairing().approve();
+    await first;
+    const release = holdEnd(); // answered only past its bound: the library then finishes that delete, its cleanup run on the provider
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    sc.endGate = null; // a second delete would be answered at once
+    const tap = connection.connect("walletconnect");
+    await settleSoon();
+    expect(connection.get(), "within the bound: waiting").toMatchObject({ status: "connecting", account: null, pairing: null });
+    const st = await tap; // the bound passed, the keys cleared — the first delete still under way
+    expect(st).toMatchObject({ status: "disconnected", account: null, pairing: null });
+    expect(st.error).toBe(UNFINISHED);
+    expect(sc.disconnects, "no second delete beside the first").toBe(1);
+    expect(sc.connectCalls, "no pairing over it").toBe(1);
+    const t0 = Date.now();
+    const st2 = await connection.connect("walletconnect");
+    expect(st2.error, "a tap past that delete's bound: the refusal at once, no second wait").toBe(st.error);
+    expect(Date.now() - t0).toBeLessThan(500);
+    release(); // answered at last
+    await settleSoon();
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
+    await settleSoon();
+    expect(sc.disconnects, "nothing more sent: that session was gone").toBe(1);
+    expect((connection.provider() as WcProvider).session, "the new session kept on the provider").toBeDefined();
+  });
+
+  it("an end whose unsubscribe's answer never comes — lost with a socket that dropped —: every tap refused, at the bound, then at once, after online and after the wallet app's own end too; never a second delete, never a pairing (stated: a reload is the way out)", async () => {
+    configureWalletConnect("a-project-id");
+    walletConnectEndTiming.boundMs = 200;
+    const first = connection.connect("walletconnect");
+    await pairingShown(1);
+    lastPairing().approve();
+    await first;
+    holdEnd(); // never answered within the test
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    sc.endGate = null; // a second delete would be answered at once
+    expect((await connection.connect("walletconnect")).error, "at the bound").toBe(UNFINISHED);
+    expect((await connection.connect("walletconnect")).error, "at once after it").toBe(UNFINISHED);
+    window.dispatchEvent(new Event("online"));
+    await settleSoon();
+    expect((await connection.connect("walletconnect")).error, "after online").toBe(UNFINISHED);
+    await walletEnds(); // the wallet app's own end: the provider's cleanup ran, the first delete still under way
+    await settleSoon();
+    expect((await connection.connect("walletconnect")).error, "after the wallet app's own end").toBe(UNFINISHED);
+    expect(sc.disconnects, "never a second delete").toBe(1);
+    expect(sc.connectCalls, "never a pairing").toBe(1);
+  });
+
+  it("a Forget's end while an end is unfinished joins its disconnect: settled at once past the bound, never a second delete beside it, every tap still refused", async () => {
+    configureWalletConnect("a-project-id");
+    walletConnectEndTiming.boundMs = 1_000;
+    const first = connection.connect("walletconnect");
+    await pairingShown(1);
+    lastPairing().approve();
+    await first;
+    holdEnd(); // never answered within the test
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    sc.endGate = null; // a second delete would be answered at once
+    await new Promise((r) => setTimeout(r, 1_200)); // past its bound: the end over, its disconnect still under way
+    const t0 = Date.now();
+    await endWalletConnect(); // the Forget's end (a dev build: no restart after it)
+    expect(Date.now() - t0, "settled at once").toBeLessThan(500);
+    expect(sc.disconnects, "never a second delete beside the one under way").toBe(1);
+    expect((await connection.connect("walletconnect")).error).toBe(UNFINISHED);
+    expect(sc.connectCalls, "never a pairing").toBe(1);
+  });
+
+  it("an end past its bound whose delete then fails, nothing held or being made: never sent again online — only a tap, or a later end, deletes it again", async () => {
     configureWalletConnect("a-project-id");
     sc.sessionsInStore = true;
     walletConnectEndTiming.boundMs = 200;
@@ -567,38 +661,49 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     await pairingShown(1);
     lastPairing().approve();
     await first;
-    holdEnd(); // never released within the test: the relay never answers
+    const release = holdEnd(); // answered past its bound, and refused
     connection.disconnect();
-    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
-    const again = connection.connect("walletconnect");
+    await vi.waitFor(() => expect(sc.sessions, "the bound passed: its keys cleared").toHaveLength(0));
+    sc.endFails = true;
+    release();
     await settleSoon();
-    expect(connection.get(), "within the bound: waiting").toMatchObject({ status: "connecting", account: null, pairing: null });
-    await pairingShown(2); // the bound passed: the keys cleared, a new provider, a new pairing
-    expect(connection.get().account, "never the session being ended").toBeNull();
+    sc.endFails = false; // the relay would answer now
+    window.dispatchEvent(new Event("online"));
+    await settleSoon();
+    expect(sc.disconnects, "never sent again online (the owner's decision: at a tap, or by a later end)").toBe(1);
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    expect(sc.disconnects, "deleted again at the tap, before its pairing").toBe(2);
     lastPairing().approve();
     expect((await again).status).toBe("connected");
+    await settleSoon();
+    expect(sc.disconnects, "and nothing more").toBe(2);
   });
 
-  it("a late end never acknowledged is bounded too: past it the shared store's keys go while the page holds no other connection, and the tap pairs anew", async () => {
+  it("a late approval's end past its bound is a Disconnect's: a tap meanwhile reads the refusal, and once that delete completes the next tap pairs anew", async () => {
     configureWalletConnect("a-project-id");
     sc.sessionsInStore = true;
     walletConnectEndTiming.boundMs = 200;
     const run = connection.connect("walletconnect");
     await pairingShown(1);
     connection.cancel();
-    await endWalletConnect(); // the provider forgotten before its pairing was approved
-    const before = sc.disconnects;
-    holdEnd(); // its late end never acknowledged
+    const release = holdEnd(); // the late session's delete answered only past its bound
     lastPairing().approve();
     await run;
-    await vi.waitFor(() => expect(sc.disconnects).toBe(before + 1));
-    expect(sc.sessions, "the late session in the store").toHaveLength(1);
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    sc.endGate = null;
+    const st = await connection.connect("walletconnect");
+    expect(st.error, "the refusal while that delete is under way").toBe(UNFINISHED);
+    expect(st.account, "never the late session").toBeNull();
+    expect(sc.connectCalls, "no pairing over it").toBe(1);
+    release();
+    await settleSoon();
     const again = connection.connect("walletconnect");
     await pairingShown(2);
-    expect(sc.sessions, "its keys cleared past the bound").toHaveLength(0);
-    expect(connection.get().account).toBeNull();
     lastPairing().approve();
     expect((await again).status).toBe("connected");
+    await settleSoon();
+    expect(sc.disconnects, "nothing more sent").toBe(1);
   });
 
   it("the bound sits just past the library's own on the delete's publish (60 s): never below it, never far past it", () => {
@@ -606,63 +711,47 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     expect(END_BOUND, "and a tap on Connecting… no longer than that").toBeLessThanOrEqual(65_000);
   });
 
-  it("a late end past its bound leaves the shared store alone while a provider's init is under way — the keys it is about to read", async () => {
+  it("a provider not the page's — none since one provider per page — has its session ended and nothing else: the shared store left alone", async () => {
     configureWalletConnect("a-project-id");
-    walletConnectEndTiming.boundMs = 100;
-    let releaseInit!: () => void;
-    sc.initGate = new Promise<void>((r) => (releaseInit = r));
-    const init = walletConnectProvider(1); // an init under way (the library's chunk still loading)
-    await vi.waitFor(() => expect(sc.inits).toBe(1));
     const removed: string[] = [];
-    const forgotten = {
-      disconnect: () => new Promise<void>(() => undefined), // its delete never acknowledged
+    let ends = 0;
+    const other = {
+      disconnect: async () => void ends++,
       signer: { client: { core: { storage: { getKeys: async () => ["a-key"], removeItem: async (k: string) => void removed.push(k) } } } },
     } as unknown as WcProvider;
-    await endWalletConnectOf(forgotten);
-    expect(removed, "the store left alone while the init is under way").toEqual([]);
-    releaseInit();
-    expect(await init).not.toBeNull();
+    await endWalletConnectOf(other);
+    expect(ends).toBe(1);
+    expect(removed).toEqual([]);
+    const refusing = { disconnect: async () => Promise.reject(new Error("refused")) } as unknown as WcProvider;
+    const t0 = Date.now();
+    await endWalletConnectOf(refusing);
+    expect(Date.now() - t0, "a refused end settles at once, never at the bound").toBeLessThan(1_000);
   });
 
-  it("a late end past its bound leaves the shared store alone while the page holds another WalletConnect connection — whose keys it holds too", async () => {
-    configureWalletConnect("a-project-id");
-    walletConnectEndTiming.boundMs = 100;
-    const first = connection.connect("walletconnect");
-    await pairingShown(1);
-    lastPairing().approve();
-    await first; // a connection the page holds
-    const removed: string[] = [];
-    const forgotten = {
-      disconnect: () => new Promise<void>(() => undefined), // its delete never acknowledged
-      signer: { client: { core: { storage: { getKeys: async () => ["a-key"], removeItem: async (k: string) => void removed.push(k) } } } },
-    } as unknown as WcProvider;
-    await endWalletConnectOf(forgotten);
-    expect(removed, "the held connection's keys kept").toEqual([]);
-    await endWalletConnect(); // nothing held any more
-    await endWalletConnectOf(forgotten);
-    expect(removed, "nothing else held: its keys cleared past the bound").toEqual(["a-key"]);
-  });
-
-  it("an end begun while a tap waits for another — a late approval's during a Disconnect's — is waited for as well, before any provider is made", async () => {
+  it("a second tap while the first deletes again what an earlier end left waits for it: one delete, one provider", async () => {
     configureWalletConnect("a-project-id");
     const first = connection.connect("walletconnect");
     await pairingShown(1);
     lastPairing().approve();
     await first;
-    const releaseEnd = holdEnd();
+    sc.endFails = true;
     connection.disconnect();
     await vi.waitFor(() => expect(sc.disconnects).toBe(1));
-    const inits = sc.inits;
-    const tap = walletConnectProvider(1); // waits for the Disconnect's end
-    let releaseLate!: () => void;
-    const late = new Promise<void>((r) => (releaseLate = r));
-    void endWalletConnectOf({ disconnect: () => late } as unknown as WcProvider); // a provider forgotten before: its session's end begins now
-    releaseEnd();
+    await settleSoon(); // the end over, its delete failed
+    sc.endFails = false;
+    const release = holdEnd(); // the delete again, held
+    const a = walletConnectProvider(1);
+    const b = walletConnectProvider(1);
+    let handed = false;
+    void a.then(() => (handed = true));
+    await vi.waitFor(() => expect(sc.disconnects, "one delete again").toBe(2));
     await settleSoon();
-    expect(sc.inits, "the Disconnect's end over, the late one still under way: nothing made yet").toBe(inits);
-    releaseLate();
-    expect(await tap, "a provider once both ended").not.toBeNull();
-    expect(sc.inits).toBe(inits + 1);
+    expect(handed, "no provider handed out while its session is deleted again").toBe(false);
+    release();
+    const [pa, pb] = await Promise.all([a, b]);
+    expect(pa).toBe(pb);
+    expect(sc.disconnects, "one delete for both taps").toBe(2);
+    expect(sc.inits).toBe(1);
   });
 
   it("a second Disconnect while the first one's end waits (VB12-N1): nothing was taken up meanwhile — the next tap pairs anew", async () => {
@@ -676,7 +765,7 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     await vi.waitFor(() => expect(sc.disconnects).toBe(1));
     void connection.connect("walletconnect"); // a tap meanwhile, waiting for the end
     await settleSoon();
-    expect(sc.inits, "nothing made during the end").toBe(1);
+    expect(connection.get(), "the tap waiting for the end: nothing taken up").toMatchObject({ status: "connecting", account: null, pairing: null });
     connection.disconnect(); // the second Disconnect drops that tap
     expect(connection.get()).toMatchObject({ status: "disconnected", pairing: null });
     release();
@@ -686,5 +775,197 @@ describe("the twelfth review round (B12-2, VB12-N1): a tap while an end is at it
     expect(connection.get().account).toBeNull();
     lastPairing().approve();
     expect((await next).status).toBe("connected");
+  });
+});
+
+describe("the twelfth review round (B12-3; 12d3c): an end its relay does not complete, deleted again at the next tap", () => {
+  const settleSoon = () => new Promise((r) => setTimeout(r, 30));
+  async function connected(n: number) {
+    const run = connection.connect("walletconnect");
+    await pairingShown(n);
+    lastPairing().approve();
+    expect((await run).status).toBe("connected");
+  }
+
+  it("a Disconnect whose delete fails: its keys cleared, never sent again online; the next tap deletes it again before it pairs — then a new pairing on the same provider", async () => {
+    configureWalletConnect("a-project-id");
+    sc.sessionsInStore = true;
+    await connected(1);
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await vi.waitFor(() => expect(sc.sessions, "its keys cleared all the same").toHaveLength(0));
+    sc.endFails = false;
+    window.dispatchEvent(new Event("online"));
+    await settleSoon();
+    expect(sc.disconnects, "never sent again online (the owner's decision: at a tap, or by a later end)").toBe(1);
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    expect(sc.disconnects, "deleted again at the tap, before its pairing").toBe(2);
+    expect(sc.store?.has(HISTORY_KEY), "what the library wrote at that delete, cleared").toBe(false);
+    expect(sc.inits, "the page's one provider").toBe(1);
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
+    await settleSoon();
+    expect(sc.disconnects, "and nothing more").toBe(2);
+  });
+
+  it("still failing at the next tap: the connection reads the refusal, its cause kept — never the session taken up, never a pairing beside it", async () => {
+    configureWalletConnect("a-project-id");
+    await connected(1);
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await settleSoon();
+    const st = await connection.connect("walletconnect");
+    expect(sc.disconnects, "deleted again once at the tap").toBe(2);
+    expect(st).toMatchObject({ status: "disconnected", account: null, pairing: null });
+    expect(st.error).toBe(new WalletConnectSessionLeft("Failed to publish payload, please try again.").message);
+    expect(sc.connectCalls, "no pairing beside the session left").toBe(1);
+  });
+
+  it("an end while a failed one's session is left — a Forget's — deletes it at its relay: none left on the provider, its keys cleared, and the next tap pairs with no delete again", async () => {
+    configureWalletConnect("a-project-id");
+    sc.sessionsInStore = true;
+    await connected(1);
+    const provider = connection.provider() as WcProvider;
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await settleSoon(); // its delete failed: the session left on the provider
+    sc.endFails = false; // back online
+    await endWalletConnect(); // the Forget's end
+    expect(sc.disconnects, "the left session deleted at its relay").toBe(2);
+    expect(provider.session, "none left on the provider").toBeUndefined();
+    expect(sc.store?.has(HISTORY_KEY), "its keys cleared, what the library wrote at that delete among them").toBe(false);
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    expect(sc.disconnects, "no delete again at the tap").toBe(2);
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
+  });
+
+  it("a failed end, then the tap's delete again acknowledged but unfinished past its own bound: that tap waits its bound and reads the unfinished refusal — never the failed one's words, never a pairing beside it —, the next tap at once; once answered, the next tap pairs, nothing more sent", async () => {
+    configureWalletConnect("a-project-id");
+    walletConnectEndTiming.boundMs = 1_000;
+    await connected(1);
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await settleSoon(); // the end over, its delete failed: the session left on the provider
+    sc.endFails = false;
+    const release = holdEnd(); // the delete again acknowledged, its unsubscribe unanswered
+    const t0 = Date.now();
+    const st = await connection.connect("walletconnect");
+    expect(Date.now() - t0, "it waited that delete again's bound").toBeGreaterThanOrEqual(900);
+    expect(sc.disconnects, "deleted again once at the tap").toBe(2);
+    expect(st.error, "the unfinished refusal — not the failed one's words").toBe(UNFINISHED);
+    expect(sc.connectCalls, "no pairing beside the delete again under way").toBe(1);
+    sc.endGate = null; // a third delete would be answered at once
+    const t1 = Date.now();
+    expect((await connection.connect("walletconnect")).error).toBe(UNFINISHED);
+    expect(Date.now() - t1, "at once").toBeLessThan(500);
+    expect(sc.disconnects, "never a third delete beside it").toBe(2);
+    release(); // answered at last
+    await settleSoon();
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
+    await settleSoon();
+    expect(sc.disconnects, "nothing more sent").toBe(2);
+  });
+
+  it("a Forget's end that meets a tap's delete again under way waits for it — refused, its keys cleared all the same: nothing the session wrote back is left", async () => {
+    configureWalletConnect("a-project-id");
+    await connected(1);
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await settleSoon(); // its delete failed: the session left on the provider, its keys cleared
+    sc.store!.set(HISTORY_KEY, "a ping's records, the account among them"); // the session's sign client answers the wallet app's ping
+    const release = holdEnd(); // the tap's delete again held, then refused (still offline)
+    const tap = connection.connect("walletconnect");
+    await vi.waitFor(() => expect(sc.disconnects, "deleted again at the tap").toBe(2));
+    const forget = endWalletConnect(); // the Forget's end meets it
+    release();
+    await forget;
+    expect([...sc.store!.keys()], "nothing left in WalletConnect's store").toEqual([]);
+    expect((await tap).error).toBe(new WalletConnectSessionLeft("Failed to publish payload, please try again.").message);
+  });
+
+  it("the refusal carries the latest cause: an end past its bound, its delete then refused, and the tap's delete again refused too", async () => {
+    configureWalletConnect("a-project-id");
+    walletConnectEndTiming.boundMs = 200;
+    await connected(1);
+    const release = holdEnd();
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await new Promise((r) => setTimeout(r, 300)); // past its bound: the keys cleared, the session left, its delete still under way
+    sc.endFails = true;
+    release(); // then refused
+    await settleSoon();
+    const st = await connection.connect("walletconnect");
+    expect(sc.disconnects, "deleted again at the tap").toBe(2);
+    expect(st.error, "the delete again's own cause, not the first's").toBe(
+      new WalletConnectSessionLeft("Failed to publish payload, please try again.").message,
+    );
+  });
+
+  it("the wallet app's own end during the delete again — that delete then refused, its session gone from the provider all the same — is a delete: the tap pairs", async () => {
+    configureWalletConnect("a-project-id");
+    await connected(1);
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await settleSoon(); // the end over, its delete failed: the session left on the provider
+    const release = holdEnd(); // the delete again held, then refused
+    const again = connection.connect("walletconnect");
+    await vi.waitFor(() => expect(sc.disconnects, "deleted again at the tap").toBe(2));
+    await walletEnds(); // meanwhile the wallet app ends that session: the provider's cleanup runs
+    await settleSoon();
+    release(); // the delete again refused: the session no longer at the relay
+    await pairingShown(2);
+    expect(connection.get().error, "never the refusal").toBeNull();
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
+  });
+
+  it("a late approval's end whose delete fails is a Disconnect's: its keys cleared — the next tap never takes it up — and deleted again at that tap before it pairs", async () => {
+    configureWalletConnect("a-project-id");
+    sc.sessionsInStore = true;
+    const run = connection.connect("walletconnect");
+    await pairingShown(1);
+    connection.cancel();
+    sc.endFails = true;
+    lastPairing().approve(); // approved after its Cancel: its delete fails at once (offline)
+    await run;
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await vi.waitFor(() => expect(sc.sessions, "its keys cleared").toHaveLength(0));
+    sc.endFails = false;
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    expect(sc.disconnects, "deleted again at the tap").toBe(2);
+    expect(connection.get().account, "never the late session").toBeNull();
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
+    await settleSoon();
+    expect(sc.disconnects, "and nothing more").toBe(2);
+  });
+
+  it("a session the wallet app ended meanwhile — nothing left to delete — is not sent again: the next tap pairs at once", async () => {
+    configureWalletConnect("a-project-id");
+    await connected(1);
+    sc.endFails = true;
+    connection.disconnect();
+    await vi.waitFor(() => expect(sc.disconnects).toBe(1));
+    await settleSoon();
+    sc.endFails = false;
+    await walletEnds(); // the wallet app's own end of that session: the provider's cleanup ran
+    const again = connection.connect("walletconnect");
+    await pairingShown(2);
+    expect(sc.disconnects, "nothing to delete again").toBe(1);
+    lastPairing().approve();
+    expect((await again).status).toBe("connected");
   });
 });

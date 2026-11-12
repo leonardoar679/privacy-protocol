@@ -68,12 +68,18 @@ vi.mock("@walletconnect/ethereum-provider", () => ({
 }));
 
 import { connection, discover } from "@privacy-wallet/wallet-engine/connection";
-import { configureWalletConnect, resetWalletConnect } from "@privacy-wallet/wallet-engine/walletConnect";
+import {
+  configureWalletConnect,
+  resetWalletConnect,
+  WalletConnectEndUnfinished,
+  WalletConnectSessionLeft,
+} from "@privacy-wallet/wallet-engine/walletConnect";
 import { session } from "@privacy-wallet/sdk/wallet/session";
 import { settings } from "@privacy-wallet/sdk/wallet/settings";
 import { registerCatalog, t } from "../src/app/i18n/messages";
 import { ko as KO } from "../src/app/i18n/ko";
-import { ConnectSheet } from "../src/features/wallet/ConnectSheet";
+import { ConnectSheet, ConnectSheetView } from "../src/features/wallet/ConnectSheet";
+import PairingSheet from "../src/features/wallet/PairingSheet";
 import { connectErrorWords } from "../src/features/wallet/connectWords";
 import { prefs } from "../src/storage/prefs";
 import { renderApp } from "./helpers/render";
@@ -126,6 +132,36 @@ describe("a connection's failure in the sheet's words", () => {
       expect(connectErrorWords(t, text, false), text).toBe(relayOthers);
       expect(connectErrorWords(t, text, false, "picker", false), `${text} — WalletConnect alone`).toBe(relay);
       expect(connectErrorWords(t, text, false, "pairing"), text).toBe(relay);
+    }
+  });
+
+  it("a session an earlier WalletConnect end in this page left, its delete failing again: try again or reload, picker and pairing alike, whatever its cause — the cause under Advanced; Korean too (the twelfth review round, 12d3c)", () => {
+    // offline, the relay out of reach: never the network's or the relay's words alone — a reload is the way out when trying again keeps failing
+    for (const why of ["No internet connection detected", "Failed to publish payload, please try again."]) {
+      const text = new WalletConnectSessionLeft(why).message;
+      expect(text, "its cause kept").toContain(why);
+      expect(connectErrorWords(t, text, false), why).toBe(t("wallet.sheet.error.leftover"));
+      expect(connectErrorWords(t, text, false, "pairing"), why).toBe(t("wallet.sheet.error.leftover"));
+      expect(connectErrorWords(t, text, true), "its cause after the words under Advanced").toBe(`${t("wallet.sheet.error.leftover")} (${text})`);
+    }
+    expect(t("wallet.sheet.error.leftover")).toMatch(/try again, or reload/);
+    expect(KO["wallet.sheet.error.leftover"]).toContain("다시 시도");
+    expect(KO["wallet.sheet.error.leftover"]).toContain("새로 고");
+  });
+
+  it("an earlier WalletConnect end still under way (acknowledged, unfinished): reload once online — try again cannot help while that end is unfinished —, picker and pairing alike; no unlock asked, nothing to unlock at a first launch; Korean too (the critique of 12d3c, YO and YQ)", () => {
+    const text = new WalletConnectEndUnfinished().message;
+    expect(connectErrorWords(t, text, false)).toBe(t("wallet.sheet.error.unfinished"));
+    expect(connectErrorWords(t, text, false, "pairing")).toBe(t("wallet.sheet.error.unfinished"));
+    expect(connectErrorWords(t, text, true), "its cause after the words under Advanced").toBe(`${t("wallet.sheet.error.unfinished")} (${text})`);
+    expect(t("wallet.sheet.error.unfinished")).toMatch(/Once this device is online, reload the page/);
+    expect(KO["wallet.sheet.error.unfinished"]).toContain("인터넷에 연결된 뒤");
+    expect(t("wallet.sheet.error.unfinished")).not.toMatch(/try again/i);
+    expect(KO["wallet.sheet.error.unfinished"]).toContain("새로 고");
+    expect(KO["wallet.sheet.error.unfinished"]).not.toContain("다시 시도");
+    for (const key of ["wallet.sheet.error.leftover", "wallet.sheet.error.unfinished"] as const) {
+      expect(t(key), key).not.toMatch(/unlock/i);
+      expect(KO[key], key).not.toContain("잠금 해제");
     }
   });
 
@@ -296,6 +332,64 @@ describe("a WalletConnect pairing, shown by the wallet itself", () => {
     expect(screen.getAllByTestId(/^connector-/)).toHaveLength(1);
   });
 
+  it("the picker offers Reload under the words that name one — an earlier end still under way, or left — and never under others; it reloads the page (the critique of 12d3c, YP and YQ)", async () => {
+    const reload = vi.spyOn(window.location, "reload").mockImplementation(() => undefined);
+    try {
+      await pairingInPicker();
+      act(() => wc.settle!.refuse({ code: 5000, message: "User rejected." }));
+      await screen.findByTestId("connect-error");
+      expect(screen.queryByTestId("connect-reload"), "a refusal: no Reload").toBeNull();
+      fireEvent.click(screen.getByTestId("connector-walletconnect"));
+      await screen.findByTestId("connect-qr", {}, LAZY);
+      act(() => wc.settle!.refuse(new WalletConnectSessionLeft("Failed to publish payload, please try again.")));
+      expect(await screen.findByTestId("connect-error")).toHaveTextContent(t("wallet.sheet.error.leftover"));
+      expect(screen.getByTestId("connect-reload"), "a failed delete's words name a reload").toHaveTextContent(t("wallet.pairing.reload"));
+      fireEvent.click(screen.getByTestId("connector-walletconnect"));
+      await screen.findByTestId("connect-qr", {}, LAZY);
+      act(() => wc.settle!.refuse(new WalletConnectEndUnfinished()));
+      expect(await screen.findByTestId("connect-error")).toHaveTextContent(t("wallet.sheet.error.unfinished"));
+      fireEvent.click(screen.getByTestId("connect-reload"));
+      expect(reload, "the page reloaded").toHaveBeenCalledTimes(1);
+    } finally {
+      reload.mockRestore();
+    }
+  });
+
+  it("the picker's view: Reload only when the failure's words name one — and it calls its reload", () => {
+    const onReload = vi.fn();
+    const model = { account: null, status: "disconnected" as const, via: null, connectors: [], error: "The words." };
+    const props = { open: true, onClose: vi.fn(), onConnect: vi.fn(), onSwitch: vi.fn(), onDisconnect: vi.fn(), onReload };
+    const { rerender } = render(<ConnectSheetView {...props} model={model} />);
+    expect(screen.queryByTestId("connect-reload"), "a failure Try again can clear: no Reload").toBeNull();
+    rerender(<ConnectSheetView {...props} model={{ ...model, reload: true }} />);
+    fireEvent.click(screen.getByTestId("connect-reload"));
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
+
+  it("the pairing's own sheet: Reload in place of Try again — refused at once while that end is unfinished — for an end still under way, and it reloads the page; Reload beside Try again for a failed delete's; Try again alone otherwise", async () => {
+    const reload = vi.spyOn(window.location, "reload").mockImplementation(() => undefined);
+    try {
+      const first = render(<PairingSheet uri={null} failure={new WalletConnectEndUnfinished().message} onClose={vi.fn()} />);
+      const sheet = await screen.findByTestId("pairing-sheet");
+      expect(within(sheet).getByTestId("connect-error")).toHaveTextContent(t("wallet.sheet.error.unfinished"));
+      expect(within(sheet).queryByTestId("connect-retry"), "no Try again").toBeNull();
+      fireEvent.click(within(sheet).getByTestId("connect-reload"));
+      expect(reload, "the page reloaded, as the app renders the sheet").toHaveBeenCalledTimes(1);
+      first.unmount();
+      const second = render(<PairingSheet uri={null} failure={new WalletConnectSessionLeft("No internet connection detected").message} onClose={vi.fn()} />);
+      const left = await screen.findByTestId("pairing-sheet");
+      expect(within(left).getByTestId("connect-retry")).toHaveTextContent(t("wallet.pairing.retry"));
+      expect(within(left).getByTestId("connect-reload"), "the reload its words name").toHaveTextContent(t("wallet.pairing.reload"));
+      second.unmount();
+      render(<PairingSheet uri={null} failure="User rejected." onClose={vi.fn()} />);
+      const other = await screen.findByTestId("pairing-sheet");
+      expect(within(other).getByTestId("connect-retry")).toHaveTextContent(t("wallet.pairing.retry"));
+      expect(within(other).queryByTestId("connect-reload")).toBeNull();
+    } finally {
+      reload.mockRestore();
+    }
+  });
+
   it("a refusal reads in the sheet's words — the wallet's own text only under Advanced", async () => {
     await pairingInPicker();
     act(() => wc.settle!.refuse({ code: 5000, message: "User rejected." }));
@@ -358,6 +452,19 @@ describe("a WalletConnect pairing, shown by the wallet itself", () => {
     fireEvent.click(within(third).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByTestId("pairing-sheet")).toBeNull());
     expect(connection.get()).toMatchObject({ status: "disconnected", error: null });
+  });
+
+  it("from the app's root, a WalletConnect end still under way reads in its own words with Reload, never Try again (the critique of 12d3c, YP)", async () => {
+    configureWalletConnect("a-project-id");
+    await renderApp("/");
+    await screen.findByTestId("welcome");
+    fireEvent.click(screen.getByTestId("welcome-connect"));
+    const sheet = await screen.findByTestId("pairing-sheet", {}, LAZY);
+    await within(sheet).findByTestId("connect-qr");
+    act(() => wc.settle!.refuse(new WalletConnectEndUnfinished()));
+    expect(await within(sheet).findByTestId("connect-error")).toHaveTextContent(t("wallet.sheet.error.unfinished"));
+    expect(within(sheet).getByTestId("connect-reload")).toHaveTextContent(t("wallet.pairing.reload"));
+    expect(within(sheet).queryByTestId("connect-retry")).toBeNull();
   });
 
   it("from the app's root, a WalletConnect connection shows from its start: a failure before any link reads in its own words with Try again (the third critique)", async () => {

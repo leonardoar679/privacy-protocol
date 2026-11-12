@@ -2,7 +2,8 @@
 // Connect started, WalletConnect the browser's only connector — in a sheet of its own from the app's root, whatever the route, never while
 // the picker is open (pairingHost; the picker closed while WalletConnect loads cancels it). From its start — the library's wait (the third
 // critique: a failure before any link had shown nothing) — through the pairing and what follows — a failure in the wallet's words with Try
-// again, the retry's wait — until it connects or is closed (the second critique: Welcome and Protect show no connection failure, and the
+// again (Reload beside it, or in its place, where the words name a reload: PairingSheet), the retry's wait — until it connects or is closed
+// (the second critique: Welcome and Protect show no connection failure, and the
 // sheet had simply gone; one sheet mounted throughout, since a sheet closing while another opens would fight over the back button's history
 // entry).
 import { lazy, Suspense, useState } from "react";

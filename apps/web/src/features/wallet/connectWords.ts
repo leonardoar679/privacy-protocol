@@ -16,16 +16,36 @@ const NOT_STARTED = /failed to fetch|dynamically imported module|no internet con
  * the picker another wallet, which needs no relay (the critique of 12d3b).
  */
 const RELAY_UNREACHABLE = /failed to publish|couldn't establish socket|socket stalled|subscribing to .* failed|connection interrupted/i;
+/** An earlier WalletConnect end still under way, acknowledged but unfinished (WalletConnectEndUnfinished): every tap refused until it settles. */
+const UNFINISHED_END = /walletconnect has not finished ending a session/i;
+/** A session an earlier WalletConnect end left, its delete failed again (WalletConnectSessionLeft): a later tap deletes it again once online. */
+const SESSION_LEFT = /walletconnect could not delete the session an earlier end left/i;
+/**
+ * The failures whose words name a reload: their sheets offer Reload — an installed copy has no browser reload control (the critique of 12d3c,
+ * YP and YQ). "only": an end still under way — the failure a reload clears for sure: that end may never settle (an answer lost with a socket
+ * that dropped); once it settles the next tap pairs, and until then Try again is refused at once —, Reload in its place in the pairing's
+ * sheet. "beside": a failed delete's, Try again kept (a later tap deletes it again once online).
+ */
+export const reloadOffered = (error: string): "only" | "beside" | null =>
+  UNFINISHED_END.test(error) ? "only" : SESSION_LEFT.test(error) ? "beside" : null;
 
 /**
  * The wallet's refusal; a request the wallet is already showing (EIP-1193 -32002: "Already processing eth_requestAccounts", "… already
  * pending …" — trying again fails the same way until it is answered); a connection that could not start on this device; a pairing the
  * wallet app did not answer in time; anything else. The wallet's own text, often English, comes after the words under Advanced only.
- * `pairing`: the pairing's own sheet, whose one action is Try again — no list to choose from again, no other wallet (the third critique).
+ * `pairing`: the pairing's own sheet, whose one action is Try again — no list to choose from again, no other wallet (the third critique);
+ * Reload beside it, or in its place, where the words name a reload (reloadOffered).
  * `others`: the picker lists another connector to choose (a phone's picker may list WalletConnect alone: the fourth critique).
  */
 export function connectErrorWords(t: T, error: string, advanced: boolean, where: "picker" | "pairing" = "picker", others = true): string {
-  const key: MessageKey = /already (pending|processing)/i.test(error)
+  // a session an earlier WalletConnect end in this page left (the twelfth review round, B12-3 and 12d3c): its delete failed again — a later
+  // tap deletes it again once online, a reload starts afresh; its cause under Advanced —, or that end is still under way, acknowledged but
+  // unfinished — every tap refused until it settles, which may never come: a reload starts afresh
+  const key: MessageKey = UNFINISHED_END.test(error)
+    ? "wallet.sheet.error.unfinished"
+    : SESSION_LEFT.test(error)
+    ? "wallet.sheet.error.leftover"
+    : /already (pending|processing)/i.test(error)
     ? "wallet.sheet.error.pending"
     : /reject|denied|declined/i.test(error)
       ? "wallet.sheet.error.refused"

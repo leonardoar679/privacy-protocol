@@ -507,7 +507,12 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
 71. **V7 — what a seized device still tells (the fifth review round, 2026-11-03; informational).** After a Forget everything of
     the wallet's under the origin goes (`apps/web/src/platform/forget.ts`; WalletConnect's own IndexedDB database among it — since
     the eleventh review round, in the page that loaded WalletConnect, its session is ended and its keys removed through its own storage
-    before the Forget resolves, the database deleted at a later page start; a Forget made while another tab holds WalletConnect leaves
+    before the Forget resolves — waited for 5 s at most (`WALLET_CONNECT_END_MS`): an end that fails (offline: the library refuses at once),
+    or whose delete is not yet acknowledged when the production build restarts, is not sent again, the session staying live at the wallet
+    app until it ages out; one acknowledged with its unsubscribe unanswered has removed it there (the twelfth review round, B12-3; a dev
+    build, which does not restart, deletes a failed one again at the next WalletConnect tap, and refuses every tap while one is unfinished,
+    as gap 112 says) —, the database
+    deleted at a later page start; a Forget made while another tab holds WalletConnect leaves
     that tab's session, pairing and keychain until that tab closes and the wallet's origin is opened again with no tab holding it —, and
     the Forget resolves once its deletes are written: the tenth review round, D-3, D-9). A passkey the wallet registered —
     the second factor's or the second device's, the discoverable `privacy-wallet`, which may sync — stays in the platform's list: a
@@ -815,6 +820,51 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     (`pendingWipe`) takes the newer session's copy too, so the next tap pairs anew and that session stays live at its relay, listed
     in the wallet app until it ages out. A Forget after a reload with no connection made ends no session at the relay (the wallet
     app lists it until it ages out; the device's copy is gone). Giving WalletConnect a storage the wallet owns (`EthereumProvider.init`'s `storage`) is the planned change.
+    A stored session the wallet app has ended meanwhile is taken up all the same (the twelfth review round, B12-7; stated): connected with
+    no word from the wallet app — a ping cannot tell a dead session from a phone app that is not running —, and its requests reach nobody
+    and expire after fifteen minutes: a deposit's or a self-submitted Send's as `wallet_request_expired`, which holds the next of its kind
+    (a Protect for its hour whatever the connection, a Send until the chain's verdict), a token Protect's first approval as
+    `approval_unanswered`, nothing deposited and nothing held. Only that approval's words suggest connecting again; a Disconnect, then a
+    new pairing, is the way out.
+    The page keeps one WalletConnect provider for its life (the twelfth review round, slice 12d3c; the owner's decision of 2026-11-12):
+    an end had forgotten the provider and the next tap had made a second sign client over the page's one Core, whose first engine's
+    heartbeat (`cleanupOrphanedSubscriptions`) unsubscribed the second's session within seconds — a reconnect in the same page went deaf,
+    its requests reaching the wallet app and their answers never the page. An end now deletes the provider's session and keeps the
+    provider; the next connection is a new pairing on it, and a late approval's end is a Disconnect's.
+    An end whose delete does not complete (B12-3) clears the keys all the same and leaves that session on the provider; nothing pairs
+    beside it, and it is deleted again at a WalletConnect tap (the owner's decision of 2026-11-12) or by a later end — a Forget's —, never
+    at the browser's `online`; its keys are cleared again whatever that delete's outcome.
+    A delete that failed (offline, where the library refuses at once, or its publish expired after a minute) is deleted again by the next
+    tap before it pairs: nothing of the tap's is pending yet, so the library's cleanup at that delete, which expires every pairing of the
+    Core, takes nothing of the new connection; the tap reads "Connecting…" meanwhile, for at most an end's bound, then a delete again's.
+    That delete failing too, the sheet reads "WalletConnect could not end the earlier connection. Check the internet connection and try
+    again, or reload the page, then connect again." (its cause under Advanced), the pairing's own sheet offering Reload beside Try again
+    and the picker Reload under its words: a later tap deletes it again once online; a reload starts afresh — the page start deletes
+    WalletConnect's database —, that session then listed in the wallet app until it ages out. Until it is
+    deleted the provider's sign client still holds that session — its topic subscribed, the socket reopened by itself (the library's
+    reconnect, its heartbeat while the page is visible, `online`), the wallet app answered on it: a ping writes the history back into
+    WalletConnect's store (the account among it), an update or an extension the session itself, both cleared again at the delete; the
+    wallet app's own end of it runs the provider's cleanup over the Core, while no new pairing exists (a delete refused after that end
+    counts as done — one refused in the moment between the sign client's own deletion and the end of that cleanup, the wallet app's end
+    landing within about a round trip of a tap's delete again, reads the failed words once, and the next tap pairs: the critique of 12d3c,
+    YQ). The wallet app lists it until it is deleted or ages out; the Privacy Center's "while WalletConnect is connected, its
+    own record of the connection" does not hold meanwhile.
+    An end past its bound was acknowledged — the wallet app has removed the session, and the library has dropped its topic — but its
+    unsubscribe goes unanswered, and the library finishes it only once that answer comes: its cleanup then runs on the provider, and had
+    expired a pairing made meanwhile and dropped a session made meanwhile from the provider while the wallet app kept it (the critique of
+    slice 12d3c, over the installed library and a local relay). So it is never doubled or paired beside: a tap meanwhile reads
+    "Connecting…" for at most the end's bound, then "WalletConnect has not finished ending the earlier connection. Once this device is
+    online, reload the page, then connect again." (the page has no offline copy) — the pairing's own sheet offering Reload in place of Try
+    again, the picker Reload under its words —, at once for
+    every tap after the bound, until that answer comes — never, when it was lost with a socket that dropped
+    (the library's unsubscribe has no bound and is never resent; the critique's next round, YO): every WalletConnect tap in that page is
+    then refused until a reload, the earlier pairing's topic the only one still subscribed. A reload leaves nothing listed.
+    After a Disconnect, a Forget or the wallet app's own end the page's socket to the relay stays open for the page's life (B12-8;
+    stated), nothing subscribed once the end is complete: closing it right after an end cut the library's own pairing deletion short — its
+    unsubscribe's answer dropped with the socket, the pairing and its key kept in memory and written back at the next pairing (the
+    critique of slice 12d3c). The page authenticates to the relay with a key derived from the client seed WalletConnect keeps in its own
+    store (the relay sees its public identifier, never the seed): every session from this browser, across reloads and tabs, is one client
+    to the relay until that store is deleted (the page start after a Disconnect or a Forget).
 113. **V7 — a production build and its NODE_ENV (the tenth review round, D-8; stated).** Every production floor — the scrypt cost,
     the holds, the strict transport, the artifact pins, the development verifier's refusal, the Forget's restart — keys on
     `import.meta.env.PROD`, which Vite takes from `NODE_ENV`: both applications' builds now refuse any other

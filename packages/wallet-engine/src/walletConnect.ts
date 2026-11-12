@@ -1,7 +1,8 @@
 // WalletConnect (spec §7; plan §11): loaded only when the user taps it — or, after a reload, when its own store holds a
-// session to take up (the review round of 2026-11-02: never an idle socket to the relay for nothing) — and only when a
-// project id is configured (VITE_WC_PROJECT_ID). Its relay sees the session's metadata and the IPs of both ends — said on
-// the "What stays private" screen (spec §3.13), not mitigated here. The connector is an EIP-1193 provider like the others.
+// session to take up (the review round of 2026-11-02: never a socket to the relay for nothing at a page's start; once loaded,
+// the socket stays for the page's life, ended sessions or not: audit gap 112) — and only when a project id is configured
+// (VITE_WC_PROJECT_ID). Its relay sees the session's metadata and the IPs of both ends — said on the "What stays private"
+// screen (spec §3.13), not mitigated here. The connector is an EIP-1193 provider like the others.
 import type { Eip1193Provider } from "./injected";
 
 let projectId: string | undefined;
@@ -112,20 +113,66 @@ export interface WcProvider extends Eip1193Provider {
   disconnect(): Promise<void>;
   /** its connect() when it holds no session — the pairing, whose link it gives as a `display_uri` event —, then the accounts */
   enable(): Promise<string[]>;
+  /** the session it holds, if any: none once its cleanup ran — at its own delete, or at the wallet app's end */
+  readonly session?: unknown;
 }
 
+/**
+ * The page's one WalletConnect provider (the twelfth review round, slice 12d3c; the owner's decision of 2026-11-12): made once and kept for
+ * the page's life, paired again after an end. An end had forgotten it and the next tap had made a second over the page's one Core, whose
+ * first sign client then unsubscribed the second's session within a heartbeat (its cleanupOrphanedSubscriptions drops every topic its own
+ * store does not hold): a reconnect in the same page went deaf, its requests reaching the wallet app and their answers never the page.
+ */
 let cached: WcProvider | null = null;
 /** The provider's init under way: one at a time (the eleventh review round, slice 6c's critique). */
 let initing: Promise<WcProvider> | null = null;
+/**
+ * What an earlier end left on the page's provider (the twelfth review round, B12-3): why its delete failed (offline, its publish expired) —
+ * the session still held, which its enable() would take up: the next tap deletes it again before it pairs —, or UNFINISHED: that delete
+ * acknowledged but still under way past its bound, no tap pairing until it settles; null: nothing left. Set by an end and by a tap's delete
+ * again: a delete that settles late leaves it set, with nothing left, until the next tap.
+ */
+let leftover: string | null = null;
+const UNFINISHED = "its unsubscribe still unanswered at the relay";
+
+/**
+ * WalletConnect does not pair while the session an earlier end in this page left is still there, its delete failed again (B12-3): a later
+ * tap deletes it again once online; a reload starts afresh, that session then listed in the wallet app until it ages out (audit gap 112).
+ * `why`, the library's own words, shows under Advanced only.
+ */
+export class WalletConnectSessionLeft extends Error {
+  constructor(why: string) {
+    super(`WalletConnect could not delete the session an earlier end left in this page (${why})`);
+  }
+}
+/**
+ * WalletConnect does not pair while an earlier end's delete is still under way past its bound (B12-3): acknowledged — the wallet app has
+ * removed the session — but its unsubscribe unanswered, and the library would finish it, its cleanup run on the provider, once it is. A tap
+ * is refused until then, which never comes when that answer was lost with a socket that dropped: a reload starts afresh, nothing listed
+ * (audit gap 112).
+ */
+export class WalletConnectEndUnfinished extends Error {
+  constructor() {
+    super(`WalletConnect has not finished ending a session an earlier end in this page began (${UNFINISHED})`);
+  }
+}
 
 export async function walletConnectProvider(chainId: number): Promise<WcProvider | null> {
   const projectId = walletConnectProjectId();
   if (!projectId) return null;
   // an end under way is waited for first — a Disconnect's, a Forget's, a late approval's (the twelfth review round, B12-2): the sign client
-  // deletes a session only once the relay has acknowledged its delete and the unsubscribe, and a provider made meanwhile, over the page's
-  // one Core, took that session up — connected with no pairing, on a session the wallet app deleted a moment later, every request refused.
-  // The tap reads "Connecting…" meanwhile, at most an end's bound (walletConnectEndTiming)
-  for (let under = endUnderWay(); under; under = endUnderWay()) await under.catch(() => undefined);
+  // deletes a session only once the relay has acknowledged its delete and the unsubscribe, and a connection made meanwhile took that session
+  // up — connected with no pairing, on a session the wallet app deleted a moment later, every request refused. The tap reads "Connecting…"
+  // meanwhile: at most an end's bound, then a delete again's (walletConnectEndTiming)
+  for (let under = ending; under; under = ending) await under.catch(() => undefined);
+  if (cached && leftover !== null) {
+    // the session an earlier end left, deleted again before anything pairs (B12-3; at a tap, the owner's decision of 2026-11-12, or by a
+    // later end — a Forget's —, never at the browser's online): the library's cleanup at that delete expires every pairing of the Core, none
+    // of this tap's yet. Run as an end (none is under way here, the loop above waited for it), so a second tap waits for it there
+    ending = deleteAgain(cached);
+    await ending.catch(() => undefined);
+    if (leftover !== null) throw leftover === UNFINISHED ? new WalletConnectEndUnfinished() : new WalletConnectSessionLeft(leftover);
+  }
   if (cached) return cached;
   // one init at a time (the eleventh review round, slice 6c's critique): two taps while the library loaded had made two providers and kept
   // the last — a Disconnect then ended the one never paired, and left the paired one open at its relay
@@ -137,8 +184,8 @@ function startInit(projectId: string, chainId: number): Promise<WcProvider> {
   initing = init;
   void init.then(
     (p) => {
-      if (initing !== init) return; // ended meanwhile (endWalletConnect ends what it makes)
-      cached = p;
+      if (initing !== init) return; // tests: reset meanwhile
+      cached = p; // the page's one provider, an end under way or not (endWalletConnect ends the session it took up, and keeps it)
       initing = null;
     },
     () => {
@@ -175,42 +222,75 @@ async function initProvider(projectId: string, chainId: number): Promise<WcProvi
 
 /**
  * Ends the WalletConnect session (2026-10-17, the audit's unverified m65): "Disconnect" had only forgotten the account,
- * the relay socket stayed open and the next WalletConnect connection reused the session. The provider is forgotten, so
- * the next connection is a new pairing. A session the wallet already ended is not an error.
+ * and the next WalletConnect connection reused the session. Its session deleted, the page's one provider is kept and the
+ * next connection is a new pairing on it (12d3c); one whose delete failed keeps that session, deleted again at the next
+ * tap before it pairs, and one still under way past its bound refuses every tap until it settles (B12-3). A session the
+ * wallet already ended is not an error. The page's socket to the
+ * relay stays open for the page's life — nothing subscribed once the end is complete (B12-8; stated in audit gap 112).
+ * It is not closed: closing it right after the end cut the library's own pairing deletion short.
  */
 let ending: Promise<void> | null = null;
 /**
  * How long an end's delete is waited for (tests shorten it), just past the library's own bound on the delete's publish (60 s): the unsubscribe
  * after it has none, and a socket dropped before its answer had left the end — and every tap waiting on it — pending for good (the critique
- * of 12d3a). Past it a Disconnect's or a Forget's end goes on to its key clearing, as after a failed delete, so the next provider pairs anew;
- * a late end's keys go as endWalletConnectOf says.
+ * of 12d3a). Past it the end goes on to its key clearing, as after a failed delete; every tap is then refused until that delete settles —
+ * never, when its unsubscribe's answer was lost with a socket that dropped: a reload starts afresh (B12-3; audit gap 112).
  */
 export const walletConnectEndTiming = { boundMs: 65_000 };
-/** Whether `end` settled within the bound (false: the bound passed first). */
-function bounded(end: Promise<unknown>): Promise<boolean> {
+/** `end`'s outcome, or undefined once `ms` passes first (or it rejects). */
+function within<T>(end: Promise<T>, ms: number): Promise<T | undefined> {
   return new Promise((resolve) => {
-    const t = setTimeout(() => resolve(false), walletConnectEndTiming.boundMs);
-    const done = () => {
+    const t = setTimeout(() => resolve(undefined), ms);
+    const done = (v: T | undefined) => {
       clearTimeout(t);
-      resolve(true);
+      resolve(v);
     };
-    void end.then(done, done);
+    void end.then(done, () => done(undefined));
   });
 }
-/** The ends of providers forgotten before their session was (endWalletConnectOf), under way: a new provider waits for them as for `ending`. */
-const lateEnds = new Set<Promise<void>>();
-const endUnderWay = (): Promise<void> | null => ending ?? lateEnds.values().next().value ?? null;
+const messageOf = (e: unknown): string =>
+  typeof (e as { message?: unknown } | null)?.message === "string" ? (e as { message: string }).message : String(e);
+/**
+ * The page's provider's disconnect under way — an end's or a delete again's —: its outcome (null: the session gone; else why not) and when
+ * its bound passes. Past its bound the sign client may still finish it, and its cleanup then runs on the provider — a session taken up
+ * meanwhile gone from it, a pairing made meanwhile expired (the twelfth review round, the critique of 12d3c): no second disconnect is
+ * started beside it, and nothing pairs until it settles — which it may never do: its unsubscribe has no bound in the library, and an answer
+ * lost with a socket that dropped is never resent (the critique's next round, YO).
+ */
+let disconnecting: { outcome: Promise<string | null>; until: number } | null = null;
+function disconnectOf(p: WcProvider): { outcome: Promise<string | null>; until: number } {
+  if (disconnecting) return disconnecting;
+  const d = {
+    // a delete that fails with the session gone from the provider all the same — the wallet app's own end ran its cleanup meanwhile — is one
+    outcome: p.disconnect().then(
+      () => null,
+      (e: unknown) => (p.session ? messageOf(e) : null),
+    ),
+    until: Date.now() + walletConnectEndTiming.boundMs,
+  };
+  disconnecting = d;
+  void d.outcome.then(() => {
+    disconnecting = null;
+  });
+  return d;
+}
+/** Why `p`'s session is still there once its disconnect settled or its bound passed — null: gone. */
+async function whyLeft(p: WcProvider): Promise<string | null> {
+  const d = disconnectOf(p);
+  const outcome = await within(d.outcome, d.until - Date.now());
+  return outcome === undefined ? UNFINISHED : outcome;
+}
 export function endWalletConnect(): Promise<void> {
   // one end at a time: a Disconnect's and a Forget's awaiting the same (the round's second critique: the Forget awaits it)
   if (ending) return ending;
-  const held = cached;
-  const pending = initing;
-  cached = null;
-  initing = null;
   ending = (async () => {
-    // an init under way is waited for, and the provider it makes is ended too: never left to pair with nothing here to end it
-    const p = held ?? (pending ? await pending.catch(() => null) : null);
-    if (p) await bounded(p.disconnect().catch(() => {}));
+    // an init under way is waited for, and the session the provider it makes takes up is ended too: never left with nothing here to end it
+    const p = cached ?? (initing ? await initing.catch(() => null) : null);
+    // a delete that failed (offline, its publish expired) leaves the session on the provider, deleted again at the next tap before it pairs
+    // (or by a later end); one still under way past the bound is never doubled: every tap is refused (WalletConnectEndUnfinished) until it
+    // settles — never, when its answer was lost —, then the next tap pairs, sending nothing (B12-3; stated in audit gap 112, with what the
+    // library does meanwhile) — its keys cleared all the same either way
+    if (p) leftover = await whyLeft(p);
     // its keys through its own storage, on the connection it holds (A11-3, H11-4): a deletion of the database from this page is blocked by
     // that connection; the database itself goes at a later page start
     await clearThroughStore(storeOf(p));
@@ -219,6 +299,21 @@ export function endWalletConnect(): Promise<void> {
     ending = null;
   });
   return ending;
+}
+/**
+ * The session an earlier end left on `p`, deleted again once that end's own delete has settled — within its bound, else still left (none
+ * left — the wallet app's own end ran the provider's cleanup, or that delete completed late — is deleted too: its disconnect then has nothing
+ * to send). Its keys are cleared whatever the outcome, as an end clears them — what the library wrote at the delete, and what the session's
+ * sign client wrote back meanwhile (a ping's history, the account with it), among them: a Forget's end that meets a delete again under way
+ * waits for it, and had left them (the critique of 12d3c, YP). Nothing of the tap's is pending yet.
+ */
+function deleteAgain(p: WcProvider): Promise<void> {
+  return (async () => {
+    leftover = await whyLeft(p);
+    await clearThroughStore(storeOf(p));
+  })().finally(() => {
+    ending = null;
+  });
 }
 
 interface KeyStore { getKeys(): Promise<string[]>; removeItem(key: string): Promise<void> }
@@ -272,26 +367,15 @@ export function clearWalletConnectStorage(idb: IDBFactory | null | undefined = g
 }
 
 /**
- * A session approved after its connection was cancelled (the eleventh review round, slice 6c): the provider the page holds is ended as a
- * Disconnect ends it; one forgotten since has its session ended at its relay, and a new provider waits for that end (the twelfth review
- * round, B12-2). Its delete still unsettled at the bound, its keys go through the store it shares unless the page holds another WalletConnect
- * connection (cached or initializing), whose keys that store holds too. A delete that fails within the bound (offline, its publish expired)
- * leaves the store as it is — the session a later tap would take up (stated: 12d3c retries an end that failed).
+ * A session approved after its connection was cancelled (the eleventh review round, slice 6c): ended as a Disconnect ends it, on the page's
+ * one provider (12d3c: no provider is forgotten any more, so no late approval lands on one). Any other provider — none in the app — has its
+ * session ended at its relay and nothing else.
  */
 export function endWalletConnectOf(p: WcProvider): Promise<void> {
-  if (p === cached) return endWalletConnect();
-  // a provider forgotten since: its session ended at its relay — and a new provider waits for that end too (B12-2). Its delete unacknowledged
-  // past the bound, its keys go through the store it shares while the page holds no other WalletConnect connection (whose keys it holds too):
-  // a tap after the bound had taken that session up again
-  const end = (async () => {
-    if (!(await bounded(p.disconnect().catch(() => undefined))) && !cached && !initing) await clearThroughStore(storeOf(p));
-  })();
-  lateEnds.add(end);
-  void end.then(() => lateEnds.delete(end));
-  return end;
+  return p === cached ? endWalletConnect() : within(p.disconnect(), walletConnectEndTiming.boundMs).then(() => undefined);
 }
 
-/** Tests: forget the cached provider, an init under way, an end under way and the late ends (and that the library was loaded). */
-export function resetWalletConnect(): void { cached = null; initing = null; ending = null; lateEnds.clear(); loadedHere = false; }
+/** Tests: a new page — no provider, no init, end or disconnect under way, no session left (and the library not loaded). */
+export function resetWalletConnect(): void { cached = null; initing = null; ending = null; leftover = null; disconnecting = null; loadedHere = false; }
 /** Tests: the library as loaded in this page. */
 export function markWalletConnectLoaded(): void { loadedHere = true; }

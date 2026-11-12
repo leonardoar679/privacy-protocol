@@ -160,7 +160,7 @@ describe("WalletConnect (the audit's unverified m65)", () => {
       connection.disconnect();
       await vi.waitFor(() => expect(wc.disconnects, "the session is ended, not only forgotten").toBe(1));
       expect((await connection.connect("walletconnect")).status).toBe("connected");
-      expect(wc.inits, "a new provider").toBe(2);
+      expect(wc.inits, "the page's one provider, paired anew (the twelfth review round, 12d3c)").toBe(1);
       expect(wc.pairings, "a new pairing, never the old session").toBe(2);
     } finally {
       connection.disconnect();

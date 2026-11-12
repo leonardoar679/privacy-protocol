@@ -12,8 +12,8 @@ import { connection, shortAccount, type ConnectionStatus, type ConnectorInfo } f
 import { useT } from "../../app/i18n/useT";
 import type { MessageKey } from "../../app/i18n/en";
 import { useConnection, usePrefs } from "../../hooks/core";
-import { connectWith, disconnectWallet } from "./connect";
-import { connectErrorWords } from "./connectWords";
+import { connectWith, disconnectWallet, reloadPage } from "./connect";
+import { connectErrorWords, reloadOffered } from "./connectWords";
 import { pairingHost } from "./pairingHost";
 
 // its own chunk (the QR code's library with it): a pairing exists only once WalletConnect's library has loaded
@@ -45,6 +45,8 @@ export interface ConnectSheetModel {
   connectors: ConnectorInfo[];
   /** the last failure, in words */
   error: string | null;
+  /** that failure's words name a reload (an earlier WalletConnect end left or still under way: reloadOffered): Reload offered under it */
+  reload?: boolean;
 }
 
 export function ConnectSheetView({
@@ -56,6 +58,7 @@ export function ConnectSheetView({
   onSwitch,
   onDisconnect,
   handOver,
+  onReload = reloadPage,
 }: {
   open: boolean;
   onClose: () => void;
@@ -67,6 +70,8 @@ export function ConnectSheetView({
   onDisconnect: () => void;
   /** the sheet that takes the picker's history entry as it closes (BottomSheet's handOver), if any */
   handOver?: () => string | null;
+  /** tests: the page's reload */
+  onReload?: () => void;
 }) {
   const t = useT();
   const connected = model.account !== null;
@@ -140,6 +145,11 @@ export function ConnectSheetView({
               {model.error}
             </p>
           ) : null}
+          {model.error && model.reload ? (
+            <Button variant="secondary" full onClick={onReload} data-testid="connect-reload">
+              {t("wallet.pairing.reload")}
+            </Button>
+          ) : null}
         </div>
       )}
     </BottomSheet>
@@ -158,6 +168,7 @@ export function ConnectSheet({ open, onClose }: { open: boolean; onClose: () => 
     via: conn.connector?.name ?? null,
     connectors: conn.connectors,
     error: conn.error ? connectErrorWords(t, conn.error, advanced, "picker", conn.connectors.length > 1) : null,
+    reload: conn.error ? reloadOffered(conn.error) !== null : false,
   };
   return (
     <ConnectSheetView

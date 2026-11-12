@@ -20,6 +20,11 @@ export async function connectWith(id?: string): Promise<boolean> {
   return held;
 }
 
+/** The page loaded again — the way out the words name for an earlier WalletConnect end left or still under way (connectWords' reloadOffered). */
+export function reloadPage(): void {
+  window.location.reload();
+}
+
 /** Disconnects and forgets the connector: the next launch asks again. */
 export function disconnectWallet(): void {
   connection.disconnect();
