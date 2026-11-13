@@ -8,7 +8,7 @@
 import { OPEN, exposure, swappedInFull, withCampaignState, withTrancheState, type Campaign, type Tranche, type TrancheState } from "@privacy-wallet/protocol/wallet/campaign";
 import type { AddressBookEntry, AddressLifecycle } from "@privacy-wallet/protocol/wallet/addressBook";
 import { SWAP_CLOSED_STATES } from "../orderStates";
-import { ADDRESS_INDEX_RESERVE, AI_FUNDING_RESERVE, fundedOf, fundingAttemptKey, fundingSeenOf, resumePast, type JournalData, type ScheduledAction, type StoredSwap } from "./journal";
+import { ADDRESS_INDEX_RESERVE, AI_FUNDING_RESERVE, cryptoUniform, fundedOf, fundingAttemptKey, fundingSeenOf, knownTogether, resumePast, type JournalData, type ScheduledAction, type StoredSwap } from "./journal";
 import type { OperationRecord } from "./operationRecord";
 
 /** A campaign's own end (wallet/campaigns.ts TERMINAL_STATES, which this module does not import: its session and runners come with it). */
@@ -439,15 +439,7 @@ const swapRecordIdOf = (orderId: string): string => `swap:${orderId.toLowerCase(
 /** The ends a record reaches only by what happened (the money arrived, or came back): a copy that did not see them could not have concluded them. */
 const SUCCESSES: readonly string[] = ["COMPLETED", "REFUNDED"];
 
-/**
- * A uniform draw in [0, 1) from the CSPRNG (campaigns.ts cryptoUniform, which this module does not import): a merge's resume draws — where this
- * wallet's fresh addresses resume — are the wallet's privacy, never Math.random's (the critique of 12e1, YR).
- */
-const cryptoUniform = (): number => {
-  const u = new Uint32Array(1);
-  crypto.getRandomValues(u);
-  return u[0] / 2 ** 32;
-};
+
 
 /**
  * A backup's journal merged into this device's own journal of the same wallet (the tenth review round, D-4): the device's is the base, and the
@@ -468,21 +460,23 @@ const cryptoUniform = (): number => {
 export function mergeJournals(device: JournalData, backup: JournalData, rng: () => number = cryptoUniform, now: number = Date.now()): JournalData {
   const known = device.resumedPast;
   const chainIndexes: Record<string, number> = { ...device.chainIndexes };
+  let resumed = false;
   for (const [k, b] of Object.entries(backup.chainIndexes)) {
     const d = device.chainIndexes[k] ?? 0;
-    chainIndexes[k] = b > (known ? (known.chainIndexes[k] ?? 0) : d) ? Math.max(d, resumePast(b, ADDRESS_INDEX_RESERVE, rng)) : d;
+    const past = b > (known ? (known.chainIndexes[k] ?? 0) : d);
+    chainIndexes[k] = past ? Math.max(d, resumePast(b, ADDRESS_INDEX_RESERVE, rng)) : d;
+    if (past) resumed = true;
   }
   const dAi = device.aiFunding?.index ?? 0;
   const bAi = backup.aiFunding?.index ?? 0;
   const aiPast = bAi > (known ? known.aiFunding : dAi) ? resumePast(bAi, AI_FUNDING_RESERVE, rng) : undefined;
   const ai = aiPast !== undefined && aiPast > dAi ? { index: aiPast } : device.aiFunding;
-  // what this merged journal knows: the restore's source and the backup, never the resume points between them
-  const resumedPast = known
-    ? {
-        chainIndexes: Object.fromEntries([...new Set([...Object.keys(known.chainIndexes), ...Object.keys(backup.chainIndexes)])].map((k) => [k, Math.max(known.chainIndexes[k] ?? 0, backup.chainIndexes[k] ?? 0)])),
-        aiFunding: Math.max(known.aiFunding, bAi),
-      }
-    : undefined;
+  // what this merged journal knows — the journal's record (`resumedPast`: a restore's source, an earlier merge's, a rolled-back journal's), else
+  // this device's own indexes, together with the backup's —, never the resume points between them; recorded once a merge resumed past a backup's
+  // index (the twelfth review round, E12-2: a journal no restore began had recorded nothing, and its next backup was compared with the resume
+  // point, a guess — the reserve past the other installation held once)
+  const own = { chainIndexes: { ...device.chainIndexes }, aiFunding: dAi };
+  const resumedPast = known || resumed || aiPast !== undefined ? knownTogether(known ?? own, { chainIndexes: backup.chainIndexes, aiFunding: bAi }) : undefined;
 
   // the orders, each both hold by lineage, with the copy its state block came from
   const backupSwaps = new Map(backup.swaps.map((o) => [o.orderId.toLowerCase(), o] as const));

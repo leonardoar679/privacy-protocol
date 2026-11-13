@@ -413,7 +413,11 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     whose amount the other steps already hold is skipped before its commit, or given up unfunded once its escrow reads
     empty. Two devices funding steps at once can together pass the order's amount: each was funded on chain already, so
     each is tracked as a step; and a step taken up from an order alone (a journal an older build merged) carries no
-    expected minimum, so its settlement is not compared with one.
+    expected minimum, so its settlement is not compared with one. A journal the scan finds behind the chain (the twelfth
+    review round, E12-5) resumes its fresh addresses past the reserve only when the counters found continue its own;
+    another installation's never move them — unless this device used more than 192 counters since that installation's
+    counters last resumed past its own (its restore, or an unlock of it whose scan found this device's counters at or past
+    its journal's), which resumes them once for that stretch.
 
 52. **V7 — Tornado Classic waits for the legal review** (the owner's decision 9 of 2026-10-26). The Classic application
     (`classic/`, spec v3.0 §7) runs against the real mainnet pools, router and registries behind `CLASSIC_LIVE` switches
@@ -921,7 +925,11 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     accounts one by one needs the account's index; nothing is lost — the paths are standard (`docs/wallet-formats.md` §3) — but a
     user who moves the phrase to another wallet must be told. A smaller reserve keeps that discovery and protects fewer earlier
     addresses; a gap scan the user starts finds the used range at the cost of asking an indexer about every address in it. The
-    reserve's size and the words are the owner's call.
+    reserve's size and the words are the owner's call. Since the twelfth review round (E12-5; W6 §3) a journal the scan finds to be an
+    older copy of itself — the counters found continuing its own — resumes the same way, one more reserve for each such opening;
+    stated: a rolled-back copy whose lost period made no note (a Receive alone) or began with another installation's jump is not seen
+    as one, an address handed out between an unlock and its scan's release stays handed out, and a resume's draw can land in another
+    installation's range (the 2n in 1,000 above).
 118. **V7 — a backup merge brings back what this device removed (the eleventh review round, A11-9; stated).** A merge unions this
     device's journal with the backup's, so an Activity line deleted or an operation record removed here since the backup comes back from
     it — as the replace before the tenth round brought them back. A maintenance action is never revived (a done entry wins the union, and

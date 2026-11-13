@@ -60,7 +60,8 @@ records, read them back byte for byte and only then removed the old keys. The pl
 `activity`, `housekeeping`, `aiFunding`, `campaigns`, `addressBook`, `operations` (V5: the operation records from the
 signature on, spec §12), `classic` (V5: the Classic Privacy module's deposits, spec §16) and `resumedPast` (the eleventh review
 round: the highest indexes the sources of this journal knew — the restore's that began it and every backup's merged into it since: the
-chain indexes and Private AI's funding index —, §3) — are
+chain indexes and Private AI's funding index —; since the twelfth, also written by a merge that resumed past a backup over a journal no
+restore began, from that device's own indexes, and by a journal the scan found to be an older copy of itself, §2–§3) — are
 never written by
 `emptyJournal()`, so every earlier journal and the pinned vectors stay valid. V6 (spec v2.0 §12): an operation record
 carries `v: 2` and the frozen vocabulary — `reason {code, fundsClass, detail?}` in place of `failure`, optional
@@ -106,7 +107,15 @@ written by `emptyJournal()`. Since the fifth review round (2026-11-03) the count
 memory only, until the scan after it has read the pool: the cipher proves a journal is this seed's, never that it is the
 newest (a profile restored from an older copy, a blob put back by a writer of the origin). A counter the scan finds that
 the loaded journal did not know marks the journal stale and the 256 reserve applies at the release; a current journal
-resumes where it was. A journal holds one note per leaf: one that holds a leaf twice (written before) loads once. A swap order may carry
+resumes where it was. Since the twelfth review round (E12-5; W6 §3), when the counters found begin fewer than 64 past the loaded one —
+the journal's own lost counters, which left notes —, its fresh-address indexes and Private AI's funding index resume past their reserves
+too, as a restore's do (§3), and it records what it knew (`resumedPast`) — also under the hold of a backup merged into this device's own
+journal (`countersHeldByMerge: true` beside `countersHeld`: that merge kept the device's indexes where the backup knew no more), never under
+a restore's whose journal resumed already; counters found further past it are another installation's of the seed (each resumes its counters
+a reserve past what it found when its journal was restored or found behind) and leave the addresses where they were: two installations
+taking turns would otherwise both jump at every turn. A rolled-back copy whose lost period made no note (a Receive alone), or began with
+another installation's jump, is not seen as one, and an address handed out between the unlock and the scan's release stays handed out
+(audit gap 117). A journal holds one note per leaf: one that holds a leaf twice (written before) loads once. A swap order may carry
 `reviewedFee` (decimal, the relayer's fee for its funding the Review showed; c46): its funding never pays more. A
 campaign's bounds may carry `minimumOutputNet` (decimal, 1e18 fixed point, per unit a step pays its provider — its escrow
 less its own tip; c55): a step's price is checked on it when present, else on `minimumOutput`. A campaign may carry
@@ -218,6 +227,9 @@ addresses again. The draw makes that unlikely, not impossible: about 2n in 1,000
 journals what its source knew (`resumedPast`). A backup merged later into this device's journal
 resumes past the reserve, with a draw, on every index where the backup knows more than this device — or, over a journal a restore
 began, more than that restore's source knew: the restore's resume point is a guess, not what the device handed out (VF-N1, NF-1).
+A merge that resumes past a backup records what the device and the backup knew (`resumedPast`; the twelfth review round, E12-2), so
+the next backup is compared with that, never with this merge's resume point; and a journal the scan finds to be an older copy of
+itself resumes past the reserve too (§2, E12-5).
 A wallet that discovers addresses by a gap limit sees one past the reserve only once its limit is raised to about twice the reserve
 past the last used index (audit gap 117).
 The permanent public address of the user is never the default destination of anything.

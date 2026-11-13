@@ -119,6 +119,12 @@ export class NoteStore {
   /** the journal's counter as loaded: a counter the scan finds at or past it is one the journal did not know */
   private loadedCounter = 0;
   private stale = false;
+  /** the lowest counter the scan found at or past the loaded one (the twelfth review round, E12-5; W6 §3): where the chain went on from; each
+   *  opening's own (load) */
+  private firstPast: number | null = null;
+  /** the hold is a backup merge's into this device's own journal (JournalData.countersHeldByMerge): its indexes were never resumed; each
+   *  opening's own (load) */
+  private heldByMerge = false;
   /** closed by a lock until the next load (D-1) */
   private closed = false;
 
@@ -202,7 +208,10 @@ export class NoteStore {
   /** A counter this wallet is known to have used (a rescan found a note derived from it): the next one is past it. */
   observeCounter(used: number): void {
     if (this.closed) return; // another opening's counters never raise the next one's (NF-2)
-    if (used >= this.loadedCounter) this.stale = true; // the journal did not know this counter: it is behind the chain
+    if (used >= this.loadedCounter) {
+      this.stale = true; // the journal did not know this counter: it is behind the chain
+      if (this.firstPast === null || used < this.firstPast) this.firstPast = used;
+    }
     if (used + 1 <= this.counter) return;
     this.counter = used + 1;
     this.emit();
@@ -271,17 +280,26 @@ export class NoteStore {
    * One complete scan has seen the counters it found (observeCounter): the next one is `reserve` past them, so a counter
    * that left nothing the scan reads (an executed order's refund note, a commit never funded) is not handed out again, and
    * counters are handed out again.
+   *
+   * Answers whether the journal is an older copy of itself (the twelfth review round, E12-5; W6 §3): read stale, the counters found beginning
+   * less than a quarter of the reserve past the loaded one — this journal's own lost counters, which left notes (a profile restored from an
+   * older copy) —, under no hold whose journal resumed its indexes already (a restore's without this device's journal; a backup merged into it
+   * resumed only where the backup knew more). Not another installation's of the seed, whose counters begin a reserve past what it found when
+   * it last resumed — unless this device used more than 192 counters since (audit gap 51). Its caller resumes the journal's fresh addresses past
+   * their reserves then (journal.ts rolledBackJournal).
    */
-  releaseCounters(reserve: number): void {
-    if (!this.held && !this.scanHold) return;
+  releaseCounters(reserve: number): boolean {
+    if (!this.held && !this.scanHold) return false;
     // the reserve after a restore (the journal unknown), and after an unlock whose scan found a counter the journal did not know
     // (the fifth review round, 2026-11-03): a current journal resumes where it was
     const reserved = this.held || this.stale;
+    const rolledBack = (!this.held || this.heldByMerge) && this.stale && this.firstPast !== null && this.firstPast - this.loadedCounter < reserve / 4;
     this.held = false;
     this.scanHold = false;
     this.stale = false;
     if (reserved) this.counter += reserve;
     this.emit();
+    return rolledBack;
   }
   /** Everything the journal keeps. */
   serialize(): { notes: SerializedNote[]; noteCounter: number; countersHeld?: true } {
@@ -292,13 +310,15 @@ export class NoteStore {
     };
   }
   /** Replace the contents with a journal's (on unlock). The counter never goes backwards. */
-  load(data: { notes: SerializedNote[]; noteCounter: number; countersHeld?: boolean }): void {
+  load(data: { notes: SerializedNote[]; noteCounter: number; countersHeld?: boolean; countersHeldByMerge?: boolean }): void {
     // a journal written before notes were one per leaf may hold a leaf twice: it loads once
     this.notes = onePerLeaf(data.notes.map((s) => ({ note: { vaultId: BigInt(s.vaultId), amount: BigInt(s.amount), ownerCommitment: BigInt(s.ownerCommitment), noteSecret: BigInt(s.noteSecret) }, leafIndex: s.leafIndex, noteData: s.noteData, counter: s.counter, spent: s.spent, txHash: s.txHash, label: s.label, ...(s.addedAt !== undefined ? { addedAt: s.addedAt } : {}), ...(s.spent && s.spentUnproven ? { spentUnproven: true as const, ...(s.spentAtBlock !== undefined ? { spentAtBlock: s.spentAtBlock } : {}) } : {}) })));
     this.counter = Math.max(this.counter, data.noteCounter, ...this.notes.map((n) => (n.counter ?? -1) + 1));
     this.loadedCounter = this.counter;
     this.stale = false;
+    this.firstPast = null;
     this.held = !!data.countersHeld;
+    this.heldByMerge = !!data.countersHeldByMerge; // read only with the hold
     this.view = [];
     this.closed = false;
     this.emit();

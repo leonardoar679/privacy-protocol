@@ -94,7 +94,9 @@ describe("a backup merged into this device's journal (VF-N1, NF-1, A11-1, A11-9)
     );
     expect(m.chainIndexes).toMatchObject({ evm: 7, bitcoin: 2003 });
     expect(m.aiFunding?.index).toBe(120 + AI_FUNDING_RESERVE);
-    expect(m.resumedPast, "a real device journal knows its own indexes").toBeUndefined();
+    // what the device and the backup knew, recorded once the merge resumed past the backup (the twelfth review round, E12-2): the next backup
+    // is compared with it, never with the resume point
+    expect(m.resumedPast).toEqual({ chainIndexes: { evm: 7, bitcoin: 1003 }, aiFunding: 120 });
   });
 
   it("over a journal a restore began, the backup is compared with what that restore's source knew — never with the resume point, a guess", () => {

@@ -185,7 +185,8 @@ export class WalletSession {
       if (!j || this.loading) return;
       const s = noteStore.serialize();
       if (j.noteCounter === s.noteCounter && !!j.countersHeld === !!s.countersHeld && JSON.stringify(j.notes) === JSON.stringify(s.notes)) return;
-      this.update((x) => { x.notes = s.notes; x.noteCounter = s.noteCounter; if (s.countersHeld) x.countersHeld = true; else delete x.countersHeld; });
+      // a merge's mark goes with the hold (the twelfth review round, E12-5)
+      this.update((x) => { x.notes = s.notes; x.noteCounter = s.noteCounter; if (s.countersHeld) x.countersHeld = true; else { delete x.countersHeld; delete x.countersHeldByMerge; } });
     });
     // the settings too, when they changed (audit round 2, r17): an unlock's load gives the journal its own settings back, and
     // journaling them again wrote this tab's copy over another tab's newer journal
@@ -495,7 +496,11 @@ export class WalletSession {
       // the backup's settings merged into the device's (the eleventh review round, A11-1): a protective control the backup holds is kept
       const merged = device ? mergeJournals(device, backupJournal ?? emptyJournal()) : null;
       const mergedSettings = device ? mergeSettings(device.settings as Partial<Settings> | undefined, backupJournal?.settings as Partial<Settings> | undefined) : undefined;
-      const journal: JournalData = merged ? { ...merged, ...(mergedSettings ? { settings: mergedSettings as Record<string, unknown> } : {}), countersHeld: true } : restoredJournal(backupJournal ?? emptyJournal());
+      // ... marked a merge's over this device's own journal (the twelfth review round, E12-5): its indexes are the device's, and a scan that finds
+      // that journal to be an older copy of itself still resumes them — one set aside and read here resumed past its reserve already
+      const journal: JournalData = merged
+        ? { ...merged, ...(mergedSettings ? { settings: mergedSettings as Record<string, unknown> } : {}), countersHeld: true, ...(own ? { countersHeldByMerge: true as const } : {}) }
+        : restoredJournal(backupJournal ?? emptyJournal());
       // the keystore and its journal in one write (A11-7): a tab closed or a quota refused between two had left the backup's keystore over
       // the replaced wallet's journal, read-only
       this.writeAll([[KEYSTORE_KEY, JSON.stringify(ks)], [JOURNAL_KEY, JSON.stringify(encryptJournal(key, journal))], ...(dropAside ? [[UNREADABLE_JOURNAL_KEY, null] as const] : [])]);
@@ -630,7 +635,7 @@ export class WalletSession {
   private loadStores(journal: JournalData): void {
     this.loading = true;
     try {
-      noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld });
+      noteStore.load({ notes: journal.notes, noteCounter: journal.noteCounter, countersHeld: journal.countersHeld, countersHeldByMerge: journal.countersHeldByMerge });
       // the journal's settings in place of the store's, the defaults when it has none (the eleventh review round, A11-6)
       if (journal.settings || isConfigured()) settings.load(journal.settings as Partial<Settings> | undefined);
     } finally {

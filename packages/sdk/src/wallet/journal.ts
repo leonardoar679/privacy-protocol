@@ -226,6 +226,12 @@ export interface JournalData {
    * Optional, never written by emptyJournal(): every earlier journal stays valid.
    */
   countersHeld?: true;
+  /**
+   * The hold is a backup's merged into this device's own journal of the wallet (the twelfth review round, E12-5): its indexes are the device's,
+   * never resumed past their reserves as a restore without that journal resumes them, so a scan that finds the journal to be an older copy of
+   * itself resumes them still (NoteStore.releaseCounters). Optional, written beside `countersHeld` only, gone with it.
+   */
+  countersHeldByMerge?: true;
   /** V2 (whale spec §25, Stage 4): the Activity list. Optional, never written by emptyJournal(); readers default it to []. */
   activity?: ActivityRecord[];
   /** V2 (Stage 8): what private balance maintenance spent on relayer fees today (the daily cap of settings.housekeeping) */
@@ -247,7 +253,9 @@ export interface JournalData {
   /**
    * The eleventh review round (2026-11-04, NF-1): a journal a restore began holds the indexes its source knew (a phrase restore's are none),
    * past which it resumed. A backup merged into it later compares its own indexes with these, not with the resume point — a guess, not what
-   * this device handed out. Optional, never written by emptyJournal(): every earlier journal stays valid.
+   * this device handed out. Since the twelfth review round, a merge that resumed past a backup's indexes records them too (E12-2), and so
+   * does a journal the scan found to be an older copy of itself (E12-5). Optional, never written by emptyJournal(): every earlier journal
+   * stays valid.
    */
   resumedPast?: { chainIndexes: Record<string, number>; aiFunding: number };
 }
@@ -278,17 +286,46 @@ export const emptyJournal = (): JournalData => ({ v: 1, notes: [], noteCounter: 
 export const ADDRESS_INDEX_RESERVE = 1000;
 export const AI_FUNDING_RESERVE = 100;
 /**
+ * A uniform draw in [0, 1) from the CSPRNG: where a wallet's fresh addresses resume is the wallet's privacy, never Math.random's (the twelfth
+ * review round, the critiques of 12e1 and 12e2) — the default of every resume draw, a restore's, a merge's and a rolled-back journal's.
+ */
+export const cryptoUniform = (): number => {
+  const u = new Uint32Array(1);
+  crypto.getRandomValues(u);
+  return u[0] / 2 ** 32;
+};
+/**
  * Where an index resumes past what a journal knows (the eleventh review round, 2026-11-04, F11-7): the reserve past it, plus a draw of up to
  * another reserve — two restores from one source (the phrase twice, one backup on two devices) had resumed at the same index and handed out
  * the first one's addresses again. One rule for a restore and a merge alike; the draw is journaled with the restore's first write. `rng`: tests.
  */
-export function resumePast(known: number, reserve: number, rng: () => number = Math.random): number {
+export function resumePast(known: number, reserve: number, rng: () => number = cryptoUniform): number {
   return known + reserve + Math.min(reserve - 1, Math.floor(rng() * reserve));
 }
 export function reservedIndexes(from: Record<string, number> = {}, rng?: () => number): Record<string, number> {
   const out: Record<string, number> = {};
   for (const chain of ["evm", "bitcoin", "solana", ...Object.keys(from)]) out[chain] = resumePast(from[chain] ?? 0, ADDRESS_INDEX_RESERVE, rng);
   return out;
+}
+/** What two records of the known indexes hold together (`resumedPast`): each chain's index and Private AI's funding index, the higher. */
+export function knownTogether(a: NonNullable<JournalData["resumedPast"]>, b: NonNullable<JournalData["resumedPast"]>): NonNullable<JournalData["resumedPast"]> {
+  const chains = [...new Set([...Object.keys(a.chainIndexes), ...Object.keys(b.chainIndexes)])];
+  return { chainIndexes: Object.fromEntries(chains.map((k) => [k, Math.max(a.chainIndexes[k] ?? 0, b.chainIndexes[k] ?? 0)])), aiFunding: Math.max(a.aiFunding, b.aiFunding) };
+}
+/**
+ * A journal the scan found to be an older copy of itself (the twelfth review round, E12-5; W6 §3; NoteStore.releaseCounters): its fresh-address
+ * indexes and Private AI's funding index resume past their reserves, as a restore's do — a profile restored from an older copy had handed out
+ * again the addresses its lost period gave to payers or used as destinations, and offered again the funding address it had funded —, and
+ * `resumedPast` records what the journal knew (with any earlier record), so a later backup merge compares with that, never with the resume point.
+ */
+export function rolledBackJournal(j: JournalData, rng?: () => number): JournalData {
+  const knew = { chainIndexes: { ...j.chainIndexes }, aiFunding: j.aiFunding?.index ?? 0 };
+  return {
+    ...j,
+    chainIndexes: reservedIndexes(j.chainIndexes, rng),
+    aiFunding: { index: resumePast(knew.aiFunding, AI_FUNDING_RESERVE, rng) },
+    resumedPast: j.resumedPast ? knownTogether(j.resumedPast, knew) : knew,
+  };
 }
 /** A restore's first journal: the counters held, the fresh addresses and Private AI's funding index past their reserves (D-2, D-6, F11-7). */
 export const restoredJournal = (from: JournalData = emptyJournal(), rng?: () => number): JournalData => ({

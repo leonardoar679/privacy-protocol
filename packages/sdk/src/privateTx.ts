@@ -33,6 +33,7 @@ import { isWalletConnectProvider } from "@privacy-wallet/wallet-engine/walletCon
 import { indexSpends, rememberSpendIndex, type SpendIndex } from "./wallet/spends";
 import { hasRefundCandidates, matchCommittedDeposits, refundClaims, seedRefundClaims, usedCounters, type RecoveredRefund, type RefundClaim } from "./refunds";
 import { session } from "./wallet/session";
+import { rolledBackJournal } from "./wallet/journal";
 import { syncSwapRecord } from "./operations/swapRecords";
 import { kickScheduler, scheduleAction } from "./wallet/schedule";
 import { feeInVault, isRefusal, pickRelayer, relayerFallbacks, relayerJobFor, relayerSubmit, type RelayerInfo, type RelayerSubmitRequest } from "./relayer";
@@ -1300,8 +1301,11 @@ async function scanNotesUnlocked(o: { masterSeed: Uint8Array; deployment: Deploy
   noteStore.batch(() => {
     for (const c of [...counters.values(), ...refunds.map((x) => x.counter)]) noteStore.observeCounter(c);
   });
-  // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found
-  if (o.refunds === undefined) noteStore.releaseCounters(COUNTER_RESERVE);
+  // a complete scan (every payload, the seed's claims): the counters held after a restore resume past what it found — and a journal it found
+  // to be an older copy of itself has its fresh addresses and Private AI's funding index resume past their reserves (the twelfth review round,
+  // E12-5; W6 §3): from this release on, none its lost period handed out is offered again (one handed out since the unlock stays handed out:
+  // audit gap 117)
+  if (o.refunds === undefined && noteStore.releaseCounters(COUNTER_RESERVE)) session.update((j) => Object.assign(j, rolledBackJournal(j))); // a lock released no hold: false
   // the notes the proven pool contradicts (audit round 2, r24): an unspent note at a proven leaf that holds another
   // commitment — found in an endpoint's tail before, or recorded at the leaf a receipt named — was never in the pool there,
   // and every spend that picked it failed until a restore
