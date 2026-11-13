@@ -52,6 +52,12 @@ export interface StoredSwap {
    *  (decimal), who sent it, the relayer, the transaction once known. Until its fate is known (swapFunding.ts
    *  `fundingFate`) no runner sends another: a reload or a Resume had funded an escrow twice when the notes differed. */
   fundingAttempt?: FundingAttempt;
+  /**
+   * every attempt known dead (the twelfth review round, the critique of 12e1, YT): one this wallet read dead and cleared to fund the order again,
+   * or the one an abandoned copy gave the order up for (kept by a merge) — their keys (fundingAttemptKey), so that a backup still holding one as
+   * in flight never brings it back as a funding. Optional
+   */
+  deadAttempts?: string[];
   jobId?: string;
   /** when the order was handed to its executor, unix ms (the seventh review round): the velocity limit counts every hand-over of the wallet */
   handedOverAt?: number;
@@ -132,6 +138,18 @@ export const fundedOf = (s: Pick<StoredSwap, "fundedTx" | "fundedAt" | "state" |
  */
 export const fundingSeenOf = (s: Pick<StoredSwap, "fundedTx" | "fundedAt" | "state" | "handedOverAt" | "executionTx">): boolean =>
   !!s.fundedTx || s.fundedAt !== undefined || s.state === "funded" || s.handedOverAt !== undefined || !!s.executionTx;
+
+/**
+ * An attempt by itself — its notes and its time (a backup copies the object as it is): a funding sent again after one was read dead spends the same
+ * unspent notes, so its nullifiers alone would name the dead one too (the critique of 12e1, YS).
+ */
+export const fundingAttemptKey = (a: Pick<FundingAttempt, "nullifiers" | "at">): string => `${a.nullifiers.join(":")}|${a.at}`;
+
+/** The patch that clears an order's attempt read dead so that it is funded again, its key added to the ones kept (`deadAttempts`). */
+export const deadAttemptCleared = (o: Pick<StoredSwap, "deadAttempts">, attempt: FundingAttempt): Pick<StoredSwap, "fundingAttempt" | "deadAttempts"> => ({
+  fundingAttempt: undefined,
+  deadAttempts: [...(o.deadAttempts ?? []), fundingAttemptKey(attempt)],
+});
 
 /** A funding sent for an order (StoredSwap.fundingAttempt). */
 export interface FundingAttempt {
@@ -281,77 +299,7 @@ export const restoredJournal = (from: JournalData = emptyJournal(), rng?: () => 
   resumedPast: { chainIndexes: { ...from.chainIndexes }, aiFunding: from.aiFunding?.index ?? 0 },
 });
 
-/** The funding facts of an order a backup holds beside this device's row of it (A11-1): each one the device's row lacks comes from the backup's. */
-const FUNDING_FACTS = ["fundingAttempt", "fundedTx", "fundedAt", "fundedFee", "jobId", "handedOverAt", "handOverAttempt", "executionTx", "executionRef", "relayerUrl"] as const;
-const withFundingFacts = (device: StoredSwap, backup: StoredSwap): StoredSwap => {
-  const out: StoredSwap = { ...device };
-  const from = backup as unknown as Record<string, unknown>;
-  for (const k of FUNDING_FACTS) if (out[k] === undefined && from[k] !== undefined) (out as unknown as Record<string, unknown>)[k] = from[k];
-  return out;
-};
-
-/**
- * A backup's journal merged into this device's own journal of the same wallet (the tenth review round, D-4): the device's is the base — what
- * this device did last, kept as the phrase restore keeps it (n45) —, and the backup's notes, orders, campaigns, schedule, operation records
- * and address book entries the device does not hold are added (an order funded on another device and not handed over is only there: its
- * escrow had been stranded), the note counter the higher of the two.
- *
- * The eleventh review round (2026-11-04): an index the backup knows past what this device knows resumes past the reserve, as a restore does
- * (VF-N1, NF-1) — the backup's installation may have gone on after the backup, and a journal a restore began knows only its source (its
- * `resumedPast`), never what lies between it and its resume point; an order both hold keeps the funding facts only the backup's row has
- * (A11-1: a funding sent on the other device had been dropped, and the runner could fund the order again); the backup's settings,
- * deployment fingerprints, light-client store and maintenance spend come where this device's journal has none (A11-1 — a phrase restore's
- * journal holds no settings until its first unlock mirrors the experience: the second factor, the velocity limit, the mode, the pause and
- * the relayer had been dropped silently; with both, the session merges them, settings.ts mergeSettings, which also takes the backup's whole
- * over settings that hold no choice of the user's); a maintenance action never comes from the backup (A11-9: a cancelled one had come back
- * pending beside the device's own).
- */
-export function mergeJournals(device: JournalData, backup: JournalData, rng?: () => number): JournalData {
-  const union = <T>(a: readonly T[] | undefined, b: readonly T[] | undefined, key: (x: T) => string): T[] => {
-    const have = new Set((a ?? []).map(key));
-    return [...(a ?? []), ...(b ?? []).filter((x) => !have.has(key(x)))];
-  };
-  const known = device.resumedPast;
-  const chainIndexes: Record<string, number> = { ...device.chainIndexes };
-  for (const [k, b] of Object.entries(backup.chainIndexes)) {
-    const d = device.chainIndexes[k] ?? 0;
-    chainIndexes[k] = b > (known ? (known.chainIndexes[k] ?? 0) : d) ? Math.max(d, resumePast(b, ADDRESS_INDEX_RESERVE, rng)) : d;
-  }
-  const dAi = device.aiFunding?.index ?? 0;
-  const bAi = backup.aiFunding?.index ?? 0;
-  const aiPast = bAi > (known ? known.aiFunding : dAi) ? resumePast(bAi, AI_FUNDING_RESERVE, rng) : undefined;
-  const ai = aiPast !== undefined && aiPast > dAi ? { index: aiPast } : device.aiFunding;
-  const bySwap = new Map(backup.swaps.map((s) => [s.orderId.toLowerCase(), s] as const));
-  const swaps = device.swaps.map((s) => {
-    const b = bySwap.get(s.orderId.toLowerCase());
-    return b ? withFundingFacts(s, b) : s;
-  });
-  // what this merged journal knows: the restore's source and the backup, never the resume points between them
-  const resumedPast = known
-    ? {
-        chainIndexes: Object.fromEntries([...new Set([...Object.keys(known.chainIndexes), ...Object.keys(backup.chainIndexes)])].map((k) => [k, Math.max(known.chainIndexes[k] ?? 0, backup.chainIndexes[k] ?? 0)])),
-        aiFunding: Math.max(known.aiFunding, bAi),
-      }
-    : undefined;
-  return {
-    ...device,
-    ...(device.settings === undefined && backup.settings !== undefined ? { settings: backup.settings } : {}),
-    ...(device.deploymentFingerprints || backup.deploymentFingerprints ? { deploymentFingerprints: { ...(backup.deploymentFingerprints ?? {}), ...(device.deploymentFingerprints ?? {}) } } : {}),
-    ...(device.lightClient === undefined && backup.lightClient !== undefined ? { lightClient: backup.lightClient } : {}),
-    ...(device.housekeeping === undefined && backup.housekeeping !== undefined ? { housekeeping: backup.housekeeping } : {}),
-    ...(resumedPast ? { resumedPast } : {}),
-    notes: union(device.notes, backup.notes, (n) => String(n.leafIndex)),
-    noteCounter: Math.max(device.noteCounter, backup.noteCounter),
-    chainIndexes,
-    swaps: union(swaps, backup.swaps, (s) => s.orderId.toLowerCase()),
-    schedule: union(device.schedule, backup.schedule.filter((a) => a.kind !== "housekeeping"), (a) => a.id),
-    ...(device.campaigns || backup.campaigns ? { campaigns: union(device.campaigns, backup.campaigns, (c) => c.id) } : {}),
-    ...(device.operations || backup.operations ? { operations: union(device.operations, backup.operations, (o) => o.id) } : {}),
-    ...(device.activity || backup.activity ? { activity: union(device.activity, backup.activity, (x) => x.id) } : {}),
-    ...(device.addressBook || backup.addressBook ? { addressBook: union(device.addressBook, backup.addressBook, (e) => e.id) } : {}),
-    ...(ai ? { aiFunding: ai } : {}),
-  };
-}
+// The backup merge (mergeJournals) lives in ./journalMerge.ts (the twelfth review round, E12-1: by lineage).
 
 /** Whether a stored journal blob has the exact shape the device's store accepts: {v: 1, nonce, ct}, hex (the tenth review round, D-7). */
 export const isEncryptedJournal = (x: unknown): x is EncryptedJournal => {

@@ -9,7 +9,7 @@
 // failure before anything was sent is thrown to the scheduler's backoff (§9: no automatic retry on money movement).
 import type { Hex } from "viem";
 import {
-  canRelease, detectPause, exposure, nextAction, notAsAsked, settledBy, swappedInFull, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
+  canRelease, detectPause, exposure, nextAction, notAsAsked, replan, settledBy, swappedInFull, withCampaignState, withTrancheState, checkWithinBounds, rateE18, trancheMinimum,
   FINALITY_MARGIN_SECONDS, IN_FLIGHT, PAUSED_TRACK_INTERVAL_MS, STALL_FACTOR, TRACK_INTERVAL_MS, RATE_SCALE,
   type Action, type Campaign, type PauseFacts, type PauseReason, type Tranche, type TrancheState,
 } from "@privacy-wallet/protocol/wallet/campaign";
@@ -35,7 +35,9 @@ import { chainKindOf, consumeFreshAddress } from "../keys/chainKeys";
 import { destinationCheck, findEntry, markAddressSettled, markAddressUsed, transferUse } from "./addressBook";
 import { alertKindFor, withAlert } from "./alerts";
 import { campaignById, childOrder, expectedOut, fitPlanned, forgetCampaignTick, keepDecisions, largestPlanned, notesShapedFor, pieceCeiling, putCampaign as journalCampaign, replanRemainder, scheduleTick, sourceEquivalent, stepReviewedFee, withRoute, cryptoUniform, TERMINAL_STATES } from "./campaigns";
-import type { ScheduledAction, StoredSwap } from "./journal";
+import { deadAttemptCleared, type ScheduledAction, type StoredSwap } from "./journal";
+import { ON_CHAIN_STEPS, fundedStep, hasFunding, stepStateOf } from "./journalMerge";
+import { SWAP_CLOSED_STATES } from "../orderStates";
 import { noteStore } from "./notes";
 import { notify } from "./notifications";
 import { cancelAction, sampleDueAt, schedulerStatus } from "./schedule";
@@ -458,6 +460,23 @@ async function reconcileAndTrack(c0: Campaign, io: CampaignIo, s: WalletSession,
   return { campaign: c, active: worstActive(reads), justSettled, reconcileNeeded, ...(reconcileDetail ? { reconcileDetail } : {}), ...(undelivered ? { undelivered } : {}) };
 }
 
+/** What the campaign's other steps hold of the order's amount: their money on chain, or on its way there (journalMerge's fundedStep). */
+function fundedOthers(c: Campaign, index: number, s: WalletSession): bigint {
+  const orderOf = (orderId: string): StoredSwap | undefined => s.journal().swaps.find((x) => x.orderId.toLowerCase() === orderId.toLowerCase());
+  return c.tranches.filter((x) => x.index !== index && fundedStep(x, orderOf)).reduce((n, x) => n + BigInt(x.amount), 0n);
+}
+
+/**
+ * An order of this campaign's step `index` that no step of the campaign names (the twelfth review round, E12-1): one carrying a funding first —
+ * taken up — else an open one, read first: taken up when its executor or its escrow holds it (one holding part of it as a step that failed), waited
+ * on while the escrow cannot be read, given up only on an escrow read empty (dust below the floor is none) with no job.
+ */
+function orphanOf(c: Campaign, index: number, s: WalletSession): StoredSwap | null {
+  const named = new Set(c.tranches.flatMap((t) => (t.orderId ? [t.orderId.toLowerCase()] : [])));
+  const of = s.journal().swaps.filter((x) => x.campaign?.id === c.id && x.campaign.index === index && !named.has(x.orderId.toLowerCase()));
+  return of.find(hasFunding) ?? of.find((x) => !SWAP_CLOSED_STATES.includes(x.state)) ?? null;
+}
+
 /**
  * The executor already has this step's order — another copy of this wallet funded and handed it over (audit round 2, r45) — or null.
  * Asked before every abandon (the seventh review round, D13): a route change and "Return the rest" had given up such a step as
@@ -618,6 +637,64 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
       }
       case "commit": {
         const t = c.tranches[action.index];
+        // an order of this step committed on another copy of this wallet that no step here names — a journal an older build merged, or two
+        // copies that ran the campaign at once (the twelfth review round, E12-1): taken up when it carries a funding; one this journal knows no
+        // funding of is read first, as before every abandon (D13) — its executor holding it, or its escrow funded, takes it up; given up only on
+        // an escrow read empty with no job, and neither given up nor replaced while the escrow cannot be read (the critiques of 12e1, YR and YT):
+        // never a second order for one piece
+        const orphan = orphanOf(c, t.index, s);
+        let takeUp = !!orphan && hasFunding(orphan);
+        let job: SwapJob | null = null;
+        let part = false;
+        if (orphan && !takeUp) {
+          job = await io.job(orphan).catch(() => null);
+          const balance = job ? null : await io.escrowBalance(orphan).catch(() => null);
+          const size = BigInt((orphan.request as { amount?: string }).amount ?? t.amount);
+          // an escrow read holding the order is a funding, journaled as fundEscrow journals one it finds there (C-01): taken up `committed`
+          // with no funding fact, one failed read later a route change had given it up and the step committed a second order (YS)
+          if (!job && balance !== null && balance >= size) patchSwap(orphan.orderId, { fundedAt: now, state: "funded" }, s);
+          if (job || (balance !== null && balance >= size)) takeUp = true;
+          // holding part of the order (a refund less its fees, the rest of a fill): money at its escrow — taken up as a step that failed, so the
+          // reducer's pause says where it waits and a Resume, or a Return the rest, returns it through its own refund-only job (the critiques of
+          // 12e1: abandoned, the piece had been committed again (YT); waited on in silence, a Return the rest had ended the campaign over it and
+          // nothing followed the money (YU)) — above dust, the floor the step's own refund is counted by (YV: a refund below it read as nothing
+          // back, the step refunding for good)
+          else if (balance !== null && lateRefundHeld(balance, size)) takeUp = part = true;
+          // unreadable: never given up nor replaced — read again at the next tick, as the wind-down's own abandon waits
+          else if (balance === null) { nextAt = now + TRACK_INTERVAL_MS; break; }
+          else abandonSwap(orphan.orderId, s);
+        }
+        if (orphan && takeUp) {
+          const request = orphan.request as { amount?: string; destination?: string };
+          const state = part ? "failed" : job ? (job.state === "refund-only" ? "refunding" : "executing") : stepStateOf(s.journal().swaps.find((x) => x.orderId === orphan.orderId) ?? orphan);
+          const handed = state === "executing" || state === "refunding";
+          // the first step taken up starts the campaign, as a commit does: the reducer advances only a running campaign's steps — left
+          // user-confirmed, the next pass had committed the second step beside it
+          if (c.state !== "running") c = withCampaignState(c, "running", now, "the first step starts");
+          c = withTrancheState(c, t.index, state, now, {
+            orderId: orphan.orderId,
+            ...(orphan.provider ? { provider: orphan.provider } : {}),
+            ...(request.destination ? { destination: request.destination } : {}),
+            // its own size (a re-plan on the other copy sizes its pieces anew): the planned steps go, and the rest is planned again once nothing is in
+            // flight — asking first when part of it came back (the seventh review round, B1; a re-plan here had swapped a returned amount unasked: YS)
+            ...(request.amount ? { amount: request.amount } : {}),
+            ...(handed ? { jobId: job?.id ?? orphan.jobId, handedOverAt: orphan.handedOverAt ?? now } : {}),
+          }, part
+            ? "its order was committed on another copy of this wallet and its escrow holds part of it: taken up as failed, never committed again"
+            : "its order was committed on another copy of this wallet: taken up, never committed again");
+          if (handed && job) patchSwap(orphan.orderId, { jobId: job.id, state: job.state }, s);
+          if (request.amount && request.amount !== t.amount) c = replan(c, [], now);
+          c = putCampaign(c, s);
+          nextAt = now + 1000;
+          break;
+        }
+        // never a step past the order's amount (the critiques of 12e1, YU and YV): the other steps hold it — an order an earlier build's merge took
+        // up beside this step's piece, its funding sent on another copy of this wallet —, so this step is skipped before any order is committed
+        if (fundedOthers(c, t.index, s) + BigInt(t.amount) > BigInt(c.bounds.amountInLimit)) {
+          c = withTrancheState(c, t.index, "skipped", now, {}, "the other steps already hold the order's amount: skipped before any order was committed");
+          nextAt = now + 1000;
+          break;
+        }
         // an entered destination is read from the address book at every commit (the seventh review round, 2026-11-03): its cooling-off, an
         // override with the second factor, its approval, a retirement. A copy of the cooling-off's end in the first step's `notBefore` had
         // been the only guard, and the requote of every Resume overwrote it
@@ -706,7 +783,7 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             break;
           }
         }
-        const fundedBefore = c.tranches.filter((x) => x.index !== t.index && ["funded", "signed", "failed", "executing", "source-confirmed", "destination-submitted", "destination-confirmed", "partial", "refunding", "settled"].includes(x.state)).reduce((sum, x) => sum + BigInt(x.amount), 0n);
+        const fundedBefore = c.tranches.filter((x) => x.index !== t.index && ON_CHAIN_STEPS.includes(x.state)).reduce((sum, x) => sum + BigInt(x.amount), 0n);
         const tipBps = Number((BigInt(r.order.params.executorTip) * 10000n) / BigInt(t.amount));
         const check = checkWithinBounds(c.bounds, { amount: BigInt(t.amount), toAmountMin: BigInt(q.toAmountMin), quoteExpiresAt: q.expiresAt, feeBps: tipBps, executorTip: BigInt(r.order.params.executorTip), destination: dest.address, fundedBefore, now: sinceS });
         if (!check.ok) {
@@ -766,13 +843,23 @@ export async function runCampaignTick(a: ScheduledAction, deps: TickDeps): Promi
             c = pauseWith(c, "reconcile", detail, now, t.index);
             break;
           }
-          patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
+          // its key kept (the critique of 12e1, YT): a backup holding it in flight never brings it back as a funding through a merge
+          patchSwap(stored.orderId, deadAttemptCleared(stored, stored.fundingAttempt), s);
         }
         // a step whose order's execution window has closed, or is about to, is never funded: its order is abandoned and the
         // step planned again, as when the route changed before its funding (a V6 follow-up of 2026-10-14)
         if (now + FUNDING_MARGIN_MS >= windowEndOf(stored)) {
           abandonSwap(stored.orderId, s);
           c = withTrancheState(c, t.index, "planned", now, { orderId: undefined, provider: undefined }, "its order's execution window closed before it was funded: the order is abandoned and the step planned again");
+          nextAt = now + 1000; break;
+        }
+        // never a funding past the order's amount (the critique of 12e1, YU): the other steps hold it — one an earlier build's merge took up beside
+        // this step's piece, its funding sent on another copy of this wallet —, so this step's order is given up unfunded and the step skipped; never
+        // while its escrow cannot be read or holds anything (every abandon reads first, D13)
+        if (fundedOthers(c, t.index, s) + BigInt(t.amount) > BigInt(c.bounds.amountInLimit)) {
+          if (bal !== 0n) { nextAt = now + TRACK_INTERVAL_MS; break; }
+          abandonSwap(stored.orderId, s);
+          c = withTrancheState(c, t.index, "skipped", now, {}, "the other steps already hold the order's amount: its order was given up before any funding");
           nextAt = now + 1000; break;
         }
         if (decided || answeredMeanwhile()) { c = putCampaign(c, s); break; } // the user answered while this tick ran: the next tick acts on it (c36)

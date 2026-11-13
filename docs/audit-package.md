@@ -393,7 +393,27 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     executor already has is tracked rather than funded again (r45), while an order the other device handed to another
     relayer is not known here. What would close the rest: a counter space per installation (a random range or tag that a
     seed scan can enumerate), or random secrets for the notes an envelope carries, leaving counters to the seed-derived
-    refund and shield payloads.
+    refund and shield payloads. Since the twelfth review round (E12-1), a backup merge keeps every order of a campaign
+    named by one live step, once: an order no step names that carries a funding (one seen land, a hand-over, or one sent
+    on an order not closed; an attempt the other copy read dead, the same attempt, is none) is taken up as a step of its
+    own, a step one device gave up while the other funded its order comes back as that device's step of it, an open order
+    with no funding is given up, and the plan never passes the order's amount with a step nothing funded (the steps
+    committed to an order with no funding sent go, the latest first, their orders given up) — whether the campaign comes
+    whole from the copy that saw more or both devices ran it. A campaign both devices ran, or whose steps the merge
+    changed, stays ended when either device ended it and no step is left; otherwise it winds down when either device
+    stopped it (its planned and ready steps skipped), and otherwise pauses for a reconcile while a step is open or still
+    to come — every open step read again from the chain and the executor before anything continues. When its steps
+    changed, the steps of the plan alone go (planned or ready, with no order): the runner plans the rest once nothing is
+    in flight, asking first when part of it came back (asked again after the merge, even where a copy had asked). Before
+    every commit the runner also takes up an order of that step another copy committed (one carrying a funding; one this
+    journal knows no funding of only once its executor holds it or its escrow does, the escrow's read journaled as the
+    funding, or taken up as a step that failed when the escrow holds part of the order above dust, its money returned at
+    the user's Resume or by Return the rest; given up on an escrow read empty, dust counting as none, with no job, and
+    waited on while the escrow cannot be read), and it never commits or funds a step past the order's amount: a step
+    whose amount the other steps already hold is skipped before its commit, or given up unfunded once its escrow reads
+    empty. Two devices funding steps at once can together pass the order's amount: each was funded on chain already, so
+    each is tracked as a step; and a step taken up from an order alone (a journal an older build merged) carries no
+    expected minimum, so its settlement is not compared with one.
 
 52. **V7 — Tornado Classic waits for the legal review** (the owner's decision 9 of 2026-10-26). The Classic application
     (`classic/`, spec v3.0 §7) runs against the real mainnet pools, router and registries behind `CLASSIC_LIVE` switches
@@ -906,7 +926,17 @@ reorgs, circuit soundness, proof binding, end-to-end, periphery, privacy). Test 
     device's journal with the backup's, so an Activity line deleted or an operation record removed here since the backup comes back from
     it — as the replace before the tenth round brought them back. A maintenance action is never revived (a done entry wins the union, and
     since the round a merge brings none back pending), and a revived order, campaign or funding is checked again by its runner and
-    cancelled. Tombstones for the user's removals would close it — the owner's call.
+    cancelled. Tombstones for the user's removals would close it — the owner's call. Since the twelfth review round (E12-1, NF-1) an
+    order, a campaign or an address-book entry both copies hold is merged by what each saw (`packages/sdk/src/wallet/journalMerge.ts`),
+    never the device's whole only because it is the device's: an older backup changes nothing a newer device saw, and a Pause, a Return
+    the rest, an address-book retirement or an abandon either copy made stands (an abandon, and a step given up, only while nothing
+    funded the order — a funding the giving-up copy itself read dead does not count). A funding one copy read dead never comes back from
+    the other as a funding (one an earlier build cleared to fund the order again left no record: an older backup can still bring it back,
+    read dead again at the next funding action), and one sent again in its place stands whichever copy holds it. An order's operation
+    record follows the copy its state came from; any other record both hold stays the device's unless the backup's is a success the
+    device did not see (completed, refunded) — never a Failed or a Cancelled the other copy concluded from less. A note or an Activity
+    line both hold is still the device's (a note the backup's installation spent reads unspent here until the next scan), the schedule is
+    rebuilt from the merged records, and what this device deleted still comes back.
 119. **V7 — an executed order whose transaction nothing names (the eleventh review round, B11; stated).** An order whose refund came
     back and whose escrow says it executed — the escrow's flag is read only then —, but whose transaction no relayer's job names and
     whose `Executed` event not every endpoint names alike (one failing, timing out or answering otherwise suffices), stays open and is

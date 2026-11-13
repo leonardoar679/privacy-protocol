@@ -14,7 +14,7 @@ import { getAddress } from "viem";
 import { exposure, type Campaign, type Tranche } from "@privacy-wallet/protocol/wallet/campaign";
 import { WalletSession, session as defaultSession } from "@privacy-wallet/sdk/wallet/session";
 import { memoryStorage } from "@privacy-wallet/sdk/wallet/storage";
-import { emptyJournal, type ScheduledAction, type StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import { emptyJournal, fundingAttemptKey, type ScheduledAction, type StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { noteStore } from "@privacy-wallet/sdk/wallet/notes";
 import { settings, healSettings, healProtection, DEFAULT_PROTECTION, PROTECTION_DEFAULTS } from "@privacy-wallet/sdk/wallet/settings";
 import { pendingActions, scheduleAction, schedulerStatus } from "@privacy-wallet/sdk/wallet/schedule";
@@ -798,9 +798,10 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     clock += 2000; // commit
     // the funding was sent and journaled, then the tab reloaded before any answer: the campaign is still running
     const orderId = current(c).tranches[0].orderId!;
+    const attempt = { nullifiers: ["1", "2"] as [string, string], by: "relayer" as const, relayerUrl: "http://relayer.test", at: clock - 1_000 };
     session.update((j) => {
       const x = j.swaps.find((y) => y.orderId === orderId)!;
-      x.fundingAttempt = { nullifiers: ["1", "2"], by: "relayer", relayerUrl: "http://relayer.test", at: clock - 1_000 };
+      x.fundingAttempt = attempt;
     });
     world.fate = "dead";
     let r = await tick(c);
@@ -819,6 +820,8 @@ describe("the runner: one action per tick (spec §6, §7)", () => {
     expect(r?.action.kind).toBe("fund");
     expect(world.calls.filter((x) => x.startsWith("fund:"))).toEqual(["fund:0"]);
     expect(current(c).tranches[0].state).toBe("funded");
+    // the attempt read dead kept by its key (the critique of 12e1, YT): a backup holding it in flight never brings it back through a merge
+    expect(session.journal().swaps.find((y) => y.orderId === orderId)?.deadAttempts).toEqual([fundingAttemptKey(attempt)]);
   });
 
   it("THORNode gateways that do not answer at a step's signing: tried again at the next tick, never an unexpected destination (2026-10-14)", async () => {

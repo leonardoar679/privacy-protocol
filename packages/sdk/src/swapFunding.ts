@@ -20,7 +20,7 @@ import { deriveKeys } from "@privacy-wallet/protocol/keys";
 import { deriveOrderKey, deriveRefundNote } from "./keys/swapKeys";
 import { mainOwnerCommitment } from "./keys/ownerKeys";
 import { assertJournalSaved, session as defaultSession, type WalletSession } from "./wallet/session";
-import { fundedOf, type FundingAttempt, type ScheduledAction, type StoredSwap } from "./wallet/journal";
+import { deadAttemptCleared, fundedOf, type FundingAttempt, type ScheduledAction, type StoredSwap } from "./wallet/journal";
 import { activityId, updateActivity } from "./wallet/activity";
 import { cancelAction, schedulerStatus, waitBehindScan } from "./wallet/schedule";
 import { afterScanAt } from "./wallet/discovery";
@@ -518,7 +518,8 @@ async function fundEscrowUnguarded(o: {
     // a dead funding sent again is a new funding (audit round 2, n10): never one of an order an older build committed under the
     // privacy address's owner commitment (c18), which the check above lets through once a funding has been tried
     if (committedToPrivacyAddress(stored, o.masterSeed)) throw new OrderOutdated();
-    patchSwap(stored.orderId, { fundingAttempt: undefined }, s);
+    // ... its key kept (the critique of 12e1, YT): a backup holding it in flight never brings it back as a funding through a merge
+    patchSwap(stored.orderId, deadAttemptCleared(stored, stored.fundingAttempt), s);
   }
   // the window by the later of the device's clock and the chain's (critic gap 5)
   const now = o.now ?? (await fundingClock(o.deployment, Date.now(), o.latestBlock));

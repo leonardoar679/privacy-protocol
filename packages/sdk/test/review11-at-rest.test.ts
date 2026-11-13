@@ -17,13 +17,13 @@ import {
   decryptJournal,
   emptyJournal,
   journalKey,
-  mergeJournals,
   restoredJournal,
   resumePast,
   type EncryptedJournal,
   type JournalData,
   type StoredSwap,
 } from "../src/wallet/journal";
+import { mergeJournals } from "../src/wallet/journalMerge";
 import { defaultSettings, holdsNoChoice, mergeSettings, settings } from "../src/wallet/settings";
 import { lastUnusedFreshAddress } from "../src/keys/chainKeys";
 import { findEntry } from "../src/wallet/addressBook";

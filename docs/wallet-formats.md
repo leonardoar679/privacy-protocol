@@ -166,7 +166,24 @@ The journal is readable only with the seed, never with the password alone. Losin
 nothing a chain rescan cannot rebuild except open swap orders and the fresh-address counters, which
 is why the backup file includes it. A backup restored over this device's own journal of the same wallet is merged into it (the tenth
 review round, 2026-11-04: the device's journal is the base; the backup's notes, orders, campaigns, schedule, records and address
-book entries it lacks are added; every counter is the higher; the settings — since the eleventh review round, A11-1 — the backup's whole
+book entries it lacks are added; every counter is the higher; since the twelfth review round (E12-1, NF-1), a record both journals hold is merged
+by what each copy saw (`packages/sdk/src/wallet/journalMerge.ts`): an order's state, reading and pause from the copy whose history holds the
+other's (equal histories: the device's; each holding readings the other lacks: the later reading), its funding facts, refunds and found notes
+from both (of the fundings sent, the one not read dead, whichever copy holds it: a funding either copy read dead never comes back, and every
+later merge remembers it — one an earlier build cleared to fund the order again left no record, and an older backup can bring it back), an
+abandon standing only while nothing funded it (the same attempt the giving-up copy read dead counts as none) and a closed order reopening only on
+a late-refund reading later than its close, its operation record from the same copy (never an abandon's Cancelled record on an order the other
+copy funded); a campaign whole from the copy that saw every answer and every step the other saw, or — both copies ran it — merged step by step;
+either way every order of the campaign named by one live step once (a funded one no step names taken up as a step of its own, a step given up
+while the other copy funded its order back as that copy's step, an open one with no funding given up, and a step committed to an order with no
+funding sent dropped, its order given up, while the plan would pass the order's amount), and a campaign both copies ran or whose steps changed
+stays ended when a copy ended it and no step is left, otherwise winding down when either copy stopped it or pausing for a reconcile while a step
+is open or still to come (the steps of its plan alone dropped when its steps changed: the runner plans the rest, asking first when part of it
+came back, even where a copy had asked before); an address-book entry field by field, a retirement either made standing; the schedule from the
+merged records (one tick at once for every campaign not ended, an order's funding only while it is open, not a campaign's and not funded, its
+tick only while it is open and not a campaign's, maintenance and the note scan never from the backup); any other operation record both hold the
+device's unless the backup's is a success the device did not see (completed, refunded); notes and Activity lines both hold the device's; the
+settings — since the eleventh review round, A11-1 — the backup's whole
 over settings that hold no choice of the user's (the defaults but the experience and the first-time explanation the device mirrors by
 itself), otherwise the device's with every protective control at the stricter of the two, an absent in-flight cap counted as the lowest
 band default); its journal is checked — the exact `{v, nonce, ct}` shape, opening

@@ -14,7 +14,7 @@ import { abandonSwap, fundEscrow, FundingAlreadySent, fundingClock, fundingFate,
 import { returnFunds } from "@privacy-wallet/sdk/wallet/orderRunner";
 import { mainOwnerCommitment } from "@privacy-wallet/sdk/keys/ownerKeys";
 import { deriveKeys } from "@privacy-wallet/protocol/keys";
-import type { StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
+import { fundingAttemptKey, type StoredSwap } from "@privacy-wallet/sdk/wallet/journal";
 import { predictEscrow } from "@privacy-wallet/sdk/swapGuard";
 import { deriveOrderKey, deriveRefundNote } from "@privacy-wallet/sdk/keys/swapKeys";
 
@@ -281,6 +281,9 @@ describe("swap funding", () => {
     // the user's word replaces a dead funding, once
     await fundEscrow({ ...relayed, stored: sent, reads: reads("dead"), replaceDead: true });
     expect(withdrawals.calls).toHaveLength(1);
+    // ... the attempt read dead kept by its key (the twelfth review round, the critique of 12e1, YT): a backup still holding it in flight never
+    // brings it back as a funding through a merge
+    expect(s.journal().swaps[0].deadAttempts).toEqual([fundingAttemptKey(sent.fundingAttempt)]);
     // the review round of 2026-11-03 (E1): one funding of an order at a time — a second caller is refused while the first is under way
     // (it had passed every check while the first was proving, waited its turn in the spend queue and funded the escrow again).
     // `stored` is the journal's own object, patched funded by the fundings above: each case starts from an unfunded copy

@@ -7,7 +7,8 @@
 import { generateMasterSeed } from "../keys/wallet";
 import { isPublicSeed } from "@privacy-wallet/protocol/keys";
 import { createKeystore, KDF_DEFAULT, PhraseRefused, phraseToSeed, seedToPhrase, unlockKeystore, type KdfParams, type Keystore } from "./keystore";
-import { decryptJournal, emptyJournal, encryptJournal, isEncryptedJournal, journalKey, mergeJournals, restoredJournal, type EncryptedJournal, type JournalData } from "./journal";
+import { decryptJournal, emptyJournal, encryptJournal, isEncryptedJournal, journalKey, restoredJournal, type EncryptedJournal, type JournalData } from "./journal";
+import { mergeJournals } from "./journalMerge";
 import { browserStorage, JOURNAL_KEY, KEYSTORE_KEY, UNREADABLE_JOURNAL_KEY, type KeyValueStorage } from "./storage";
 import { noteStore } from "./notes";
 import { mergeSettings, settings, type Settings } from "./settings";
